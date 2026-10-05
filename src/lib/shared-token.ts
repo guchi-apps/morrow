@@ -12,6 +12,8 @@ export const SHARED_TOKEN_CONSUMER = "aide-bot";
 
 const CACHE_MS = 10 * 60 * 1000;
 const TIMEOUT_MS = 5_000;
+/** 取得に失敗した後、この間は取りに行かない（issue-deck障害中に認証付きリクエストごと最大5秒待たせない。#461）。 */
+const FAILURE_BACKOFF_MS = 30 * 1000;
 
 export interface SharedTokenCacheEntry {
   value: string;
@@ -28,6 +30,8 @@ export interface SharedTokenResult {
   value: string | null;
   /** 呼び出し元が次回へ引き継ぐキャッシュ。取得に失敗しても直前の値を保つ */
   cache: SharedTokenCacheEntry | null;
+  /** 直近の取得失敗の時刻。呼び出し元が次回へ引き継ぐ（成功・失敗の記録が無い回は引き継いだ値のまま） */
+  failedAtMs: number | null;
 }
 
 export interface SharedTokenEnv {
@@ -43,18 +47,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export async function resolveSharedToken(
   name: string,
   previous: SharedTokenCacheEntry | null,
-  options: { now?: number; env?: SharedTokenEnv; fetchImpl?: typeof fetch } = {},
+  options: { now?: number; env?: SharedTokenEnv; fetchImpl?: typeof fetch; lastFailedAtMs?: number | null } = {},
 ): Promise<SharedTokenResult> {
   const now = options.now ?? Date.now();
+  const lastFailedAtMs = options.lastFailedAtMs ?? null;
 
   if (previous && now - previous.fetchedAtMs < CACHE_MS) {
-    return { value: previous.value, cache: previous };
+    return { value: previous.value, cache: previous, failedAtMs: lastFailedAtMs };
+  }
+  // 直近に失敗していたら、バックオフの間は取りに行かず直前の値（無ければnull）を返す
+  if (lastFailedAtMs !== null && now - lastFailedAtMs < FAILURE_BACKOFF_MS) {
+    return { value: previous?.value ?? null, cache: previous, failedAtMs: lastFailedAtMs };
   }
 
   const baseUrl = options.env?.baseUrl ?? process.env.ISSUE_DECK_URL;
   const secret = options.env?.secret ?? process.env.SHARED_TOKEN_API_SECRET;
   if (!baseUrl || !secret) {
-    return { value: previous?.value ?? null, cache: previous };
+    return { value: previous?.value ?? null, cache: previous, failedAtMs: lastFailedAtMs };
   }
 
   try {
@@ -75,15 +84,16 @@ export async function resolveSharedToken(
       throw new SyntaxError("unexpected payload");
     }
 
-    return { value: payload.value, cache: { value: payload.value, fetchedAtMs: now } };
+    return { value: payload.value, cache: { value: payload.value, fetchedAtMs: now }, failedAtMs: null };
   } catch (error) {
     // 例外の文言にURLやヘッダーは入らないが、念のためメッセージだけを出す。
     console.error(`[aide-bot] 共有トークンの取得に失敗した（${name}）`, error instanceof Error ? error.message : "不明なエラー");
-    return { value: previous?.value ?? null, cache: previous };
+    return { value: previous?.value ?? null, cache: previous, failedAtMs: now };
   }
 }
 
 const caches = new Map<string, SharedTokenCacheEntry>();
+const failures = new Map<string, number>();
 
 /**
  * 共有トークンの値を返す。取れなければ `fallback`（今までの環境変数）。どちらも無ければ undefined。
@@ -91,8 +101,10 @@ const caches = new Map<string, SharedTokenCacheEntry>();
  * 合わせて気付けるようにする）。
  */
 export async function sharedTokenOrEnv(name: string, fallback: string | undefined): Promise<string | undefined> {
-  const result = await resolveSharedToken(name, caches.get(name) ?? null);
+  const result = await resolveSharedToken(name, caches.get(name) ?? null, { lastFailedAtMs: failures.get(name) ?? null });
   if (result.cache) caches.set(name, result.cache);
+  if (result.failedAtMs === null) failures.delete(name);
+  else failures.set(name, result.failedAtMs);
   if (result.value) return result.value;
 
   if (process.env.ISSUE_DECK_URL && process.env.SHARED_TOKEN_API_SECRET) {
@@ -104,4 +116,5 @@ export async function sharedTokenOrEnv(name: string, fallback: string | undefine
 /** キャッシュを捨てて次の読み出しで取り直させる（再発行で古い値が失効した401の後など）。 */
 export function forgetSharedToken(name: string): void {
   caches.delete(name);
+  failures.delete(name);
 }
