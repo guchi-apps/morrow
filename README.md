@@ -21,7 +21,7 @@ Next.js 16（App Router）+ TypeScript + Tailwind CSS v4 / Prisma + MariaDB / Su
 ```bash
 pnpm install
 pnpm env:init                 # .env.local.example を .env.local へコピー
-# .env.local を編集する（DATABASE_URL / NEXT_PUBLIC_SUPABASE_* / ALLOWED_GOOGLE_EMAILS）
+# .env.local を編集する（DATABASE_URL / NEXT_PUBLIC_SUPABASE_*）
 pnpm db:setup                 # .env.local の DATABASE_URL から DB・ユーザーを作成
 pnpm db:migrate:dev
 pnpm dev                      # http://localhost:3000
@@ -77,7 +77,8 @@ curl -s -b /tmp/cookies.txt -o /dev/null -w '%{http_code}\n' http://localhost:30
 |---|---|
 | `DATABASE_URL` | MariaDB接続。本番は `DB_*` から `scripts/construct-database-url.sh` が組み立てる |
 | `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase Auth（他アプリと共有のプロジェクト） |
-| `ALLOWED_GOOGLE_EMAILS` | 利用を許可するGoogleアカウント（カンマ区切り）。**未設定だと全員ログイン不可** |
+| `ALLOWED_GOOGLE_EMAILS` | **判定には使わない**（#513でStatusHubの共通アクセス設定へ切替済み。旧設定の整理待ちで残っている） |
+| `ACCESS_API_URL` / `ACCESS_APP_TOKEN` | 判定APIの宛先（既定は本番StatusHub）と、共有トークンを読めない開発環境用のアプリ別トークン |
 | `CODEX_BIN` | 返答生成に使う `codex` の実行ファイル。未設定なら PATH 上の `codex` |
 | `NOTICE_INGEST_TOKEN` | ChatGPTのスケジュールなどから `/api/mcp`・`/api/notices` へ登録するときのBearerシークレット |
 | `SIGNALY_WEBHOOK_URL` | CI／デプロイ結果の通知先 |

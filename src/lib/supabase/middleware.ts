@@ -1,7 +1,7 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { isAllowedEmail } from "@/lib/allowed-users";
+import { isUserAllowed } from "@/lib/access/client";
 import { SUPABASE_USER_ID_HEADER } from "@/lib/auth-header";
 import {
   CI_BYPASS_COOKIE_NAME,
@@ -64,11 +64,11 @@ export async function updateSession(request: NextRequest) {
     );
   }
 
-  // セッションは有効でも、許可リスト（ALLOWED_GOOGLE_EMAILS）から外れたアカウント（#246）。
+  // セッションは有効でも、許可リスト（StatusHubの共通アクセス設定。#513）から外れたアカウント（#246）。
   // 許可の判定はログインの瞬間（/auth/callback）にしか無かったため、リフレッシュトークンで
   // 更新され続けるセッションは、リストから外しても使い続けられた。判定に要るのは
   // getUser()が返したメールアドレスだけなので、Supabaseへの往復は増えない。
-  const notAllowed = !!user && !isAllowedEmail(user.email);
+  const notAllowed = !!user && !(await isUserAllowed(user));
 
   // 検証済みのユーザーIDを後段へ渡し、ページ側が同じ検証を繰り返さずに済むようにする。
   // auth.getUser()は毎回Supabaseへ往復するため、1リクエストで2回叩くと待ち時間がそのまま倍になる。

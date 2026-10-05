@@ -44,16 +44,27 @@ scripts/          開発・デプロイ補助スクリプト
   **1リクエストにつき1回だけ**行い、結果を `x-aide-bot-supabase-user-id` ヘッダーで後段へ渡す。
   ページやRoute Handlerで `auth.getUser()` を呼び直さない（Supabaseへの往復が倍になる）
 - ログイン中のユーザーは `getCurrentUser()`（`src/lib/auth-user.ts`）で取得する
-- 利用できるのは `ALLOWED_GOOGLE_EMAILS` に列挙したGoogleアカウントのみ。判定は
-  `isAllowedEmail()`（`src/lib/allowed-users.ts`）に閉じてあるので、公開範囲を変えるときはここだけを直す。
-  **未設定時は全員拒否**（設定漏れで誰でも入れる状態にしないため）
+- **ログインの許可はStatusHubの共通アクセス設定が正**（#513。`guchi-apps/status-hub` の `docs/access-control.md`）。
+  管理画面で追加・取り消しすれば、再デプロイなしで反映される。判定は `src/lib/access/client.ts`
+  （契約の部分は `decision.ts`）に閉じ、アプリID `morrow`・アプリ別トークンは issue-deck の共有トークン
+  `MORROW_ACCESS_APP_TOKEN` から読む。**旧 `ALLOWED_GOOGLE_EMAILS` は判定にもフォールバックにも使わない**
+  （使うと、StatusHubで取り消した利用者が通る）。判定APIへ届かないときは直前の判定を最大5分だけ使い、超えたら・
+  一度も判定できていなければ**拒否**（トークン未設定も全員拒否）。`ttlSeconds`（30秒）のキャッシュと
+  ハートビート（`src/instrumentation.ts`。4分ごと）も契約どおり
 - **判定を通すのはログインの瞬間だけではない**（#246）。Supabaseのセッションはリフレッシュトークンで
-  更新され続け、`User` 行も残るので、ログイン時だけ見ていると**リストから外しても使い続けられる**。
-  `getCurrentUser()` が引いた `User.email` に `isAllowedEmail()` を通してnullを返し（未ログイン扱い）、
-  `src/lib/supabase/middleware.ts` が `getUser()` の `email` で同じ判定をして**セッションごと破棄**
+  更新され続け、`User` 行も残るので、ログイン時だけ見ていると**取り消しても使い続けられる**。
+  `getCurrentUser()` が引いた `User` に `isStoredUserAllowed()` を通してnullを返し（未ログイン扱い）、
+  `src/lib/supabase/middleware.ts` が `getUser()` の結果に `isUserAllowed()` を通して**セッションごと破棄**
   （`signOutThisApp()`）して `/login?error=not_allowed` へ戻す。**片方だけにしないこと**——`getCurrentUser()`
   だけだと、ページが `/login` へ送り、middlewareが「ログイン済みは `/login` からトップへ」で送り返して
   リダイレクトが終わらない。開発用ログイン（Cookieバイパス）は対象外
+- **送る主体はサーバーが検証したものだけ。** セッションがある経路は `toAccessSubject()`（Supabaseの `sub`・メール・
+  確認済みか）。cron・遅延実行・起きた合図のようにセッションが無い経路は `isStoredUserAllowed()`
+  （`User` 行の `supabaseUserId`・メール。行は判定を通ったログインからだけ作るので、確認済みとして送る。
+  ログイン時と同じ `sub`＋メールなのでキャッシュも共有される）。ブラウザの申告は送らない
+- 手作業が残る: 管理画面でアプリ `morrow` と権限を登録→トークン発行→移行CLI（`import`→`diff`）→「反映済み」の確認。
+  **トークン発行・取り込みが済むまでは全員ログインできない**（未設定は全拒否）。旧設定（1Password・
+  deploy.yml・マニフェストの `ALLOWED_GOOGLE_EMAILS`）の整理は、本番検証と復旧確認の後
 - ログイン・ログアウトの導線はクライアントJSに依存させない。開始は `/auth/signin`（Route Handlerが
   認可URLを組み立てて302）、ログアウトはフォームのPOSTで `/auth/signout`。
   ハイドレーション前でも押せるようにするため

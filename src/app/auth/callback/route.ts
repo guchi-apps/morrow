@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { isAllowedEmail } from "@/lib/allowed-users";
+import { isUserAllowed } from "@/lib/access/client";
 import { db } from "@/lib/db";
 import { encryptSession } from "@/lib/native-auth/cipher";
 import { issueHandoff } from "@/lib/native-auth/handoff";
@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
 
   // 初期リリースは許可されたユーザーのみ利用可能。
   // 許可外のアカウントはaide-bot側のユーザーを作らず、Supabaseのセッションも破棄する。
-  if (!isAllowedEmail(user.email)) {
+  if (!(await isUserAllowed(user))) {
     await signOutThisApp(supabase);
     return failure("not_allowed");
   }
