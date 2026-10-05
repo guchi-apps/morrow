@@ -2,6 +2,7 @@ import type { McpConnection } from "@prisma/client";
 
 import type { CodexMcpServer } from "@/lib/codex";
 import { db } from "@/lib/db";
+import { isPendingStateFresh } from "@/lib/mcp/pending-state";
 import {
   McpOAuthError,
   buildAuthorizeUrl,
@@ -157,6 +158,7 @@ export async function startConnection(params: {
     pendingState: state,
     pendingVerifier: verifier,
     pendingRedirectUri: redirectUri,
+    pendingStartedAt: new Date(),
   };
 
   if (existing) {
@@ -193,6 +195,21 @@ export async function completeConnection(params: {
     throw new McpOAuthError("認可の途中経過が見つかりませんでした。もう一度やり直してください。");
   }
 
+  // stateは使い捨て。交換に進む前に条件付きで消し、同時に来た片方だけが先へ進めるようにする（#469）。
+  // 期限切れでも同じ更新で消すので、放棄された行の途中経過が残り続けない。
+  const claimed = await db.mcpConnection.updateMany({
+    where: { id: connection.id, pendingState: params.state },
+    data: {
+      pendingState: null,
+      pendingVerifier: null,
+      pendingRedirectUri: null,
+      pendingStartedAt: null,
+    },
+  });
+  if (claimed.count !== 1 || !isPendingStateFresh(connection.pendingStartedAt)) {
+    throw new McpOAuthError("認可の有効期限が切れたか、すでに使われています。もう一度やり直してください。");
+  }
+
   const tokens = await exchangeCode({
     tokenEndpoint: connection.tokenEndpoint,
     clientId: connection.clientId,
@@ -210,9 +227,6 @@ export async function completeConnection(params: {
       refreshToken: tokens.refreshToken,
       expiresAt: tokens.expiresAt,
       enabled: true,
-      pendingState: null,
-      pendingVerifier: null,
-      pendingRedirectUri: null,
     },
   });
 

@@ -1975,6 +1975,7 @@ pnpm dev:https    # tailnetへHTTPSで公開し、iPhoneで開くURLを出す
 - **認可のコールバック（`/api/connections/callback`）はログイン判定を挟まない。**
   相手の認可画面を経由して戻る経路で、手掛かりは `state` だけになる。こちらが発行して
   DBへ保存した使い捨ての値なので、当たった行の利用者以外は書き換えられない
+- **stateは10分で期限切れ・使い捨て**（#469。`pendingStartedAt`・`src/lib/mcp/pending-state.ts`）。`completeConnection()` は交換の前に `updateMany`（`pendingState` 一致が条件）で途中経過を消し、`count` が1の側だけが先へ進む。同時に来た片方と、期限切れ・開始時刻の無い行は断る
 - **`.well-known` はパスを差し込む形と差し込まない形の両方を試す。** 仕様は
   `https://example.com/.well-known/oauth-protected-resource/mcp` と定めているが、
   パス無しでしか出していない実装がある
