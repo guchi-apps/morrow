@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { nativeLoginErrorUrl } from "@/lib/native-auth/native-app";
 import { isValidChallenge } from "@/lib/native-auth/tokens";
 import { getRequestOrigin } from "@/lib/request-origin";
-import { safeInternalPath } from "@/lib/safe-path";
+import { NATIVE_NEXT_MAX_LENGTH, safeInternalPath } from "@/lib/safe-path";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -21,7 +21,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(nativeLoginErrorUrl("auth_failed"));
   }
 
-  const next = safeInternalPath(request.nextUrl.searchParams.get("next"), "/");
+  const next = safeInternalPath(
+    request.nextUrl.searchParams.get("next"),
+    "/",
+    NATIVE_NEXT_MAX_LENGTH,
+  );
 
   const callback = new URL(`${origin}/auth/callback`);
   callback.searchParams.set("native", "1");

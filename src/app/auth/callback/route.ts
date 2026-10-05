@@ -8,7 +8,7 @@ import { nativeLoginCodeUrl, nativeLoginErrorUrl } from "@/lib/native-auth/nativ
 import { handoffStore } from "@/lib/native-auth/stores";
 import { isValidChallenge } from "@/lib/native-auth/tokens";
 import { getRequestOrigin } from "@/lib/request-origin";
-import { safeInternalPath } from "@/lib/safe-path";
+import { NATIVE_NEXT_MAX_LENGTH, safeInternalPath } from "@/lib/safe-path";
 import { signOutThisApp } from "@/lib/supabase/sign-out";
 import { createClient } from "@/lib/supabase/server";
 
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const origin = getRequestOrigin(request);
   const code = searchParams.get("code");
-  const next = safeInternalPath(searchParams.get("next"), "/");
+  const next = safeInternalPath(searchParams.get("next"), "/", NATIVE_NEXT_MAX_LENGTH);
 
   // iOSアプリの認証シート（#441）。戻り先はアプリのスキームで、アプリへ返すのは一度限りの
   // 引き継ぎコードだけ。シートはエフェメラルでCookieを持たないため、セッションは
