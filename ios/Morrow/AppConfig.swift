@@ -31,6 +31,14 @@ enum AppConfig {
         return url
     }
 
+    /// アプリの外（Safari・メール等）へ渡してよいスキームの許可リスト。
+    /// `tel:`・`sms:`・独自スキームは確認なしで他アプリを起動しうるので渡さない
+    static let externalSchemes: Set<String> = ["http", "https", "mailto"]
+
+    static func canOpenExternally(_ url: URL) -> Bool {
+        externalSchemes.contains(url.scheme?.lowercased() ?? "")
+    }
+
     /// このURLがアプリで開くべきWeb版の画面か（ホスト・スキーム・ポートまで一致）。
     /// 一致しないURLはWebViewへ読み込まず、Safari等で開く
     static func isAppURL(_ url: URL) -> Bool {
