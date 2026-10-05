@@ -55,6 +55,9 @@ const MCP_STARTUP_TIMEOUT_SEC = 10;
 /** 道具1回の上限（秒）。AIDEの道具は数秒で返る。これを超える回は諦めて本文へ進ませる。 */
 const MCP_TOOL_TIMEOUT_SEC = 30;
 
+/** 打ち切り（SIGTERM）から強制終了（SIGKILL）までの猶予。#462 */
+const KILL_GRACE_MS = 5000;
+
 /**
  * Codexへ渡すリモートMCPサーバー1つぶん（#131）。
  *
@@ -450,25 +453,26 @@ async function runCodexExecOnce(params: CodexExecParams): Promise<CodexResult> {
     let stderrLog = "";
     let usage: CodexUsage | null = null;
 
+    // SIGTERMを無視して居座る子は、猶予の後にSIGKILLで落とす（#462）。落とさないと `close` が
+    // 来ず、promiseが解決しないまま compact・朝の見通し・話題の二重起動止めの錠が再起動まで残る。
+    let killTimer: ReturnType<typeof setTimeout> | null = null;
     const onAbort = () => {
       interrupted = true;
       child.kill("SIGTERM");
+      killTimer ??= setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS);
     };
     signal.addEventListener("abort", onAbort);
 
     const finish = (result: CodexResult) => {
       if (settled) return;
       settled = true;
+      if (killTimer) clearTimeout(killTimer);
       signal.removeEventListener("abort", onAbort);
       resolve(result);
     };
 
     child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      stdoutBuffer += chunk;
-      const lines = stdoutBuffer.split("\n");
-      stdoutBuffer = lines.pop() ?? "";
-
+    const processLines = (lines: string[]) => {
       for (const line of lines) {
         if (line.trim() === "") continue;
 
@@ -508,6 +512,13 @@ async function runCodexExecOnce(params: CodexExecParams): Promise<CodexResult> {
             event.error?.message ?? event.message ?? "返答の生成に失敗しました。少し待ってからもう一度お試しください。";
         }
       }
+    };
+
+    child.stdout.on("data", (chunk: string) => {
+      stdoutBuffer += chunk;
+      const lines = stdoutBuffer.split("\n");
+      stdoutBuffer = lines.pop() ?? "";
+      processLines(lines);
     });
 
     child.stderr.setEncoding("utf8");
@@ -528,6 +539,13 @@ async function runCodexExecOnce(params: CodexExecParams): Promise<CodexResult> {
     });
 
     child.on("close", (code) => {
+      // 末尾が改行で終わらなかった最後の1行も処理する（#462）。
+      if (stdoutBuffer !== "") {
+        const rest = stdoutBuffer;
+        stdoutBuffer = "";
+        processLines([rest]);
+      }
+
       if (interrupted) {
         finish(interruptedResult());
         return;
