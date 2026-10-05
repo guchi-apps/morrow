@@ -243,7 +243,41 @@ async function usableToken(connection: McpConnection): Promise<string | null> {
   if (!expiresSoon) return connection.accessToken;
   if (!connection.refreshToken || !connection.tokenEndpoint || !connection.clientId) return null;
 
+  return refreshOnce(connection);
+}
+
+/**
+ * 接続IDごとに更新を1本へ束ねる（#460）。ローテーション型の認可サーバーは更新のたびに
+ * リフレッシュトークンを使い捨てるので、cronと相談が同時に更新すると片方が
+ * `invalid_grant` になり、接続ごと使えなくなる。PM2で1プロセスという前提（`compact.ts` と同じ）。
+ */
+const refreshing = new Map<string, Promise<string | null>>();
+
+function refreshOnce(connection: McpConnection): Promise<string | null> {
+  const running = refreshing.get(connection.id);
+  if (running) return running;
+
+  const promise = doRefresh(connection).finally(() => {
+    refreshing.delete(connection.id);
+  });
+  refreshing.set(connection.id, promise);
+  return promise;
+}
+
+async function doRefresh(stale: McpConnection): Promise<string | null> {
   try {
+    // 呼び出し元が行を読んでから、先に更新が終わっていることがある。古いトークンで
+    // 更新し直すと失効済みを送ることになるので、DBの最新を読み直す。
+    const connection = (await db.mcpConnection.findUnique({ where: { id: stale.id } })) ?? stale;
+    if (
+      connection.accessToken &&
+      (connection.expiresAt === null ||
+        connection.expiresAt.getTime() - Date.now() >= REFRESH_MARGIN_MS)
+    ) {
+      return connection.accessToken;
+    }
+    if (!connection.refreshToken || !connection.tokenEndpoint || !connection.clientId) return null;
+
     const tokens = await refreshTokens({
       tokenEndpoint: connection.tokenEndpoint,
       clientId: connection.clientId,
@@ -265,7 +299,7 @@ async function usableToken(connection: McpConnection): Promise<string | null> {
   } catch (error) {
     // 1件の更新に失敗しても相談そのものは通す。繋がっていない状態で答えるほうが、
     // 秘書が黙り込むより実害が小さい。
-    console.error(`[aide-bot] MCP接続のトークン更新に失敗した: ${connection.label}`, error);
+    console.error(`[aide-bot] MCP接続のトークン更新に失敗した: ${stale.label}`, error);
     return null;
   }
 }
