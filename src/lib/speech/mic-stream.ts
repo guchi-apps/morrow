@@ -72,14 +72,15 @@ export function holdMicStream(): void {
 
   void navigator.mediaDevices.getUserMedia({ audio: true }).then(
     (stream) => {
-      acquiring = false;
-
       // 待っているあいだに手放しが来ていた。掴んだままにしない。
+      // **`acquiring` は触らない**（#466）。いまの世代の取得が別に走っていることがあり、
+      // 古い世代の完了で下ろすと二重に取りに行って、先に届いたストリームを上書きして漏らす。
       if (session !== generation) {
         stopTracks(stream);
         return;
       }
 
+      acquiring = false;
       held = stream;
       /*
        * 端末側の都合で切れることがある。切れたら手放しておき、次に開いたときに取り直す。
@@ -96,6 +97,8 @@ export function holdMicStream(): void {
       noteRecognition("マイクの接続を保った");
     },
     () => {
+      // 古い世代の失敗は、いまの取得の印を下ろさない（#466）。
+      if (session !== generation) return;
       acquiring = false;
       // 許可されていない・マイクが無い。どちらも聞き取り側で同じ理由の文言が出る。
       noteRecognition("マイクの接続を取れなかった");
