@@ -321,7 +321,22 @@ async function chooseNotice(userId: string, pending: Notice[], now: Date): Promi
  * 何も消費しない**——`lastRuns` にも残さないので、次の問い合わせでやり直せる
  * （#79「生成に失敗した日は記録を残さない」と同じ理由）。
  */
-export async function resolveNotice(userId: string, now = new Date()): Promise<CurrentNotice | null> {
+export function resolveNotice(userId: string, now = new Date()): Promise<CurrentNotice | null> {
+  // 複数端末の問い合わせが重なると、同じ候補でCodexが二重に走り、2件が同時に `shownAt` を持ちうる（#463）。
+  // 走っている間は同じ結果を共有する。PM2で1プロセスという前提は `lastRuns` と同じ。
+  const running = inFlight.get(userId);
+  if (running) return running;
+
+  const promise = resolveNoticeOnce(userId, now).finally(() => {
+    inFlight.delete(userId);
+  });
+  inFlight.set(userId, promise);
+  return promise;
+}
+
+const inFlight = new Map<string, Promise<CurrentNotice | null>>();
+
+async function resolveNoticeOnce(userId: string, now: Date): Promise<CurrentNotice | null> {
   const pending = await pendingNotices(userId, now);
 
   if (!shouldGenerate(lastRuns.get(userId), pending, now)) {
