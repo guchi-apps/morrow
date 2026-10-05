@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { isAllowedEmail } from "@/lib/allowed-users";
+import { isUserAllowed } from "@/lib/access/client";
 import { readJsonObject } from "@/lib/json-body";
 import { decryptSession } from "@/lib/native-auth/cipher";
 import { consumeHandoff } from "@/lib/native-auth/handoff";
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
   if (error || !data.user) return rejected();
 
   // 発行後に許可リストから外れた場合に備え、ここでも確かめる（#246）。
-  if (!isAllowedEmail(data.user.email)) {
+  if (!(await isUserAllowed(data.user))) {
     await signOutThisApp(supabase);
     return NextResponse.json({ error: "not_allowed" }, { status: 403 });
   }

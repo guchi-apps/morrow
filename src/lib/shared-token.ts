@@ -100,3 +100,8 @@ export async function sharedTokenOrEnv(name: string, fallback: string | undefine
   }
   return fallback;
 }
+
+/** キャッシュを捨てて次の読み出しで取り直させる（再発行で古い値が失効した401の後など）。 */
+export function forgetSharedToken(name: string): void {
+  caches.delete(name);
+}

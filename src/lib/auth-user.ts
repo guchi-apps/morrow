@@ -1,7 +1,7 @@
 import { cookies, headers } from "next/headers";
 import { cache } from "react";
 
-import { isAllowedEmail } from "@/lib/allowed-users";
+import { isStoredUserAllowed } from "@/lib/access/client";
 import { SUPABASE_USER_ID_HEADER } from "@/lib/auth-header";
 import {
   CI_BYPASS_COOKIE_NAME,
@@ -40,9 +40,9 @@ export const getCurrentUser = cache(async function getCurrentUser() {
 
   // 許可リストの判定は /auth/callback（ログインの瞬間）だけでなく、ここでも毎回通す（#246）。
   // Supabaseのセッションはリフレッシュトークンで更新され続け、`User` 行も残るので、
-  // ALLOWED_GOOGLE_EMAILS から外しただけではログイン済みのアカウントが使い続けられる。
+  // StatusHubで取り消しただけではログイン済みのアカウントが使い続けられる。
   // DB行は引き終えているので往復は増えない。開発用ログインの分岐は上で先に返しており対象外。
-  if (!user || !isAllowedEmail(user.email)) return null;
+  if (!user || !(await isStoredUserAllowed(user))) return null;
 
   return user;
 });
