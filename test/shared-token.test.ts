@@ -89,4 +89,31 @@ describe("resolveSharedToken", () => {
     assert.ok(lines.length > 0);
     assert.ok(lines.every((line) => !line.includes("api-secret") && !line.includes("secret-value")));
   });
+
+  it("失敗の直後は取りに行かず、バックオフを過ぎたら取り直す（#461）", async () => {
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls += 1;
+      throw new Error("timeout");
+    }) as unknown as typeof fetch;
+    const first = await quiet(() => resolveSharedToken("X", null, { now: 1000, env, fetchImpl }));
+    assert.equal(first.failedAtMs, 1000);
+    assert.equal(calls, 1);
+
+    const second = await resolveSharedToken("X", null, { now: 1000 + 29_000, env, fetchImpl, lastFailedAtMs: first.failedAtMs });
+    assert.equal(second.value, null);
+    assert.equal(second.failedAtMs, 1000);
+    assert.equal(calls, 1);
+
+    const third = await resolveSharedToken("X", null, { now: 1000 + 31_000, env, fetchImpl: ok("v"), lastFailedAtMs: first.failedAtMs });
+    assert.equal(third.value, "v");
+    assert.equal(third.failedAtMs, null);
+  });
+
+  it("バックオフ中は古いキャッシュ値を返す", async () => {
+    const fetchImpl = (async () => assert.fail("呼ばれてはいけない")) as unknown as typeof fetch;
+    const previous = { value: "old", fetchedAtMs: 0 };
+    const result = await resolveSharedToken("X", previous, { now: 20 * 60 * 1000, env, fetchImpl, lastFailedAtMs: 20 * 60 * 1000 - 1000 });
+    assert.equal(result.value, "old");
+  });
 });
