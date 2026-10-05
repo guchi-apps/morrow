@@ -116,7 +116,7 @@ ios/scripts/remote-upload-testflight.sh    # Mac で main を取り込み、Test
 
 ### 外部リンク・通信失敗・ダイアログ
 
-- Morrowと同一オリジン（スキーム・ホスト・ポート）だけをWebView内で開き、他はSafariで開く（`AppConfig.isAppURL`）
+- Morrowと同一オリジン（スキーム・ホスト・ポート）だけをWebView内で開き、他はSafariで開く（`AppConfig.isAppURL`）。外へ渡すのは `http`・`https`・`mailto` だけ（`AppConfig.canOpenExternally`。`tel:`・`sms:`・独自スキームは確認なしで他アプリを起動しうるので無視する。#465）
 - 通信できない・5xx のときは `ConnectionErrorView` が理由と「再読み込み」を出す。回線が戻れば自動で読み直す。再接続後はサーバーの履歴がそのまま読める（送信中に切れた発言は、再読み込み後の履歴に残っているかで確認する）
 - `alert` / `confirm` は `WKUIDelegate` で実装（無いと確認が常に「キャンセル」になる）
 
