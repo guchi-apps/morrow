@@ -1,6 +1,7 @@
 import { MODEL_PRICING, billingKind, type BillingKind, type ModelPricing } from "@/lib/chat-model";
 import type { UsageGroup } from "@/lib/ai-usage-report";
 import { db } from "@/lib/db";
+import { dayStart, jstDayKey } from "@/lib/day-key";
 import type { UsageFeature } from "@/lib/usage-feature";
 
 /**
@@ -144,21 +145,25 @@ export function summarizeByBilling(rows: UsageRow[]): UsageBreakdown {
 }
 
 // --- 期間の区切り ---
-// サーバーのタイムゾーンでの「今日」「今月」で切る。日付の丸めをクライアントでやると、
-// サーバーとブラウザのタイムゾーン差でハイドレーションがずれる（conversationGroupLabelと同じ）。
+// 日付・月の境目は日本時間で決める（`day-key.ts`と同じ。#459）。サーバーのタイムゾーンで切ると、
+// UTCで動く本番では日本時間の朝9時で日・月が区切られる。日本時間は夏時間が無く+9時間で
+// 固定なので、日数の加算はミリ秒でよい。
 
+const DAY_MS = 86_400_000;
+
+/** 日本時間の今日の0時。 */
 export function startOfDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  return dayStart(jstDayKey(date));
 }
 
+/** 日本時間の今月1日の0時。 */
 export function startOfMonth(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
+  return dayStart(`${jstDayKey(date).slice(0, 7)}-01`);
 }
 
+/** 日数をずらす。日本時間の0時を渡せば、ずらした先も日本時間の0時になる。 */
 export function addDays(date: Date, days: number): Date {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
+  return new Date(date.getTime() + days * DAY_MS);
 }
 
 // --- 画面へ出す形 ---

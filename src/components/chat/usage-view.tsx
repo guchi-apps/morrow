@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { MODEL_PRICING } from "@/lib/chat-model";
+import { jstMonthDay } from "@/lib/day-key";
 import {
   USD_JPY_RATE,
   formatJpy,
@@ -417,7 +418,7 @@ function DailyChart({
           <div
             key={day.date.getTime()}
             className="flex h-full min-w-[14px] flex-1 flex-col items-center justify-end gap-1.5"
-            title={`${day.date.getMonth() + 1}/${day.date.getDate()} ${
+            title={`${jstMonthDay(day.date).month}/${jstMonthDay(day.date).day} ${
               band === "metered"
                 ? formatUsd(summary.costUsd)
                 : `${formatTokens(totalTokens(summary))} tokens`
@@ -463,13 +464,13 @@ function tokenShare(summary: UsageSummary): number {
 }
 
 function shortDayLabel(date: Date, withMonth: boolean): string {
-  return withMonth || date.getDate() === 1
-    ? `${date.getMonth() + 1}/${date.getDate()}`
-    : `${date.getDate()}`;
+  const { month, day } = jstMonthDay(date);
+  return withMonth || day === 1 ? `${month}/${day}` : `${day}`;
 }
 
 function dayLabel(date: Date, daily: DailyUsage[]): string {
-  const label = `${date.getMonth() + 1}/${date.getDate()}`;
+  const { month, day } = jstMonthDay(date);
+  const label = `${month}/${day}`;
   const today = daily[daily.length - 1]?.date;
   return today && today.getTime() === date.getTime() ? `${label}（今日）` : label;
 }
