@@ -780,6 +780,7 @@ issue-deckの共有トークンAPIから実行時に取る**（`src/lib/shared-t
   従来どおり10分おきに進め、黙った回に当たった時点で止まる。急ぎ（1分）の割り込みは絞り込みの外。
   期限のしきい値は「越えるたびに1回」で、残り60分以内の間ずっと呼ぶ形にはしていない。
   判定は Prisma に触れない別ファイルへ出してあり、`test/notice-schedule.test.ts` が固定する
+- **`resolveNotice()` は利用者ごとに同時に1本だけ走る**（#463。`inFlight`）。複数端末のポーリングが重なると、同じ候補でCodexが二重に走り2件が同時に `shownAt` を持ちうる。走っている間に来た問い合わせは同じPromiseの結果を共有する（PM2で1プロセスという前提は `lastRuns` と同じ）
 - **一度出した行は二度と候補にならない**（`shownAt`）。`ingestNotice()` のupsertは
   出した行を未読へ戻さない。戻すと同じ話が何度でも吹き出しに出る
 - **モデルの返答は1行目が「番号（＋`URGENT`）」、2行目が吹き出しに出す文。**
@@ -1975,6 +1976,7 @@ pnpm dev:https    # tailnetへHTTPSで公開し、iPhoneで開くURLを出す
 - **認可のコールバック（`/api/connections/callback`）はログイン判定を挟まない。**
   相手の認可画面を経由して戻る経路で、手掛かりは `state` だけになる。こちらが発行して
   DBへ保存した使い捨ての値なので、当たった行の利用者以外は書き換えられない
+- **stateは10分で期限切れ・使い捨て**（#469。`pendingStartedAt`・`src/lib/mcp/pending-state.ts`）。`completeConnection()` は交換の前に `updateMany`（`pendingState` 一致が条件）で途中経過を消し、`count` が1の側だけが先へ進む。同時に来た片方と、期限切れ・開始時刻の無い行は断る
 - **`.well-known` はパスを差し込む形と差し込まない形の両方を試す。** 仕様は
   `https://example.com/.well-known/oauth-protected-resource/mcp` と定めているが、
   パス無しでしか出していない実装がある

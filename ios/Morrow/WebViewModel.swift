@@ -108,6 +108,7 @@ final class WebViewModel: NSObject, ObservableObject {
     }
 
     private func openExternally(_ url: URL) {
+        guard AppConfig.canOpenExternally(url) else { return }
         UIApplication.shared.open(url)
     }
 

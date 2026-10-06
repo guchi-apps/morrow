@@ -68,6 +68,10 @@ export function ChatShell({
     getWidth: () => drawerRef.current?.offsetWidth ?? 0,
   });
   const openAmount = dragProgress ?? (drawerOpen ? 1 : 0);
+  // aria-modalのドロワーのフォーカス制御（#464）。開いたら閉じるボタンへ移し、閉じたら開いたボタンへ戻す。
+  const openerRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const wasOpenRef = useRef(false);
 
   const isUsage = pathname === "/usage";
   // 過去の日（`/d/<date>`。#157）。今日の記録は `/` で、この形のURLを持たない。
@@ -105,6 +109,26 @@ export function ChatShell({
   // pathnameの変化をuseEffectで見て閉じる形にはしない——描画のたびにsetStateが走る。
 
   useEffect(() => {
+    if (drawerOpen) {
+      closeRef.current?.focus();
+    } else if (wasOpenRef.current) {
+      openerRef.current?.focus();
+    }
+    wasOpenRef.current = drawerOpen;
+  }, [drawerOpen]);
+
+  // ドロワーは lg 未満でしか見えない。開いたまま lg 以上へ広がると背面が操作できなくなるので閉じる。
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const query = window.matchMedia("(min-width: 1024px)");
+    const onChange = () => {
+      if (query.matches) setDrawerOpen(false);
+    };
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, [drawerOpen]);
+
+  useEffect(() => {
     if (!drawerOpen) return;
 
     const onKeyDown = (event: KeyboardEvent) => {
@@ -117,7 +141,7 @@ export function ChatShell({
   return (
     <div className="flex h-[calc(var(--app-height)_-_var(--app-bottom-inset))] w-full overflow-hidden">
       {/* iPadは横向き（1024px以上）で初めて一覧を常設する。縦向きまで2カラムにすると、本文がスマホより狭くなる。 */}
-      <aside className="hidden w-[276px] shrink-0 border-r border-border lg:block">
+      <aside className="hidden w-[276px] shrink-0 border-r border-border lg:block" inert={drawerOpen}>
         <ConversationRail
           days={days}
           activeDate={activeDate}
@@ -184,6 +208,7 @@ export function ChatShell({
               onNavigate={() => setDrawerOpen(false)}
             />
             <button
+              ref={closeRef}
               type="button"
               onClick={() => setDrawerOpen(false)}
               className="absolute right-2 top-2 grid size-9 place-items-center rounded-lg text-muted transition-colors hover:bg-rail-active"
@@ -194,9 +219,10 @@ export function ChatShell({
           </div>
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col" inert={drawerOpen}>
         <header className="flex items-center gap-2.5 border-b border-border bg-surface px-3 pb-2.5 pt-[calc(env(safe-area-inset-top)+0.625rem)] lg:bg-transparent lg:px-7 lg:py-3.5">
           <button
+            ref={openerRef}
             type="button"
             onClick={() => setDrawerOpen(true)}
             className="grid size-[34px] shrink-0 place-items-center rounded-[10px] border border-border bg-background transition-colors hover:bg-rail-active lg:hidden"

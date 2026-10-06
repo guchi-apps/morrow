@@ -109,3 +109,9 @@ export function dayHeading(dayKey: string, todayKey: string): string {
   return base;
 }
 
+
+/** 日本時間での月と日（`{ month: 9, day: 3 }`）。使用量のグラフの目盛りなど、Dateを直接読ませないために使う。 */
+export function jstMonthDay(at: Date): { month: number; day: number } {
+  const [, month, day] = jstDayKey(at).split("-");
+  return { month: Number(month), day: Number(day) };
+}

@@ -280,6 +280,14 @@ model McpConnection {
   pendingVerifier    String? @db.VarChar(128)
   /// 認可を始めたときのredirect_uri。トークン交換で同じ値を送る必要がある。
   pendingRedirectUri String? @db.VarChar(500)
+  /// 認可を始めた時刻。コールバックで10分を超えたstateは受け付けない（#469）。
+  pendingStartedAt   DateTime?
+  // 繋ぎ直しで取り直した資格情報とエンドポイント（#453）。開始時点で本体の列を上書きすると、認可を
+  // 離脱したときに旧refresh tokenと食い違い、既存の接続が黙って使えなくなる。成功時に切り替える。
+  pendingClientId              String? @db.VarChar(255)
+  pendingClientSecret          String? @db.Text
+  pendingAuthorizationEndpoint String? @db.VarChar(500)
+  pendingTokenEndpoint         String? @db.VarChar(500)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

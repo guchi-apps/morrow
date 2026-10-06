@@ -197,11 +197,16 @@ export function NotificationSettings({ publicKey, initialDeviceCount, apnsConfig
       if (subscription) {
         // **サーバー側から先に消す。** 先にunsubscribe()すると、失敗したときに
         // 送り先だけがDBに残り、毎朝失敗し続ける。
-        await fetch("/api/push", {
+        const response = await fetch("/api/push", {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ subscription: subscription.toJSON() }),
         });
+        if (!response.ok) {
+          // サーバーから消せていないのに端末側だけ解除すると、送り先がDBに残る。解除せずに知らせる。
+          const error = (await response.json().catch(() => ({}))) as { error?: string };
+          throw new Error(error.error ?? "通知を止められませんでした。もう一度お試しください。");
+        }
         await subscription.unsubscribe();
       }
 

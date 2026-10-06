@@ -283,13 +283,15 @@ export async function nudgeFromTopic(userId: string, now = new Date()): Promise<
 
     // 振った印。これが入っている話題はもう選ばれない（吹き出しの候補からは外さない）。
     // まとめた別媒体の記事も同じ話なので、グループ全体に付ける（#362）。
-    // **声かけを積めた回だけ付ける**——先に付けると、重複で積まなかった回にも印だけが残る。
-    if (nudge) {
-      await db.topic.updateMany({
-        where: { id: { in: [topic.id, ...group.others.map((other) => other.id)] } },
-        data: { spokenAt: now },
-      });
-    } else release();
+    // **重複（`nudge` がnull）の回にも付ける**（#458）。発言の id は話題ごとの決め打ちなので、
+    // 重複は「その話題の声かけはもう積まれている」の意味。積んだ直後にここの更新が失敗すると
+    // 印だけが残らず、次回以降も同じ話題が選ばれてP2002で空振りし続け、話題が固着する。
+    // 印は積んだ後にだけ付けるので、積めていないのに付くことは無い。
+    await db.topic.updateMany({
+      where: { id: { in: [topic.id, ...group.others.map((other) => other.id)] } },
+      data: { spokenAt: now },
+    });
+    if (!nudge) release();
 
     return nudge;
   } catch (error) {

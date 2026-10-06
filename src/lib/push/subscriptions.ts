@@ -107,6 +107,15 @@ export async function usersWithSubscriptions(): Promise<string[]> {
   return [...ids].sort();
 }
 
+/**
+ * Pushサービスが圏外の端末へ通知を預かる時間（秒）。既定の4週間だと、数週間後に古い見通しが届く。
+ * 朝の見通し・急ぎのお知らせ・定時の話題はどれも半日を過ぎれば意味が薄れるので12時間にする。
+ */
+const PUSH_TTL_SECONDS = 12 * 60 * 60;
+
+/** Pushサービスとの通信の上限（ミリ秒）。無いと詰まった購読が後続の送信とcronを止める。 */
+const PUSH_TIMEOUT_MS = 10_000;
+
 let configured = false;
 
 function ensureVapid(): void {
@@ -160,6 +169,7 @@ async function sendWebPushToUser(userId: string, payload: PushPayload): Promise<
           keys: { p256dh: subscription.p256dh, auth: subscription.auth },
         },
         body,
+        { TTL: PUSH_TTL_SECONDS, timeout: PUSH_TIMEOUT_MS },
       );
 
       delivered += 1;
