@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { isUserAllowed } from "@/lib/access/client";
+import { decideUserAccess, isAccessUnavailable } from "@/lib/access/client";
 import { db } from "@/lib/db";
 import { encryptSession } from "@/lib/native-auth/cipher";
 import { issueHandoff } from "@/lib/native-auth/handoff";
@@ -24,8 +24,14 @@ export async function GET(request: NextRequest) {
   // WKWebViewの /auth/native/consume が受け取る。
   const challenge = searchParams.get("challenge");
   const native = searchParams.get("native") === "1" && isValidChallenge(challenge);
-  const failure = (error: "auth_failed" | "not_allowed") =>
-    NextResponse.redirect(native ? nativeLoginErrorUrl(error) : `${origin}/login?error=${error}`);
+  // access_unavailable（判定APIから答えを得られない。#537）は、iOSアプリの殻が知らない値なので
+  // auth_failed として返す（殻は知らない値も auth_failed の画面へ落とすが、明示しておく）。
+  const failure = (error: "auth_failed" | "not_allowed" | "access_unavailable") =>
+    NextResponse.redirect(
+      native
+        ? nativeLoginErrorUrl(error === "access_unavailable" ? "auth_failed" : error)
+        : `${origin}/login?error=${error}`,
+    );
 
   if (!code) {
     return failure("auth_failed");
@@ -42,8 +48,15 @@ export async function GET(request: NextRequest) {
 
   // 初期リリースは許可されたユーザーのみ利用可能。
   // 許可外のアカウントはaide-bot側のユーザーを作らず、Supabaseのセッションも破棄する。
-  if (!(await isUserAllowed(user))) {
+  const access = await decideUserAccess(user);
+  if (!access.allowed) {
     await signOutThisApp(supabase);
+    // 判定できなかった回を「許可されていません」と出すと、利用者にも調べる側にも
+    // 権限の問題に見える（#537で設定不足を権限の取り消しと取り違えかけた）。
+    if (isAccessUnavailable(access)) {
+      console.error("[aide-bot] ログイン時に利用許可を確認できなかった（判定APIから答えを得られない）");
+      return failure("access_unavailable");
+    }
     return failure("not_allowed");
   }
 

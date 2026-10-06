@@ -117,3 +117,12 @@ describe("resolveSharedToken", () => {
     assert.equal(result.value, "old");
   });
 });
+
+describe("missingSharedTokenConfig（#537）", () => {
+  it("足りない設定の名前だけを返す", async () => {
+    const { missingSharedTokenConfig } = await import("@/lib/shared-token");
+    assert.deepEqual(missingSharedTokenConfig(env), []);
+    assert.deepEqual(missingSharedTokenConfig({ baseUrl: env.baseUrl, secret: "" }), ["SHARED_TOKEN_API_SECRET"]);
+    assert.deepEqual(missingSharedTokenConfig({}), ["ISSUE_DECK_URL", "SHARED_TOKEN_API_SECRET"]);
+  });
+});
