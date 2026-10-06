@@ -350,6 +350,9 @@ type ParsedTopic = {
   publishedOn: string;
 };
 
+/** `Topic.url` は `VarChar(500)`。超えるとupsertが例外になり、同じ返答の仕入れが失敗し続けるので読み飛ばす（#455）。 */
+const TOPIC_URL_MAX = 500;
+
 function clip(value: unknown, max: number): string {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
 }
@@ -362,6 +365,7 @@ function clip(value: unknown, max: number): string {
  *   だけでその回の仕入れが無駄になる
  * - `url` は `safeNoticeUrl()` を通し、かつ絶対URL（`http(s)://`）だけを受け付ける。
  *   アプリ内のパス（`/` 始まり）は記事ではない
+ * - `url` が `TOPIC_URL_MAX`（500文字）を超える記事は読み飛ばす（切り詰めると別のURLになる）
  * - `category` は今回仕入れる種類に含まれるものだけ。外した種類の記事が混じって来ても入れない
  */
 function parseTopics(answer: string, categories: TopicCategory[]): ParsedTopic[] {
@@ -388,7 +392,7 @@ function parseTopics(answer: string, categories: TopicCategory[]): ParsedTopic[]
     if (typeof category !== "string" || !categories.some((item) => item.id === category)) continue;
 
     const url = safeNoticeUrl(typeof record.url === "string" ? record.url : null);
-    if (!url || url.startsWith("/") || seen.has(url)) continue;
+    if (!url || url.startsWith("/") || url.length > TOPIC_URL_MAX || seen.has(url)) continue;
 
     const title = clip(record.title, 120);
     const summary = clip(record.summary, 400);
