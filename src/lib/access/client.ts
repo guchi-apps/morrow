@@ -1,8 +1,9 @@
 import type { User } from "@supabase/supabase-js";
 
-import { forgetSharedToken, sharedTokenOrEnv } from "@/lib/shared-token";
+import { forgetSharedToken, missingSharedTokenConfig, sharedTokenOrEnv } from "@/lib/shared-token";
 import {
   createAccessClient,
+  isAccessUnavailable,
   parseAccessResponse,
   type AccessDecision,
   type AccessFetcher,
@@ -31,6 +32,19 @@ async function post(baseUrl: string, token: string, body: Parameters<AccessFetch
 }
 
 /**
+ * トークンが手に入らなかった理由をログへ出す文言（#537）。「未設定」だけでは、issue-deckに
+ * 共有トークンが無いのか、そもそも共有トークンAPIへ取りに行けていないのか（本番で
+ * `SHARED_TOKEN_API_SECRET` が空だった）を切り分けられなかった。値は含めない。
+ */
+export function missingTokenMessage(missingConfig: string[]): string {
+  const cause =
+    missingConfig.length > 0
+      ? `共有トークンAPIの設定が無く取りに行けない: ${missingConfig.join("・")}`
+      : "issue-deckの共有トークンを取得できない（直前の「共有トークンの取得に失敗」のHTTPステータスを参照。404なら未登録）";
+  return `${TOKEN_NAME} が未設定（${cause}。代わりの ACCESS_APP_TOKEN も空）`;
+}
+
+/**
  * アプリ別トークンは issue-deck の共有トークン（管理画面の「トークン発行」が自動で書き込む）から読む。
  * 無ければ通信せず失敗＝一度も判定できないので全員拒否になる（未設定が「誰でも通す」に化けない）。
  * 再発行で古いトークンは即失効するため、401ならキャッシュを捨てて読み直し、1回だけ再試行する。
@@ -38,7 +52,7 @@ async function post(baseUrl: string, token: string, body: Parameters<AccessFetch
 const fetcher: AccessFetcher = async (body) => {
   const baseUrl = process.env.ACCESS_API_URL || DEFAULT_ACCESS_API_URL;
   const token = await sharedTokenOrEnv(TOKEN_NAME, process.env.ACCESS_APP_TOKEN);
-  if (!token) throw new Error(`${TOKEN_NAME} が未設定`);
+  if (!token) throw new Error(missingTokenMessage(missingSharedTokenConfig()));
 
   let response = await post(baseUrl, token, body);
   if (response.status === 401) {
@@ -73,6 +87,13 @@ export function toAccessSubject(user: Pick<User, "id" | "email" | "email_confirm
 export async function decideAccess(subject: AccessSubject): Promise<AccessDecision> {
   return client().decide(subject);
 }
+
+/** Supabaseが検証したユーザーの判定。拒否の理由（確認できなかったのか）まで見たい経路が使う（#537）。 */
+export async function decideUserAccess(user: Parameters<typeof toAccessSubject>[0]): Promise<AccessDecision> {
+  return decideAccess(toAccessSubject(user));
+}
+
+export { isAccessUnavailable };
 
 export async function isUserAllowed(user: Parameters<typeof toAccessSubject>[0] | null | undefined): Promise<boolean> {
   if (!user) return false;

@@ -12,7 +12,17 @@
 
 export type AccessSubject = { sub: string; email: string; emailVerified: boolean };
 
-export type AccessDecision = { allowed: boolean; permissions: string[]; reason?: string };
+export type AccessDecision = {
+  allowed: boolean;
+  permissions: string[];
+  reason?: string;
+  /**
+   * 判定APIから答えを得られず拒否した（設定不足・通信失敗・応答の形違い。#537）。
+   * StatusHubが返す `reason` とは別に、このクライアントだけが立てる印。応答からは読まない
+   * （判定APIが同じ名前の理由を返しても「確認できなかった」とは扱わない）。
+   */
+  unavailable?: true;
+};
 
 export type AccessResponse = {
   appVersion: number;
@@ -28,7 +38,12 @@ export type AccessFetcher = (body: {
   subject?: AccessSubject;
 }) => Promise<AccessResponse>;
 
-export const DENY: AccessDecision = { allowed: false, permissions: [], reason: "unavailable" };
+export const DENY: AccessDecision = { allowed: false, permissions: [], reason: "unavailable", unavailable: true };
+
+/** 「許可されていない」ではなく「今は確かめられなかった」拒否か（#537）。 */
+export function isAccessUnavailable(decision: AccessDecision): boolean {
+  return !decision.allowed && decision.unavailable === true;
+}
 
 export function cacheKey(subject: AccessSubject): string {
   return `${subject.sub}\n${subject.email.toLowerCase()}`;

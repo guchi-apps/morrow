@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { isUserAllowed } from "@/lib/access/client";
+import { decideUserAccess, isAccessUnavailable } from "@/lib/access/client";
 import { readJsonObject } from "@/lib/json-body";
 import { decryptSession } from "@/lib/native-auth/cipher";
 import { consumeHandoff } from "@/lib/native-auth/handoff";
@@ -43,8 +43,11 @@ export async function POST(request: NextRequest) {
   if (error || !data.user) return rejected();
 
   // 発行後に許可リストから外れた場合に備え、ここでも確かめる（#246）。
-  if (!(await isUserAllowed(data.user))) {
+  const access = await decideUserAccess(data.user);
+  if (!access.allowed) {
     await signOutThisApp(supabase);
+    // 判定できなかった回は403（殻が「許可されていません」を出す）にせず503で返す（#537）。
+    if (isAccessUnavailable(access)) return NextResponse.json({ error: "access_unavailable" }, { status: 503 });
     return NextResponse.json({ error: "not_allowed" }, { status: 403 });
   }
 

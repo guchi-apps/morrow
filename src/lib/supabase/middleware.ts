@@ -1,7 +1,7 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { isUserAllowed } from "@/lib/access/client";
+import { decideUserAccess, isAccessUnavailable } from "@/lib/access/client";
 import { SUPABASE_USER_ID_HEADER } from "@/lib/auth-header";
 import {
   CI_BYPASS_COOKIE_NAME,
@@ -68,7 +68,12 @@ export async function updateSession(request: NextRequest) {
   // 許可の判定はログインの瞬間（/auth/callback）にしか無かったため、リフレッシュトークンで
   // 更新され続けるセッションは、リストから外しても使い続けられた。判定に要るのは
   // getUser()が返したメールアドレスだけなので、Supabaseへの往復は増えない。
-  const notAllowed = !!user && !(await isUserAllowed(user));
+  const access = user ? await decideUserAccess(user) : null;
+  const notAllowed = !!access && !access.allowed;
+  // 判定APIから答えを得られなかった（#537。本番でアプリ別トークンを取れず全員がここに当たった）。
+  // 「許可されていない」とは別物なので、セッションは破棄せず、ログイン画面への差し戻しもしない。
+  // 通さないことは変わらない（ヘッダーは付けない）。直れば同じセッションのまま使える。
+  const accessUnavailable = !!access && isAccessUnavailable(access);
 
   // 検証済みのユーザーIDを後段へ渡し、ページ側が同じ検証を繰り返さずに済むようにする。
   // auth.getUser()は毎回Supabaseへ往復するため、1リクエストで2回叩くと待ち時間がそのまま倍になる。
@@ -97,6 +102,10 @@ export async function updateSession(request: NextRequest) {
   // /login を開いたらトップへ」が互いに送り返し合い、リダイレクトが終わらなくなる。
   // /api/* は破棄せず素通しにする（ヘッダーは消してあるので各ハンドラが401を返す）。
   // 開き直された画面遷移の側でこの分岐に来て、そこで破棄される。
+  if (accessUnavailable && !isPublicPath(pathname) && !pathname.startsWith("/api/")) {
+    return withRefreshedCookies(accessUnavailablePage());
+  }
+
   if (notAllowed && !isPublicPath(pathname) && !pathname.startsWith("/api/")) {
     await signOutThisApp(supabase);
     return withRefreshedCookies(
@@ -147,6 +156,38 @@ export async function updateSession(request: NextRequest) {
 function isAuthUnreachable(error: { name: string; status?: number } | null): boolean {
   if (!error) return false;
   return error.name === "AuthRetryableFetchError" || error.status === 429;
+}
+
+/**
+ * 利用の許可を確認できなかったことを伝える画面（#537）。
+ *
+ * 503にするのは serviceUnavailable() と同じ理由。白画面・ループにしないよう、再読み込みと
+ * ログイン画面へのリンクを置く（ログイン画面はこの状態でも開ける。下の「ログイン済みは
+ * /login からトップへ」は許可が確かめられた場合だけ）。
+ */
+function accessUnavailablePage(): NextResponse {
+  return new NextResponse(
+    `<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Morrow</title>
+  </head>
+  <body style="font-family: system-ui, sans-serif; display: grid; place-items: center; height: 100dvh; margin: 0; padding: 0 16px; text-align: center;">
+    <div>
+      <p>利用の許可を確認できませんでした。</p>
+      <p>サーバー側の確認に失敗しています。時間をおいて、もう一度お試しください。</p>
+      <p><a href="">再読み込み</a> ・ <a href="/login">ログイン画面へ</a></p>
+    </div>
+  </body>
+</html>
+`,
+    {
+      status: 503,
+      headers: { "Retry-After": "30", "Cache-Control": "no-store", "Content-Type": "text/html; charset=utf-8" },
+    },
+  );
 }
 
 /**

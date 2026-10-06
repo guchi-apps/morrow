@@ -85,3 +85,37 @@ test("応答の形が違えば失敗として扱う", () => {
     false,
   );
 });
+
+// #537: 本番でアプリ別トークンを取れず、判定できなかった拒否が「許可されていません」と出ていた。
+test("判定できなかった拒否だけが isAccessUnavailable になる", async () => {
+  const { isAccessUnavailable } = await import("@/lib/access/decision");
+  const failing = setup(async () => {
+    throw new Error("MORROW_ACCESS_APP_TOKEN が未設定");
+  });
+  assert.equal(isAccessUnavailable(await failing.client.decide(subject)), true);
+
+  const denied = setup(async () => response(false));
+  assert.equal(isAccessUnavailable(await denied.client.decide(subject)), false);
+
+  // 判定APIが同じ名前の理由を返しても「確認できなかった」とは扱わない（応答からは印を読まない）。
+  const parsed = parseAccessResponse(
+    {
+      appVersion: 1,
+      ttlSeconds: 30,
+      maxStaleSeconds: 300,
+      decision: { allowed: false, permissions: [], reason: "unavailable", unavailable: true },
+    },
+    true,
+  );
+  assert.equal(isAccessUnavailable(parsed.decision!), false);
+
+  // 未確認のメールは問い合わせずに拒否するが、これも「確認できなかった」ではない。
+  const unverified = setup(async () => assert.fail("呼ばれてはいけない"));
+  assert.equal(isAccessUnavailable(await unverified.client.decide({ ...subject, emailVerified: false })), false);
+});
+
+test("トークンが無い理由をログの文言で切り分けられる（値は含めない）", async () => {
+  const { missingTokenMessage } = await import("@/lib/access/client");
+  assert.match(missingTokenMessage(["SHARED_TOKEN_API_SECRET"]), /共有トークンAPIの設定が無く取りに行けない: SHARED_TOKEN_API_SECRET/);
+  assert.match(missingTokenMessage([]), /issue-deckの共有トークンを取得できない/);
+});
