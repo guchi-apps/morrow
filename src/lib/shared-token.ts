@@ -43,6 +43,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+/**
+ * 共有トークンAPIへ取りに行くのに足りない設定の名前（#537）。空なら取りに行ける。
+ * 足りないと `resolveSharedToken()` は黙って通信を省くので、呼び出し元が失敗の理由をログへ出すために使う。
+ * 返すのは名前だけで、値は出さない。
+ */
+export function missingSharedTokenConfig(
+  env: SharedTokenEnv = { baseUrl: process.env.ISSUE_DECK_URL, secret: process.env.SHARED_TOKEN_API_SECRET },
+): string[] {
+  const missing: string[] = [];
+  if (!env.baseUrl) missing.push("ISSUE_DECK_URL");
+  if (!env.secret) missing.push("SHARED_TOKEN_API_SECRET");
+  return missing;
+}
+
 /** 副作用（キャッシュの保持）を関数の外へ出してあり、テストからは `fetchImpl` を差し替えられる。 */
 export async function resolveSharedToken(
   name: string,

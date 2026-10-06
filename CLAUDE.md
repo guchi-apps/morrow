@@ -51,6 +51,13 @@ scripts/          開発・デプロイ補助スクリプト
   （使うと、StatusHubで取り消した利用者が通る）。判定APIへ届かないときは直前の判定を最大5分だけ使い、超えたら・
   一度も判定できていなければ**拒否**（トークン未設定も全員拒否）。`ttlSeconds`（30秒）のキャッシュと
   ハートビート（`src/instrumentation.ts`。4分ごと）も契約どおり
+- **「判定できなかった」と「許可されていない」を分ける**（#537）。判定APIから答えを得られず拒否した回は
+  `isAccessUnavailable()`（`decision.ts`。クライアントだけが立てる印で、応答の `reason` からは読まない）が真になり、
+  middlewareは**セッションを破棄せず**503の画面（再読み込み・ログイン画面へのリンク）を返す。`/auth/callback` は
+  `/login?error=access_unavailable`（iOSの殻へは `auth_failed`）、`/auth/native/consume` は503。「許可されていません」と
+  出すと、設定不足を権限の取り消しと取り違える。**本番で `SHARED_TOKEN_API_SECRET` がGitHubへ同期されておらず、
+  issue-deckにも `MORROW_ACCESS_APP_TOKEN` が無いまま #513 が出て全員が拒否された**のが#537。ログの
+  「アクセス判定の取得に失敗」の括弧内が、取りに行けない（設定名）のか取得できない（404＝未登録）のかを示す
 - **判定を通すのはログインの瞬間だけではない**（#246）。Supabaseのセッションはリフレッシュトークンで
   更新され続け、`User` 行も残るので、ログイン時だけ見ていると**取り消しても使い続けられる**。
   `getCurrentUser()` が引いた `User` に `isStoredUserAllowed()` を通してnullを返し（未ログイン扱い）、
