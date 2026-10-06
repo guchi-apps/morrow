@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { isUserAllowed } from "@/lib/access/client";
@@ -50,11 +51,38 @@ export async function GET(request: NextRequest) {
   const name = (metadata.full_name as string) ?? (metadata.name as string) ?? null;
   const image = (metadata.avatar_url as string) ?? null;
 
-  await db.user.upsert({
-    where: { supabaseUserId: user.id },
-    create: { supabaseUserId: user.id, email: user.email ?? null, name, image },
-    update: { email: user.email ?? null, name, image },
-  });
+  const profile = { email: user.email ?? null, name, image };
+  const upsertUser = () =>
+    db.user.upsert({
+      where: { supabaseUserId: user.id },
+      create: { supabaseUserId: user.id, ...profile },
+      update: profile,
+    });
+  try {
+    await upsertUser();
+  } catch (e) {
+    // 一意制約違反（#457）。同じメールで別の supabaseUserId の行があると email @unique に当たり、
+    // 以後ずっとログインできなくなる。Supabase側でアカウントを作り直した場合などに起きる。
+    if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== "P2002") throw e;
+    // メールが確認済みのときだけ、既存の行を新しい supabaseUserId へ付け替えて引き継ぐ
+    // （未確認のメールで他人の行を奪えないようにする）。
+    if (user.email && user.email_confirmed_at) {
+      const relinked = await db.user.updateMany({
+        where: { email: user.email },
+        data: { supabaseUserId: user.id, name, image },
+      });
+      if (relinked.count > 0) {
+        console.warn("[aide-bot] メールが同じ既存ユーザーを新しい supabaseUserId へ付け替えた");
+      } else {
+        // 同時ログインで supabaseUserId の側が先に作られた場合。引き直す。
+        await upsertUser();
+      }
+    } else {
+      console.error("[aide-bot] メールが重複していて、確認済みでないため付け替えなかった");
+      await signOutThisApp(supabase);
+      return failure("auth_failed");
+    }
+  }
 
   if (native && challenge) {
     const session = data.session;
