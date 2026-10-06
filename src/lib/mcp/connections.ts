@@ -151,10 +151,11 @@ export async function startConnection(params: {
     label: label.slice(0, 60),
     slug,
     url,
-    authorizationEndpoint: endpoints.authorizationEndpoint,
-    tokenEndpoint: endpoints.tokenEndpoint,
-    clientId: client.clientId,
-    clientSecret: client.clientSecret,
+    // 資格情報は本体の列へ書かず、認可が成功するまで pending* に置く（#453）。
+    pendingAuthorizationEndpoint: endpoints.authorizationEndpoint,
+    pendingTokenEndpoint: endpoints.tokenEndpoint,
+    pendingClientId: client.clientId,
+    pendingClientSecret: client.clientSecret,
     pendingState: state,
     pendingVerifier: verifier,
     pendingRedirectUri: redirectUri,
@@ -191,7 +192,12 @@ export async function completeConnection(params: {
     where: { pendingState: params.state },
   });
 
-  if (!connection || !connection.tokenEndpoint || !connection.clientId || !connection.pendingVerifier) {
+  if (
+    !connection ||
+    !connection.pendingTokenEndpoint ||
+    !connection.pendingClientId ||
+    !connection.pendingVerifier
+  ) {
     throw new McpOAuthError("認可の途中経過が見つかりませんでした。もう一度やり直してください。");
   }
 
@@ -204,6 +210,10 @@ export async function completeConnection(params: {
       pendingVerifier: null,
       pendingRedirectUri: null,
       pendingStartedAt: null,
+      pendingClientId: null,
+      pendingClientSecret: null,
+      pendingAuthorizationEndpoint: null,
+      pendingTokenEndpoint: null,
     },
   });
   if (claimed.count !== 1 || !isPendingStateFresh(connection.pendingStartedAt)) {
@@ -211,9 +221,9 @@ export async function completeConnection(params: {
   }
 
   const tokens = await exchangeCode({
-    tokenEndpoint: connection.tokenEndpoint,
-    clientId: connection.clientId,
-    clientSecret: connection.clientSecret,
+    tokenEndpoint: connection.pendingTokenEndpoint,
+    clientId: connection.pendingClientId,
+    clientSecret: connection.pendingClientSecret,
     code: params.code,
     redirectUri: connection.pendingRedirectUri ?? "",
     verifier: connection.pendingVerifier,
@@ -223,6 +233,11 @@ export async function completeConnection(params: {
   await db.mcpConnection.update({
     where: { id: connection.id },
     data: {
+      // 交換に成功した時点で、新しい資格情報へ切り替える（#453）。
+      authorizationEndpoint: connection.pendingAuthorizationEndpoint,
+      tokenEndpoint: connection.pendingTokenEndpoint,
+      clientId: connection.pendingClientId,
+      clientSecret: connection.pendingClientSecret,
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       expiresAt: tokens.expiresAt,
