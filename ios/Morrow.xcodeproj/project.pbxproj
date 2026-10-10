@@ -84,9 +84,10 @@
 				};
 			};
 			buildConfigurationList = 4B52A1EC3061842200F8C8D5 /* Build configuration list for PBXProject "Morrow" */;
-			developmentRegion = en;
+			developmentRegion = ja;
 			hasScannedForEncodings = 0;
 			knownRegions = (
+				ja,
 				en,
 				Base,
 			);
@@ -255,6 +256,7 @@
 				DEVELOPMENT_TEAM = 6AA3WFTR94;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Japanese-Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Morrow;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
@@ -293,6 +295,7 @@
 				DEVELOPMENT_TEAM = 6AA3WFTR94;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Japanese-Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Morrow;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
