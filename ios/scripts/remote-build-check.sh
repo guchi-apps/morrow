@@ -19,9 +19,11 @@ IOS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ssh "$HOST" "mkdir -p '$WORK_DIR'"
 rsync -az --delete --exclude build --exclude DerivedData "$IOS_DIR/" "$HOST:$WORK_DIR/ios/"
 
-# 終了コードをパイプで隠さない。生成物は作業ディレクトリ内の DerivedData に閉じる
-ssh "$HOST" "cd '$WORK_DIR/ios' && xcodebuild \
+# 終了コードをパイプで隠さない。生成物は作業ディレクトリ内の DerivedData に閉じる。
+# リモートの実行シェルは Mac の既定ログインシェル（zsh）なので、bash 専用の PIPESTATUS は使わない。
+# パイプを使わず、ログをファイルへ出して xcodebuild の終了コードを変数に取る（zsh・bash どちらでも動く）。
+ssh "$HOST" "cd '$WORK_DIR/ios' && { xcodebuild \
   -project Morrow.xcodeproj -scheme Morrow -configuration Debug \
   -destination 'generic/platform=iOS Simulator' \
   -derivedDataPath '$WORK_DIR/DerivedData' \
-  CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -n 8; exit \${PIPESTATUS[0]}"
+  CODE_SIGNING_ALLOWED=NO build > '$WORK_DIR/build.log' 2>&1; rc=\$?; tail -n 8 '$WORK_DIR/build.log'; exit \$rc; }"
