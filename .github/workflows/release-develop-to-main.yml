@@ -19,6 +19,18 @@ on:
         type: choice
         default: auto
         options: [auto, patch, minor, major]
+      # 新方式（候補作成→公開準備→本番反映）の起動入口。issue-deckの画面から渡る
+      # （guchi-apps/issue-deck#4604）。未指定（空）なら従来どおりの動き。
+      candidate_request:
+        description: "候補作成の依頼（issue-deckが渡す。手動実行では空のまま）"
+        required: false
+        type: string
+        default: ""
+      finalize_request:
+        description: "公開準備の依頼（issue-deckが渡す。手動実行では空のまま）"
+        required: false
+        type: string
+        default: ""
   push:
     branches: [develop]
     paths:
@@ -30,13 +42,18 @@ concurrency:
 
 jobs:
   release:
-    uses: guchi-apps/issue-deck/.github/workflows/reusable-release-develop-to-main.yml@workflows/v49
+    uses: guchi-apps/issue-deck/.github/workflows/reusable-release-develop-to-main.yml@workflows/v52
     # バージョンの読み書きに関する3つのinput（version-file・version-query・bump-command）は
     # すべて既定値でよい。ルートのpackage.jsonに version を持ち、`preversion`を持たないため。
     # **共有ワークフローはバージョンbumpのために依存関係をインストールしない**ので、
     # `version` lifecycleスクリプトを足すときはNode標準モジュールだけで書き、
     # `preversion`にテストを置かないこと。
+    # 採用タグ: workflows/v52（candidate-request・finalize-request の入力を持ち、
+    # issue-deck#4604・#4641・#4650 の修正を含む。タグを上げるときは入力の実在と
+    # 必要修正の包含を確かめる。版番号だけで最新対応とみなさない）。
     with:
+      candidate-request: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_request || '' }}
+      finalize-request: ${{ github.event_name == 'workflow_dispatch' && inputs.finalize_request || '' }}
       # pushトリガー（バンプPRのマージ）で起動したときは`inputs`自体が無いため空文字を渡す。
       bump-kind: ${{ github.event_name == 'workflow_dispatch' && inputs.bump_kind || '' }}
     secrets: inherit
