@@ -13,7 +13,7 @@ NotionやAIDE（`guchi-apps/aide`）などを参照し、チャットボット�
 |---|---|
 | 本番URL | `https://aide-bot.gucchii.com/` |
 | 本番ポート | `3103`（PM2 プロセス名 `aide-bot`） |
-| 配布先 | VPS の `/apps/aide-bot/` |
+| 配布先 | VPS の `/home/github-user/apps/aide-bot/`（app-deploy-gate のアプリ名も `aide-bot`。#567） |
 | データベース | `app_aide_bot`（MariaDB / Prisma） |
 | 認証 | Supabase Auth（Google）。他アプリと共有のSupabaseプロジェクト |
 | パッケージマネージャ | pnpm（`packageManager` は10系に固定。VPSのNodeが20系のため11系は動かない） |
@@ -22,7 +22,7 @@ NotionやAIDE（`guchi-apps/aide`）などを参照し、チャットボット�
 `deploy/ecosystem.config.js` と `.github/workflows/deploy.yml` の既定値がそれに揃っている。
 
 **`PORT` はシークレットではなく設定値として扱う。** 1Passwordにも `.github/secrets-manifest.tsv` にも置かず、
-`deploy.yml` のSSHスクリプト内に平文で持つ（ports.md「ポート番号は 1Password で管理しない」）。
+`deploy.yml` の「Send environment variables」ステップに平文で持つ（ports.md「ポート番号は 1Password で管理しない」）。
 GitHub変数 `vars.PORT` は使わない。マニフェストへ戻さないこと（#5）。
 
 ## このリポジトリの構成（エージェント向けの前提）
@@ -2429,18 +2429,38 @@ VPSへ配ってPM2で再起動する（VPS上で `next build` はしない。メ
 値を変えたときだけ `scripts/sync-github-secrets.sh` でGitHubへ同期する
 （実行時に1Passwordを読まない理由は guchi-apps/issue-deck#1302・#1307）。
 
+### app-deploy-gate へ渡す（#567）
+
+- **SSH先で任意のシェルを実行しない。** deployジョブはこのアプリ専用のSSH鍵（`SSH_PRIVATE_KEY`。正は
+  `op://apps/morrow/deploy-ssh-key`）で、VPSのgate（`/usr/local/sbin/app-deploy-gate`。guchi-apps/vps#275）へ
+  `upload`（`ssh … upload < deploy.tar.gz`）→ `env`（標準入力に `KEY=VALUE` を1行1変数）→ `deploy` の3語だけを送る。
+  organization共通の `SERVER_SSH_PRIVATE_KEY` はもう使わない
+- **gateのアプリ名は `aide-bot`**（リポジトリ名の `morrow` ではない）。gateは置き場
+  `/home/github-user/apps/<アプリ名>` とpm2のプロセス名をアプリ名から決めるが、どちらも旧名 `aide-bot` のまま
+  （`deploy/ecosystem.config.js` の `name`・guchi-apps/vps のREADMEのアプリ一覧）。VPSの `authorized_keys` の
+  `command=` も `app-deploy-gate aide-bot` にする。`TARGET_DIR` はgateが置き場を固定するため使わなくなった
+- 旧配布物の削除・展開・`.env` の更新・`pnpm install --prod`・`prisma migrate deploy`・pm2の再起動・稼働版の照合は
+  gate側が行う。**`.env` へ書く値を足すときは「Send environment variables」の `printf` へ足す**（ここに無い値は
+  `.env` に入らない）。`MIGRATE_DATABASE_URL` は `.env` へ書かれずマイグレーションだけに使われ、
+  マイグレーション専用ユーザーが未設定なら通常ユーザーの `DATABASE_URL` で流す
+- **改行を含む値はgateへ送れない**（送る前に `::error::` で落とす）。`APNS_KEY_P8` は複数行のPEMで登録されていても
+  base64の1行へ直して送る（`normalizeP8()` がbase64を受ける）
+- gateの外で走っていた処理は動かない。マイグレーション直前の処理が要るときは `deploy/pre-migrate.sh` に置く
+  （gateが `DATABASE_URL`/`MIGRATE_DATABASE_URL`＝マイグレーション用で実行する）。このアプリは今は持たない
+- 配布物から `scripts/construct-database-url.sh`・`scripts/update-env-file.sh` を外した（SSH先で使わなくなったため）
+
 ### 稼働版のSHAを照合する（#567）
 
 - **ヘルスチェックはHTTP 200ではなく稼働版のSHAで判定する。** `deploy.yml` は `APP_COMMIT_SHA: ${{ github.sha }}`
-  をssh-actionの `env:` と `envs:` に並べ、`.env` へ書いてからPM2を起動し直す。起動後は
-  `http://127.0.0.1:${PORT}/api/app-version`（`src/app/api/app-version/route.ts`）の `sha` が一致するまで
-  リトライし、60秒で一致しなければ失敗にする。`/` は旧版が残っていても応答を返すため照合にならない
-- issue-deckの新方式リリースは、対象コミットの `deploy.yml` に `APP_COMMIT_SHA` と `/api/app-version` が
-  実体として含まれているかで稼働確認の可否を決める。**コメントに語を書くだけにしない**
-  （`test/app-version-deploy.test.ts` がコメント行を除いた本文で確かめる）
+  を「Send environment variables」の `env:` に持ち、`APP_COMMIT_SHA=…` としてgateへ送る。gateは `.env` に
+  `APP_COMMIT_SHA` があれば、pm2の再起動後に `http://127.0.0.1:3103/api/app-version`
+  （`src/app/api/app-version/route.ts`）の `sha` が一致するまで最大60秒待ち、一致しなければ失敗にする
+  （guchi-apps/vps#298）。`/` は旧版が残っていても応答を返すため照合にならない
+- issue-deckの新方式リリースは、対象コミットの `deploy.yml` を `self`（自前で照合）／`gate`（gateへ委譲）／`none` に
+  分けて稼働確認の可否を決める（issue-deck の `src/lib/deploy-version-check.ts`。コメント行は根拠にしない）。
+  このリポジトリは `gate`。`test/app-version-deploy.test.ts` がコメント行を除いた本文で委譲の形を確かめる
 - `/api/app-version` はCookie無しで叩かれるため、公開経路（`src/lib/supabase/public-paths.ts`）に入れてある。
   返すのはバージョンとSHAだけ。Service Workerは `fetch` ハンドラを持たないので保存されない
-- 本番デプロイを `app-deploy-gate`（guchi-apps/vps）とアプリ専用のSSH鍵へ移すのは #567 の第2段階で、まだ行っていない
 
 ### 初回デプロイの前に埋めるもの（#4）
 
@@ -2461,8 +2481,8 @@ aide-botでは build ジョブの「Construct DATABASE_URL」が
 4. `gh api repos/guchi-apps/morrow/actions/secrets --jq .total_count` で登録件数を確かめてから
    Deploy to Production を再実行する
 
-**secretを埋めてもまだ公開はされない。** `deploy.yml` のヘルスチェックはVPS内の
-`http://127.0.0.1:3103/` を叩くだけなので、Apacheのvhostが無くてもdeployジョブは成功する。
+**secretを埋めてもまだ公開はされない。** gateのヘルスチェックはVPS内の
+`http://127.0.0.1:3103/api/app-version` を叩くだけなので、Apacheのvhostが無くてもdeployジョブは成功する。
 `https://aide-bot.gucchii.com/` を通すには `guchi-apps/vps` 側でvhostとTLS証明書を用意し、
 アプリ一覧へ3103を登録する必要がある（`curl` でTLSハンドシェイクが
 `no alternative certificate subject name matches` になる間は未設定）。

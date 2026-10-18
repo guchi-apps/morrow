@@ -129,7 +129,9 @@ ChatGPTのスケジュールから情報を登録する方法は [docs/chatgpt-m
 ## デプロイ
 
 `main` へのpushで `.github/workflows/deploy.yml` が動く。GitHub Actions側でビルドし、
-成果物をVPSへ配ってPM2で再起動する。日常の開発は `develop`、本番反映は `develop` → `main` のPR。
+成果物をVPSの app-deploy-gate（guchi-apps/vps。アプリ名 `aide-bot`）へアプリ専用のSSH鍵で渡し、
+展開・マイグレーション・PM2の再起動・稼働版の照合はgateが行う（#567。詳細は [CLAUDE.md](CLAUDE.md) の「デプロイ」）。
+日常の開発は `develop`、本番反映は `develop` → `main` のPR。
 
 ## Issueごとのエージェント運用
 
