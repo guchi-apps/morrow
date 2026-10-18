@@ -95,7 +95,7 @@ jobs:
     #
     # このブロックは scripts/generate-workflow-env-block.sh で生成する（guchi-apps/issue-deck#1307）。
     env:
-      SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_PRIVATE_KEY }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       HOST: ${{ secrets.SERVER_HOST }}
       USERNAME: ${{ secrets.SERVER_USERNAME }}
       SSH_PORT: ${{ secrets.SERVER_SSH_PORT }}
@@ -161,8 +161,6 @@ jobs:
             .next \
             prisma \
             deploy \
-            scripts/construct-database-url.sh \
-            scripts/update-env-file.sh \
             next.config.mjs
 
       - name: Upload artifact
@@ -183,7 +181,7 @@ jobs:
     #
     # このブロックは scripts/generate-workflow-env-block.sh で生成する（guchi-apps/issue-deck#1307）。
     env:
-      SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_PRIVATE_KEY }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       HOST: ${{ secrets.SERVER_HOST }}
       USERNAME: ${{ secrets.SERVER_USERNAME }}
       SSH_PORT: ${{ secrets.SERVER_SSH_PORT }}
@@ -238,17 +236,28 @@ jobs:
           HOST: ${{ env.HOST }}
           SSH_PORT: ${{ env.SSH_PORT }}
 
+      # **VPSのgate（/usr/local/sbin/app-deploy-gate。guchi-apps/vps#275）へ渡す**（#567）。
+      # 鍵はこのアプリ専用で、VPSのauthorized_keysのcommand=がgateのアプリ名を固定する。
+      # gateのアプリ名は `aide-bot`（リポジトリ名morrowではない）。置き場の /home/github-user/apps/aide-bot と
+      # pm2のプロセス名 aide-bot（deploy/ecosystem.config.js）が旧名のまま残っており、gateはその2つを
+      # アプリ名から決めるため。任意のシェルコマンドは実行できず、upload・env・deployの3語だけが通る。
+      # 旧配布物の削除・展開・.env更新・pnpm install・prisma migrate deploy（MIGRATE_DATABASE_URLは
+      # .envへ書かずここだけで使う）・pm2の再起動・稼働版の照合（/api/app-versionのsha）はgate側が行う。
       - name: Upload archive
-        run: scp -P "${SSH_PORT}" deploy.tar.gz "${USERNAME}@${HOST}:${TARGET_DIR}/deploy.tar.gz"
+        run: ssh -p "${SSH_PORT}" "${USERNAME}@${HOST}" upload < deploy.tar.gz
         env:
           HOST: ${{ env.HOST }}
           USERNAME: ${{ env.USERNAME }}
           SSH_PORT: ${{ env.SSH_PORT }}
-          TARGET_DIR: ${{ env.TARGET_DIR }}
 
-      - name: Deploy and restart
-        uses: appleboy/ssh-action@v1
+      - name: Send environment variables
         env:
+          HOST: ${{ env.HOST }}
+          USERNAME: ${{ env.USERNAME }}
+          SSH_PORT: ${{ env.SSH_PORT }}
+          # 稼働中の版の確認に使う（#567）。gateが.envのAPP_COMMIT_SHAと稼働中の
+          # /api/app-versionのshaを照合する（guchi-apps/vps#298）。コミットのSHAは公開情報
+          APP_COMMIT_SHA: ${{ github.sha }}
           DATABASE_URL: ${{ env.DATABASE_URL }}
           MIGRATE_DATABASE_URL: ${{ env.MIGRATE_DATABASE_URL }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
@@ -266,110 +275,64 @@ jobs:
           ISSUE_DECK_URL: ${{ env.ISSUE_DECK_URL }}
           NOTION_API_TOKEN: ${{ env.NOTION_API_TOKEN }}
           TASK_API_TOKEN: ${{ env.TASK_API_TOKEN }}
-          TARGET_DIR: ${{ env.TARGET_DIR }}
-          # 稼働している版の照合に使う（#567）。ヘルスチェックが `/api/app-version` の `sha` と突き合わせる。
-          APP_COMMIT_SHA: ${{ github.sha }}
-        with:
-          host: ${{ env.HOST }}
-          username: ${{ env.USERNAME }}
-          key: ${{ env.SSH_PRIVATE_KEY }}
-          port: ${{ env.SSH_PORT }}
-          # ここに無い変数はSSH先に存在しない。env: と同じ名前を必ず並べる。
-          envs: APP_COMMIT_SHA,DATABASE_URL,MIGRATE_DATABASE_URL,NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,ALLOWED_GOOGLE_EMAILS,VAPID_PUBLIC_KEY,VAPID_PRIVATE_KEY,APNS_KEY_ID,APNS_TEAM_ID,APNS_KEY_P8,BRIEFING_TRIGGER_TOKEN,NOTICE_INGEST_TOKEN,OPS_API_TOKEN,SHARED_TOKEN_API_SECRET,ISSUE_DECK_URL,NOTION_API_TOKEN,TASK_API_TOKEN,TARGET_DIR
-          script: |
-            set -euo pipefail
-            cd "${TARGET_DIR}"
-
-            # 待受ポートはシークレットではなく設定値として平文で持つ
-            # （guchi-apps/docs の standards/ports.md「ポート番号は 1Password で管理しない」。#5）。
-            PORT=3103
-
-            echo "Cleaning up old release files..."
-            # 配布物を増やしたらこの行にも足す。永続させたいディレクトリは絶対に入れない。
-            rm -rf .next public package.json pnpm-lock.yaml prisma deploy next.config.mjs next.config.ts
-
-            echo "Extracting archive..."
-            tar -xzf deploy.tar.gz
-            rm deploy.tar.gz
-
-            update_env() {
-              bash scripts/update-env-file.sh .env "$1" "$2"
-            }
-
-            echo "Updating .env..."
-            update_env NODE_ENV production
-            update_env PORT "$PORT"
-            update_env DATABASE_URL "$DATABASE_URL"
-            update_env NEXT_PUBLIC_SUPABASE_URL "$NEXT_PUBLIC_SUPABASE_URL"
-            update_env NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY "$NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
-            update_env ALLOWED_GOOGLE_EMAILS "$ALLOWED_GOOGLE_EMAILS"
+        run: |
+          set -euo pipefail
+          # マイグレーション専用ユーザー（SHARED_DB_MIGRATE_*）が未設定なら通常ユーザーで流す。
+          # MIGRATE_DATABASE_URL はgateが.envへ書かずマイグレーションだけに使う。
+          MIGRATE_DATABASE_URL="${MIGRATE_DATABASE_URL:-$DATABASE_URL}"
+          # gateは標準入力を1行1変数（KEY=VALUE）で受けるため、改行を含む値は送れない。
+          # APNsの認証キーはマニフェスト上base64の1行だが、複数行のPEMのまま登録されていても送れるよう
+          # base64の1行へ直す（src/lib/push/apns-core.ts の normalizeP8() はbase64・PEM・`\n`を文字で
+          # 含むPEMのどれも受ける。`\n`を文字で含む1行のPEMはbase64にすると復元時に改行へ戻らないため触らない）。
+          case "$APNS_KEY_P8" in
+            *$'\n'*) APNS_KEY_P8="$(printf '%s' "$APNS_KEY_P8" | base64 -w0)" ;;
+          esac
+          for name in DATABASE_URL MIGRATE_DATABASE_URL NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY \
+            ALLOWED_GOOGLE_EMAILS VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY APNS_KEY_ID APNS_TEAM_ID APNS_KEY_P8 \
+            BRIEFING_TRIGGER_TOKEN NOTICE_INGEST_TOKEN OPS_API_TOKEN SHARED_TOKEN_API_SECRET ISSUE_DECK_URL \
+            NOTION_API_TOKEN TASK_API_TOKEN; do
+            case "${!name}" in
+              *$'\n'*) echo "::error::${name} が改行を含むためgateへ送れません"; exit 1 ;;
+            esac
+          done
+          # 待受ポートはシークレットではなく設定値として平文で持つ
+          # （guchi-apps/docs の standards/ports.md「ポート番号は 1Password で管理しない」。#5）。
+          {
+            printf '%s\n' "NODE_ENV=production" "PORT=3103"
+            printf '%s\n' "APP_COMMIT_SHA=${APP_COMMIT_SHA}"
+            printf '%s\n' "DATABASE_URL=${DATABASE_URL}"
+            printf '%s\n' "MIGRATE_DATABASE_URL=${MIGRATE_DATABASE_URL}"
+            printf '%s\n' "NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}"
+            printf '%s\n' "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}"
+            printf '%s\n' "ALLOWED_GOOGLE_EMAILS=${ALLOWED_GOOGLE_EMAILS}"
             # プロアクティブ通知（#79）。VAPIDの鍵が片方でも空だと設定の画面に通知の導線が
             # 出ず、BRIEFING_TRIGGER_TOKEN が空だと cron からの POST /api/briefing が
             # 401 で閉じたままになる。
-            update_env VAPID_PUBLIC_KEY "$VAPID_PUBLIC_KEY"
-            update_env VAPID_PRIVATE_KEY "$VAPID_PRIVATE_KEY"
+            printf '%s\n' "VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY}"
+            printf '%s\n' "VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY}"
             # iOSアプリへのAPNs通知（#475）。3つのどれかが空だとAPNsの経路ごと無効になる。
-            update_env APNS_KEY_ID "$APNS_KEY_ID"
-            update_env APNS_TEAM_ID "$APNS_TEAM_ID"
-            update_env APNS_KEY_P8 "$APNS_KEY_P8"
-            update_env BRIEFING_TRIGGER_TOKEN "$BRIEFING_TRIGGER_TOKEN"
-            # お知らせの受け皿（#93）。空だと他アプリからの POST /api/notices が401で
-            # 閉じたままになり、秘書の吹き出しに出るものが積まれない。
-            update_env NOTICE_INGEST_TOKEN "$NOTICE_INGEST_TOKEN"
-            # ops-dashboardのアプリ別のAI利用（#297）。空だと GET /api/ai-usage が401で閉じた
-            # ままになり、ops-dashboardの画面はこのアプリを「取得不可」と出す。
-            update_env OPS_API_TOKEN "$OPS_API_TOKEN"
-            # 共有トークンAPI（#403）。空だと共有トークンを取れず、上の2つの環境変数へのフォールバックで動く。
-            update_env SHARED_TOKEN_API_SECRET "$SHARED_TOKEN_API_SECRET"
-            update_env ISSUE_DECK_URL "$ISSUE_DECK_URL"
+            printf '%s\n' "APNS_KEY_ID=${APNS_KEY_ID}"
+            printf '%s\n' "APNS_TEAM_ID=${APNS_TEAM_ID}"
+            printf '%s\n' "APNS_KEY_P8=${APNS_KEY_P8}"
+            printf '%s\n' "BRIEFING_TRIGGER_TOKEN=${BRIEFING_TRIGGER_TOKEN}"
+            # お知らせの受け皿（#93）。空だと他アプリからの POST /api/notices が401で閉じたままになる。
+            printf '%s\n' "NOTICE_INGEST_TOKEN=${NOTICE_INGEST_TOKEN}"
+            # ops-dashboardのアプリ別のAI利用（#297）。空だと GET /api/ai-usage が401で閉じたままになる。
+            printf '%s\n' "OPS_API_TOKEN=${OPS_API_TOKEN}"
+            # 共有トークンAPI（#403）。空だと共有トークンを取れず、環境変数へのフォールバックで動く。
+            printf '%s\n' "SHARED_TOKEN_API_SECRET=${SHARED_TOKEN_API_SECRET}"
+            printf '%s\n' "ISSUE_DECK_URL=${ISSUE_DECK_URL}"
             # Notionのタスク管理API・MCP（#373）。空だと /api/tasks とタスクのMCPツールが503で閉じたままになる。
-            update_env NOTION_API_TOKEN "$NOTION_API_TOKEN"
-            update_env TASK_API_TOKEN "$TASK_API_TOKEN"
-            # 稼働版の照合（#567）。`next start` が起動時に .env を読むため、PM2の再起動より前に書く。
-            # GET /api/app-version がこの値を `sha` として返す。
-            update_env APP_COMMIT_SHA "$APP_COMMIT_SHA"
+            printf '%s\n' "NOTION_API_TOKEN=${NOTION_API_TOKEN}"
+            printf '%s\n' "TASK_API_TOKEN=${TASK_API_TOKEN}"
+          } | ssh -p "${SSH_PORT}" "${USERNAME}@${HOST}" env
 
-            echo "Installing production dependencies..."
-            corepack enable pnpm >/dev/null 2>&1 || true
-            pnpm install --prod --frozen-lockfile
-
-            echo "Applying database migrations..."
-            DATABASE_URL="$MIGRATE_DATABASE_URL" pnpm exec prisma migrate deploy
-
-            echo "Restarting PM2..."
-            if command -v pm2 >/dev/null 2>&1; then
-              pm2 delete aide-bot 2>/dev/null || true
-              PORT="$PORT" pm2 start deploy/ecosystem.config.js --env production
-              pm2 save
-            else
-              echo "pm2 is required on the server. Install: npm install -g pm2"
-              exit 1
-            fi
-
-            echo "Health check..."
-            # Next.js は起動完了までに数秒かかる。1回だけのcurlでは起動が間に合わずに
-            # 失敗するため、一定時間リトライする。
-            # `/` は旧版が動いたままでも応答を返すため、HTTP 200だけでは成功にしない。
-            # `/api/app-version` が返す `sha` が今回デプロイしたコミットと一致するまで待つ（#567）。
-            if [ -z "${APP_COMMIT_SHA:-}" ]; then
-              echo "APP_COMMIT_SHA is empty; cannot verify the running version."
-              exit 1
-            fi
-            body=""
-            for i in $(seq 1 30); do
-              body="$(curl -fsS "http://127.0.0.1:${PORT}/api/app-version" 2>/dev/null || true)"
-              if [ -n "$body" ] && printf '%s' "$body" | grep -qF "\"sha\":\"${APP_COMMIT_SHA}\""; then
-                echo "Deployment successful. (sha=${APP_COMMIT_SHA})"
-                exit 0
-              fi
-              sleep 2
-            done
-
-            echo "Health check failed after 60s: /api/app-version did not report sha=${APP_COMMIT_SHA}."
-            echo "last response: ${body:-<none>}"
-            pm2 describe aide-bot || true
-            pm2 logs aide-bot --lines 50 --nostream || true
-            exit 1
+      - name: Deploy and restart
+        run: ssh -p "${SSH_PORT}" "${USERNAME}@${HOST}" deploy
+        env:
+          HOST: ${{ env.HOST }}
+          USERNAME: ${{ env.USERNAME }}
+          SSH_PORT: ${{ env.SSH_PORT }}
 
   notify:
     runs-on: ubuntu-latest
