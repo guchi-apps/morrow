@@ -10,14 +10,8 @@ import {
 } from "@/lib/ci-auth-bypass";
 import { getRequestOrigin } from "@/lib/request-origin";
 import { safeInternalPath } from "@/lib/safe-path";
+import { isPublicPath } from "@/lib/supabase/public-paths";
 import { signOutThisApp } from "@/lib/supabase/sign-out";
-
-// /auth/native/* はiOSアプリの認証シート（Cookie無し）とログイン前のWKWebViewから呼ばれる（#441）。
-const publicPaths = ["/login", "/auth/signin", "/auth/callback", "/auth/native"];
-
-function isPublicPath(pathname: string): boolean {
-  return publicPaths.some((p) => pathname === p || pathname.startsWith(`${p}/`));
-}
 
 export async function updateSession(request: NextRequest) {
   // 開発／CI専用のログインバイパス（#25）。本番では isCiBypassRequest が常に偽になる。
