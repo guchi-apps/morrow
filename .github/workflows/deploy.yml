@@ -267,13 +267,15 @@ jobs:
           NOTION_API_TOKEN: ${{ env.NOTION_API_TOKEN }}
           TASK_API_TOKEN: ${{ env.TASK_API_TOKEN }}
           TARGET_DIR: ${{ env.TARGET_DIR }}
+          # 稼働している版の照合に使う（#567）。ヘルスチェックが `/api/app-version` の `sha` と突き合わせる。
+          APP_COMMIT_SHA: ${{ github.sha }}
         with:
           host: ${{ env.HOST }}
           username: ${{ env.USERNAME }}
           key: ${{ env.SSH_PRIVATE_KEY }}
           port: ${{ env.SSH_PORT }}
           # ここに無い変数はSSH先に存在しない。env: と同じ名前を必ず並べる。
-          envs: DATABASE_URL,MIGRATE_DATABASE_URL,NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,ALLOWED_GOOGLE_EMAILS,VAPID_PUBLIC_KEY,VAPID_PRIVATE_KEY,APNS_KEY_ID,APNS_TEAM_ID,APNS_KEY_P8,BRIEFING_TRIGGER_TOKEN,NOTICE_INGEST_TOKEN,OPS_API_TOKEN,SHARED_TOKEN_API_SECRET,ISSUE_DECK_URL,NOTION_API_TOKEN,TASK_API_TOKEN,TARGET_DIR
+          envs: APP_COMMIT_SHA,DATABASE_URL,MIGRATE_DATABASE_URL,NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,ALLOWED_GOOGLE_EMAILS,VAPID_PUBLIC_KEY,VAPID_PRIVATE_KEY,APNS_KEY_ID,APNS_TEAM_ID,APNS_KEY_P8,BRIEFING_TRIGGER_TOKEN,NOTICE_INGEST_TOKEN,OPS_API_TOKEN,SHARED_TOKEN_API_SECRET,ISSUE_DECK_URL,NOTION_API_TOKEN,TASK_API_TOKEN,TARGET_DIR
           script: |
             set -euo pipefail
             cd "${TARGET_DIR}"
@@ -323,6 +325,9 @@ jobs:
             # Notionのタスク管理API・MCP（#373）。空だと /api/tasks とタスクのMCPツールが503で閉じたままになる。
             update_env NOTION_API_TOKEN "$NOTION_API_TOKEN"
             update_env TASK_API_TOKEN "$TASK_API_TOKEN"
+            # 稼働版の照合（#567）。`next start` が起動時に .env を読むため、PM2の再起動より前に書く。
+            # GET /api/app-version がこの値を `sha` として返す。
+            update_env APP_COMMIT_SHA "$APP_COMMIT_SHA"
 
             echo "Installing production dependencies..."
             corepack enable pnpm >/dev/null 2>&1 || true
@@ -344,15 +349,24 @@ jobs:
             echo "Health check..."
             # Next.js は起動完了までに数秒かかる。1回だけのcurlでは起動が間に合わずに
             # 失敗するため、一定時間リトライする。
+            # `/` は旧版が動いたままでも応答を返すため、HTTP 200だけでは成功にしない。
+            # `/api/app-version` が返す `sha` が今回デプロイしたコミットと一致するまで待つ（#567）。
+            if [ -z "${APP_COMMIT_SHA:-}" ]; then
+              echo "APP_COMMIT_SHA is empty; cannot verify the running version."
+              exit 1
+            fi
+            body=""
             for i in $(seq 1 30); do
-              if curl -fsS -o /dev/null "http://127.0.0.1:${PORT}/"; then
-                echo "Deployment successful."
+              body="$(curl -fsS "http://127.0.0.1:${PORT}/api/app-version" 2>/dev/null || true)"
+              if [ -n "$body" ] && printf '%s' "$body" | grep -qF "\"sha\":\"${APP_COMMIT_SHA}\""; then
+                echo "Deployment successful. (sha=${APP_COMMIT_SHA})"
                 exit 0
               fi
               sleep 2
             done
 
-            echo "Health check failed after 60s."
+            echo "Health check failed after 60s: /api/app-version did not report sha=${APP_COMMIT_SHA}."
+            echo "last response: ${body:-<none>}"
             pm2 describe aide-bot || true
             pm2 logs aide-bot --lines 50 --nostream || true
             exit 1

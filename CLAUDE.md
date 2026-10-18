@@ -2429,6 +2429,19 @@ VPSへ配ってPM2で再起動する（VPS上で `next build` はしない。メ
 値を変えたときだけ `scripts/sync-github-secrets.sh` でGitHubへ同期する
 （実行時に1Passwordを読まない理由は guchi-apps/issue-deck#1302・#1307）。
 
+### 稼働版のSHAを照合する（#567）
+
+- **ヘルスチェックはHTTP 200ではなく稼働版のSHAで判定する。** `deploy.yml` は `APP_COMMIT_SHA: ${{ github.sha }}`
+  をssh-actionの `env:` と `envs:` に並べ、`.env` へ書いてからPM2を起動し直す。起動後は
+  `http://127.0.0.1:${PORT}/api/app-version`（`src/app/api/app-version/route.ts`）の `sha` が一致するまで
+  リトライし、60秒で一致しなければ失敗にする。`/` は旧版が残っていても応答を返すため照合にならない
+- issue-deckの新方式リリースは、対象コミットの `deploy.yml` に `APP_COMMIT_SHA` と `/api/app-version` が
+  実体として含まれているかで稼働確認の可否を決める。**コメントに語を書くだけにしない**
+  （`test/app-version-deploy.test.ts` がコメント行を除いた本文で確かめる）
+- `/api/app-version` はCookie無しで叩かれるため、公開経路（`src/lib/supabase/public-paths.ts`）に入れてある。
+  返すのはバージョンとSHAだけ。Service Workerは `fetch` ハンドラを持たないので保存されない
+- 本番デプロイを `app-deploy-gate`（guchi-apps/vps）とアプリ専用のSSH鍵へ移すのは #567 の第2段階で、まだ行っていない
+
 ### 初回デプロイの前に埋めるもの（#4）
 
 **GitHubのsecret / variableは新規リポジトリでは空のまま**で、`deploy.yml` の `env:` は空文字を渡す。
