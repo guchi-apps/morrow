@@ -17,6 +17,12 @@ export type WeatherDay = {
   pop: number | null;
 };
 
+/**
+ * 予報の地点（#586）。AIDEの `aide_weather` が `location`（`name`・`latitude`・`longitude`）を返すようになってから入る。
+ * それまで（項目が無い応答）はnullで、画面は市町村名を出さない。名前だけ・座標だけでも読める方を使う。
+ */
+export type WeatherLocation = { name: string | null; latitude: number | null; longitude: number | null };
+
 export type WeatherView =
   | { status: "unconnected" }
   | { status: "failed"; detail: string }
@@ -29,6 +35,7 @@ export type WeatherView =
       /** AIDE側の同期が止まっている（古い予報）。 */
       stale: boolean;
       attribution: string | null;
+      location: WeatherLocation | null;
     };
 
 export type ScheduleItem = {
@@ -108,6 +115,17 @@ function weatherDay(value: unknown): WeatherDay | null {
   };
 }
 
+function weatherLocation(value: unknown): WeatherLocation | null {
+  const location = record(value);
+  if (!location) return null;
+  const latitude = num(location.latitude);
+  const longitude = num(location.longitude);
+  const hasPoint = latitude !== null && longitude !== null && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
+  const name = str(location.name);
+  if (!name && !hasPoint) return null;
+  return { name, latitude: hasPoint ? latitude : null, longitude: hasPoint ? longitude : null };
+}
+
 export function parseWeather(json: unknown): WeatherView {
   const root = record(json);
   if (!root) return { status: "failed", detail: "天気の応答を読めませんでした" };
@@ -126,6 +144,7 @@ export function parseWeather(json: unknown): WeatherView {
     tomorrow: weatherDay(data?.tomorrow),
     stale: root.stale === true,
     attribution: str(data?.attribution),
+    location: weatherLocation(root.location ?? data?.location),
   };
 }
 

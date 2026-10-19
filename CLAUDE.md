@@ -340,6 +340,26 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
   （`pushHistory()`・`groupPushesByDay()`。後者は純粋で `test/push-history.test.ts`）。`NotificationLog` は消していないので期間では切らない。
   `/c/<ID>` は `/pushes` へ転送し、ダッシュボードのカードと左メニューから入れる
 - 天気・予定は `Suspense` で後から流し、DBだけで出せる部分を先に描く
+
+### 天気の地点・時間と場所ごとの雨・現在地（#586）
+
+天気カードは、自宅の1日の予報（AIDE）に加えて、今日の予定の移動から作った区間（〜06:30 自宅 → 07:30–17:30 栗東市 →
+18:30〜 自宅）ごとの天気と雨、折りたたみの中に明日・明後日の行き先の雨、押したときだけの現在地の天気を出す。
+
+- **地点の名前・座標の正はAIDE**（`aide_weather` の `location`。guchi-apps/aide#673。`parseWeather()` は無ければnull）。AIDEが返すまでは見出しに
+  市町村名を出さず、自宅の区間はAIDEの日別予報で代用する（「1日の予報」と添える）。Morrowの設定で自宅を持つ案は二重管理になるので採らなかった
+- **行き先・現在地の予報と地名は、Morrowのサーバーからキー無しの公開APIを直接叩く**（依存は足していない）。予報はOpen-Meteo
+  （`src/lib/weather/open-meteo.ts`。30分キャッシュ）、地名⇔座標は国土地理院の住所検索・逆ジオコーダ・市町村コード表
+  （`geocode.ts`。24時間キャッシュ。解決できなかった地名も持つ）。座標は小数2桁（≒1km）に丸めてから外へ送る
+- **行き先の材料は `travels[].destination`（無ければタイトルの `→` の右）と `events[].location` だけ。タイトルの括弧（「出張（門真）」）は
+  読まない**（利用者の判断。誤読を避ける）。区間・判定・地名の選び方は純粋な `rain-check.ts`（`test/rain-check.test.ts`）
+- **地名の解決は推定。** 候補のうち「都道府県＋（地名）市/町/村/区」に一致するものだけを採り、複数あれば自宅に近い方（草津→滋賀県草津市）。
+  住所が書かれていれば先頭の候補から逆ジオコーダで市町村名を引く。どちらでもない語（「本社」「京都駅」）は「場所不明」にする——
+  見当違いの地点の天気を出すより「分からない」と出す方へ倒してある
+- 予定は `aide_schedule` を `days: 3` で1回だけ取り（`scheduleSource()`）、今日の予定（`parseSchedule()` は1日目だけ読む）と区間で共有する
+- **現在地は `POST /api/weather/here`**（ログイン必須・利用者ごと10秒に1回・位置は保存もログ出力もしない）。`navigator.geolocation` は
+  HTTPSか `localhost` でしか動かない。**iOSアプリ（UA `MorrowIOS/`）ではボタンを出さない**——殻に位置の許可文言（Info.plist）が無いため（#587）
+- 手元で確かめるときは、上のスタブMCPに `aide_weather`（`location` 付き・無しの両方）と `aide_schedule`（`days` を受ける）を答えさせる
 - 手元では、ローカルのスタブMCP（`initialize` と `tools/call` に答えるだけ）を立て、`McpConnection.url` と
   `MCP_PRESETS` の `aide` の `url` を一時的にそちらへ向けて確かめる（**`presets.ts` は戻すこと**）。シードは
   AIDE接続を `enabled: false` で入れるので、そのままでは「未接続」が出る
