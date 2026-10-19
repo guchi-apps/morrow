@@ -28,7 +28,7 @@ export default async function DayPage({ params }: { params: Promise<{ date: stri
   // （このリポジトリには `not-found.tsx` が無く、404では左メニューごと消えてアプリへ
   // 戻る導線が無くなる。#102と同じ理由）。
   if (!isDayKey(date) || date >= jstDayKey(new Date())) {
-    redirect("/");
+    redirect("/chat");
   }
 
   const conversation = await primaryConversation(user.id);
@@ -53,7 +53,7 @@ export default async function DayPage({ params }: { params: Promise<{ date: stri
           この日の記録は読むだけです。話しかけるときは今日へ戻ってください。
         </p>
         <Link
-          href="/"
+          href="/chat"
           className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-3.5 py-1.5 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           <ArrowLeft className="size-3.5" aria-hidden="true" />
