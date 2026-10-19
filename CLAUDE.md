@@ -523,12 +523,18 @@ Claudeを呼ぶ場所は1つも無い**。移せるようになったのは#131�
 issue-deckの共有トークンAPIから実行時に取る**（`src/lib/shared-token.ts`。共有トークン名は
 `AIDE_BOT_NOTICE_INGEST_TOKEN` / `OPS_API_TOKEN`）。1Passwordからの複製をやめる「方式A」。
 
-- **取れなければ従来の環境変数へフォールバックする**（`sharedTokenOrEnv()`）。キャッシュ10分・タイムアウト5秒・
+- **取れなければ従来の環境変数へフォールバックする**（`sharedTokenOrEnv()`。ただし本番では環境変数をもう配らないので、手元・移行前の環境向け）。キャッシュ10分・タイムアウト5秒・
   失敗時は古くても直前の値。`SHARED_TOKEN_API_SECRET` と `ISSUE_DECK_URL`（deploy.ymlでorganization変数
   `APP_BASE_URL` から渡す）の両方があるときだけ取りに行く
 - **フォールバックは画面から見えない。** 本番のデプロイ後は、issue-deckの設定画面で各共有トークンの利用元に
   `aide-bot` が出ることを必ず確かめる（出なければsecret・変数が未登録のままフォールバックしている）。
   取れなかった回は `console.warn` にも残る
+- **#570から、環境変数のフォールバックは配らない**（`deploy.yml`・マニフェストから外した）。issue-deckへ
+  `AIDE_BOT_NOTICE_INGEST_TOKEN`・`OPS_API_TOKEN` が未登録だと、お知らせの受け口（`POST /api/notices`・`/api/mcp`）と
+  `GET /api/ai-usage` が401で閉じる。**そのため `deploy.yml` は、何も送る前に `scripts/check-shared-tokens.sh` で2つを
+  読めるか確かめ、読めなければ配布を止める**（#581。404＝未登録、401/403/503＝`SHARED_TOKEN_API_SECRET` の不一致）。
+  登録そのもの（issue-deckの設定画面での登録・利用元 `aide-bot` の確認）は人の作業で、#570の手順1。
+  **確認用の読み取りも利用元 `aide-bot` として記録される**。`test/check-shared-tokens.test.ts` がスタブで判定を固定する
 - 値・Bearerはログに出さない。`isNoticeIngestAuthorized()` は非同期になった（呼ぶ側は `await`）
 
 ## お知らせの受け皿と、「いまの一言」（#93）
