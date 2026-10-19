@@ -348,28 +348,32 @@ function ScheduleOk({ schedule }: { schedule: Extract<ScheduleView, { status: "o
 /* ---------------- 今日届いた通知 ---------------- */
 
 function PushCard({ pushes }: { pushes: DeliveredPush[] }) {
+  // きのう以前の分は「届いた通知」（`/pushes`。#581）で読む。端末に残った古い通知を開いてもここへ着くため。
   return (
-    <Card title="今日届いた通知">
-      {pushes.length === 0 ? (
-        <Empty>今日はまだ通知を送っていません。</Empty>
-      ) : (
-        <ul className="flex flex-col gap-3">
-          {pushes.map((push) => (
-            <li
-              key={push.id}
-              className={cn("flex flex-col gap-1 border-l-[3px] py-0.5 pl-3", push.urgent ? "border-danger" : "border-accent")}
-            >
-              <div className="flex gap-2 text-[0.6875rem] text-muted">
-                <b className={push.urgent ? "text-danger" : "text-accent"}>{push.label}</b>
-                <span className="tabular-nums">{jstTimeLabel(push.createdAt)}</span>
-                {push.urgent && push.title !== push.label && <span className="min-w-0 truncate">{push.title}</span>}
-              </div>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed">{push.body}</p>
-            </li>
-          ))}
-        </ul>
-      )}
+    <Card title="今日届いた通知" link={{ href: "/pushes", label: "これまでの通知" }}>
+      {pushes.length === 0 ? <Empty>今日はまだ通知を送っていません。</Empty> : <PushList pushes={pushes} />}
     </Card>
+  );
+}
+
+/** 届いた通知の本文の並び。ダッシュボードと「届いた通知」（`/pushes`）で共有する。 */
+export function PushList({ pushes }: { pushes: DeliveredPush[] }) {
+  return (
+    <ul className="flex flex-col gap-3">
+      {pushes.map((push) => (
+        <li
+          key={push.id}
+          className={cn("flex flex-col gap-1 border-l-[3px] py-0.5 pl-3", push.urgent ? "border-danger" : "border-accent")}
+        >
+          <div className="flex gap-2 text-[0.6875rem] text-muted">
+            <b className={push.urgent ? "text-danger" : "text-accent"}>{push.label}</b>
+            <span className="tabular-nums">{jstTimeLabel(push.createdAt)}</span>
+            {push.urgent && push.title !== push.label && <span className="min-w-0 truncate">{push.title}</span>}
+          </div>
+          <p className="whitespace-pre-wrap text-sm leading-relaxed">{push.body}</p>
+        </li>
+      ))}
+    </ul>
   );
 }
 
