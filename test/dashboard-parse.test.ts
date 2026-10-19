@@ -52,6 +52,21 @@ describe("parseWeather", () => {
     assert.equal(view.stale, false);
   });
 
+  it("地点（location）は返っていれば読み、無ければnull（#586。AIDEの対応前）", () => {
+    const withLocation = parseWeather({ ...WEATHER_OK, location: { name: "高槻市", latitude: 34.85, longitude: 135.62 } });
+    assert.ok(withLocation.status === "ok");
+    assert.deepEqual(withLocation.location, { name: "高槻市", latitude: 34.85, longitude: 135.62 });
+
+    const before = parseWeather(WEATHER_OK);
+    assert.ok(before.status === "ok");
+    assert.equal(before.location, null);
+
+    // 範囲外の座標は捨て、名前だけ使う
+    const broken = parseWeather({ ...WEATHER_OK, location: { name: "高槻市", latitude: 200, longitude: "x" } });
+    assert.ok(broken.status === "ok");
+    assert.deepEqual(broken.location, { name: "高槻市", latitude: null, longitude: null });
+  });
+
   it("state が ok 以外は「予報が無い」で、失敗とも天気とも別にする", () => {
     assert.deepEqual(parseWeather({ state: "missing", reason: "未同期" }), { status: "unavailable", reason: "未同期" });
   });
