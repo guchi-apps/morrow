@@ -229,7 +229,7 @@ export function NotificationSettings({ publicKey, initialDeviceCount, apnsConfig
         <h3 className="text-sm font-medium">秘書からのお知らせ</h3>
         <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-muted">
           秘書からの通知を、この端末で受け取るかどうかを決めます。どんな通知を受け取るかは、
-          下の「通知の種類」で選べます。押すとその相談が開くので、そのまま続きを聞けます。
+          下の「通知の種類」で選べます。押すとダッシュボードが開き、届いた内容を読めます。
         </p>
       </header>
 

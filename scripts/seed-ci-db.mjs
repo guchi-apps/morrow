@@ -17,165 +17,25 @@ import { PrismaClient } from "@prisma/client";
 
 const CI_BYPASS_SUPABASE_USER_ID = "ci-screenshot-bot";
 
-// 相談のダミーの記録に使うモデル名（#128・#133）。**Codexのモデル名にしてある。**
-// 使用量の画面はモデル名から課金の形を決める（src/lib/chat-model.ts の billingKind）ので、
-// ここをClaudeのままにすると、相談のぶんが従量課金の節へ入って費用が付く。
-//
-// 返答のモデルは設定の画面から切り替えられる（#71）。**切り替えた前後が混ざった記録**を
-// 入れておかないと、モデルごとに集計を引き直せているかを画面で確かめられない。
-const USAGE_MODELS = ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"];
-const USAGE_MODEL = USAGE_MODELS[0];
-
 // 従量課金の節（`/usage`）に入るダミー。**#183で朝の見通しもCodexへ移ったので、これは
 // 「移行前に残った記録」を再現するためだけの行**（BRIEFING_MODEL とは揃えない。揃えると
 // 従量課金の節が常に空になり、その節の表示が壊れていても画面から気付けない）。
 const BRIEFING_USAGE_MODEL = "claude-haiku-4-5";
 
-/**
- * API呼び出し1回ぶんのダミーのトークン数（`ApiUsage` の1行）。
- *
- * 履歴は毎回まるごと送り直すため、同じスレッドでは往復を重ねるほど入力ぶんが増える。
- * 画面で内訳を見たときに不自然にならないよう、その形に寄せてある。
- *
- * **キャッシュ読みを必ず入れてある。** Codexは自前の指示文を毎回前置きするため、実測でも
- * 入力の大半（12,000のうち8,960）がキャッシュ読みで、カードの「入力のうち N はキャッシュから」が
- * 常に出る。0のままにすると、その行が出ているかを画面から確かめられない。
- */
-const dummyUsage = (turnIndex, createdAt, userId, model = USAGE_MODEL) => ({
-  // `createMany` で入れるので、繋ぎ先はidをそのまま渡す（#157で連続セッションへ移した際、
-  // Conversation配下のネスト（`user: { connect: ... }`）から切り替えた）。
-  userId,
-  // 使用量API（#297）が機能ごとに畳むための印。相談の往復なので `chat`。
-  feature: "chat",
-  model,
-  inputTokens: 3200 + turnIndex * 2600,
-  outputTokens: 540 + turnIndex * 160,
-  cacheWriteTokens: 0,
-  cacheReadTokens: 8960,
-  createdAt,
-});
-
 const db = new PrismaClient();
 
-// ダミーの記録（#157）。**すべて1本の連続セッションへ入る。** 左メニューの日付一覧が
-// 複数の日に分かれて見えるよう、日をずらしてある。基準時刻は実行時のnow。
-//
-// `title` は連続セッションでは画面に出ないが、その塊が何の話かを読む人のために残してある
-// （投入済みかどうかの判定は1通目の本文で行う）。
+// 朝の見通し（#79）のダミーの本文。ダッシュボードの「今日届いた通知」に出る。
+const BRIEFING_ANSWER =
+  "今日は10時から歯科の予約が入っています。日中は27度まで上がり、夕方から雨の予報なので折りたたみ傘があると安心です。部屋のCO2が1200ppmまで上がっているので、出かける前に換気をおすすめします。";
+
 const now = new Date();
 const daysAgo = (days) => new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
-const DAY_SEEDS = [
-  {
-    title: "引っ越しの段取りを整理する",
-    startedAt: daysAgo(0),
-    messages: [
-      "来月の頭に引っ越すんだけど、やることの抜けがないか整理したい。単身で、いまの部屋は賃貸。",
-      [
-        "期日が決まっているものから片づけると抜けにくいです。",
-        "",
-        "#### 先に日付を押さえるもの",
-        "",
-        "- **解約の連絡** — 多くの賃貸契約は**退去の1か月前まで**。契約書の「解約予告期間」を今日中に確認してください",
-        "- **引っ越し業者の予約** — 月初は繁忙期に当たりやすいので、日程が決まった時点で押さえる",
-        "- **電気・ガス・水道の停止／開始** — ガスの開栓は立ち会いが要るため、当日の枠を先に取る",
-        "",
-        "#### 役所での手続き",
-        "",
-        "| 手続き | いつ |",
-        "|---|---|",
-        "| 転出届 | 引っ越しの14日前から |",
-        "| 転入届 | 引っ越し後14日以内 |",
-        "| マイナンバーの住所変更 | 転入届と同時に済ませられます |",
-      ].join("\n"),
-      "1Kで、大物は洗濯機と冷蔵庫くらい。",
-    ],
-  },
-  {
-    title: "今月の食費が想定より多い件",
-    startedAt: daysAgo(3),
-    messages: [
-      "今月の食費が予算より1万円ほど多い。どこを見ればいい？",
-      "内訳を「外食」「中食（惣菜・弁当）」「自炊の材料費」の3つに割ってみてください。どれが伸びたかで打ち手が変わります。まとめて減らそうとすると続きません。",
-      // 秘書の側から話しかけた発言（#278）。**実際の声かけは仕入れた話題・積まれたお知らせが
-      // 無いと出ない**ので、「秘書から」の名札と出典のリンクが出ているかを画面から確かめる
-      // ためのダミーを1件だけ置いてある。本文の形は `withSourceLink()` の出力に揃えてある。
-      {
-        role: "ASSISTANT",
-        proactive: true,
-        content: [
-          "Node.jsの新しい長期サポート版が出たそうです。そろそろ更新を考えますか",
-          "",
-          "[Node.js 26がLTSに（Node.js）](<https://example.com/news/dev-node-lts>)",
-        ].join("\n"),
-      },
-    ],
-  },
-  {
-    // 書き込みの道具を使った記録（#81）が画面でどう見えるかを確かめるための1本。
-    // 成功した回と失敗した回の両方を、同じ流れの中へ混ぜてある。
-    title: "コンビニの支払いを記録しておく",
-    startedAt: daysAgo(2),
-    messages: [
-      "さっきファミマで1250円使った。家計簿に入れておいて。",
-      "ファミリーマートで1250円、食費として今日の日付で登録しました。",
-      "あと昨日のカフェの680円も。",
-      "登録しようとしましたが、家計簿側で弾かれました。もう一度お試しいただけますか。",
-    ],
-    // 秘書の返答（奇数番目の発言）の直前に置く。実際の並びと同じにするため、
-    // 発言の時刻の1秒前を呼び出しの時刻にしてある。
-    toolCalls: [
-      {
-        afterMessageIndex: 0,
-        serverLabel: "AIDE",
-        serverSlug: "aide",
-        toolName: "aide_zaim_payment",
-        input: JSON.stringify({
-          amount: 1250,
-          place: "ファミリーマート",
-          category: "食費",
-          date: "2026-08-24",
-        }),
-        output: "登録しました（money_id: 98765）",
-        failed: false,
-      },
-      {
-        afterMessageIndex: 2,
-        serverLabel: "AIDE",
-        serverSlug: "aide",
-        toolName: "aide_zaim_payment",
-        input: JSON.stringify({ amount: 680, place: "カフェ", category: "食費", date: "2026-08-23" }),
-        output: "Zaim API error: 401 Unauthorized",
-        failed: true,
-      },
-    ],
-  },
-  {
-    // 割り込み（#48）が画面でどう見えるかを確かめるための1本。文字列の代わりに
-    // オブジェクトを渡した発言は、途中で遮られた返答として投入する。
-    title: "週末の予定を詰める",
-    startedAt: daysAgo(1),
-    messages: [
-      "土曜の午前が空いてる。歯医者の予約を入れたいんだけど、他に何かあったっけ。",
-      { content: "土曜の午前でしたら、先に押さえておきたいのは", interrupted: true },
-      "ごめん、日曜の話だった。日曜の午前で。",
-      "日曜の午前は何も入っていません。歯医者は前日までの予約が要るところが多いので、今日中に電話しておくと確実です。",
-    ],
-  },
-  {
-    title: "自転車の買い替え候補",
-    startedAt: daysAgo(30),
-    messages: [
-      "通勤用の自転車を買い替えたい。片道5kmくらい。",
-      "片道5kmなら**クロスバイク**が扱いやすい距離です。予算と、駐輪場所が屋内か屋外かを教えてください。屋外なら防犯と防錆の条件が先に効きます。",
-    ],
-  },
-];
 
 // ダミーの接続（#46）。空のままだと接続画面の「繋いでいるもの」側を確かめられない。
 //
-// **どちらも相談には渡らない状態にしてある。** 使えるトークンを持った接続を入れると、
-// 開発環境で相談を送るたびに実在しない資格情報で外部サービスへ繋ぎに行き、返答の生成
+// **どちらも生成には渡らない状態にしてある。** 使えるトークンを持った接続を入れると、
+// 開発環境で朝の見通しなどを動かすたびに実在しない資格情報で外部サービスへ繋ぎに行き、生成
 // そのものが失敗する。休止中（enabled=false）と未接続（accessToken=null）の2つを置いて、
 // 状態の出し分けだけを確かめられるようにしている。
 const CONNECTION_SEEDS = [
@@ -214,18 +74,10 @@ const DUMMY_P256DH =
   "BBqwI5nKDsS6vttGU-N-qzS2IkGqA2l98SgR6YGlPINPwxqJ7zBmTv82tQz2X50h6LoERX2uoPgKf9bv9nfKcsg";
 const DUMMY_AUTH = "iAo59Zn5euzmta2BpuwsSA";
 
-// 朝の見通し（#79）。通知を押したときに開く相談がどう見えるかを確かめるための1本。
-// **1通目はUSER**（実際にモデルへ渡している依頼そのもの）。秘書の返答を1通目にすると、
-// 続きを話しかけたときに /api/chat が先頭を落として渡すため、見通しがモデルから見えなくなる。
-const BRIEFING_REQUEST =
-  "（自動）おはよう。今日の予定・移動・天気と、部屋やシステムに気になることがないかを確かめて、今日の見通しを短くまとめて。";
-const BRIEFING_ANSWER =
-  "今日は10時から歯科の予約が入っています。日中は27度まで上がり、夕方から雨の予報なので折りたたみ傘があると安心です。部屋のCO2が1200ppmまで上がっているので、出かける前に換気をおすすめします。";
-
-// お知らせの受け皿（#93）。「話す」画面の吹き出しは、ここに未読が1件も無ければ黙る——
+// お知らせの受け皿（#93）。ダッシュボードの「いまの一言」は、ここに未読が1件も無ければ黙る——
 // 空のままだと、実装が効いているのか材料が無いだけなのかを画面から切り分けられない。
 //
-// **1件だけ「すでに出したもの」を入れてある。** 開いた直後の吹き出しに何か出ている状態と、
+// **1件だけ「すでに出したもの」を入れてある。** 開いた直後に何か出ている状態と、
 // 一度出したものが二度と選ばれないことの両方を確かめるため。
 //
 // 期限（expiresAt）は投入時刻からの相対で入れる。固定の日時にすると、シードを流した翌日に
@@ -293,7 +145,7 @@ const NOTICE_SEEDS = [
   },
   // アプリの中のページを指すお知らせ（#137）。朝の見通し（#79）が自分で積むのと同じ形で、
   // **同じタブのまま移る**（外部のリンクは新しいタブ）。`fromMorningBriefing` を書いておくと、
-  // 下の投入で朝の見通しの相談IDを引いて `/c/<ID>` に組み立てる（IDは流すたび変わるため）。
+  // 下の投入でダッシュボード（`/`）を指す形にする。
   {
     source: "aide-bot",
     kind: "morning-briefing",
@@ -317,42 +169,13 @@ const NOTICE_SEEDS = [
   },
 ];
 
-// 話題（#144）。「話す」画面の吹き出しに回る「話題」の枠と、`/topics` の一覧を確かめるためのダミー。
+// 話題（#144）。ダッシュボードの「話題」と `/topics` の一覧を確かめるためのダミー。
 // 実際の仕入れ（`codex --search exec`）は開発DBのシードでは走らせない——27秒掛かるうえ、
 // サブスクの利用枠を消費する。**同じURLは `urlHash` で畳まれる**ので、何度流しても増えない。
 //
 // 種類（category）は3つすべてを入れてある。1種類だけだとチップの出し分けを画面で確かめられない。
 // `fetchedMinutesAgo` は投入時刻からの相対で、24時間の期間を過ぎたものも1件入れてある
-// （一覧にも吹き出しにも出ないことを確かめる）。
-const MEMORY_SEEDS = [
-  {
-    kind: "WISH", status: "CANDIDATE", confidence: "MEDIUM", daysAgo: 1,
-    content: "京都の紅葉を見に行きたい", sourceQuote: "今年は京都の紅葉を見に行きたいなあ",
-  },
-  {
-    kind: "DECISION", status: "CANDIDATE", confidence: "LOW", daysAgo: 2,
-    content: "朝の見通しは短めにしてほしい", sourceQuote: "朝の通知は短くていいかも",
-  },
-  {
-    kind: "WISH", status: "CONFIRMED", confidence: "HIGH", daysAgo: 12, checkedDaysAgo: 1,
-    notionStatus: "open", notionUrl: "https://www.notion.so/dummy-open",
-    content: "温泉旅行に行く", sourceQuote: "いつか温泉旅行に行きたい",
-  },
-  {
-    kind: "WISH", status: "CONFIRMED", confidence: "HIGH", daysAgo: 30, checkedDaysAgo: 1,
-    notionStatus: "done", notionUrl: "https://www.notion.so/dummy-done",
-    content: "水族館へ行く（Notionでは達成済み）", sourceQuote: "水族館に行きたい",
-  },
-  {
-    kind: "ONGOING", status: "CONFIRMED", confidence: "MEDIUM", daysAgo: 5,
-    content: "引っ越しの見積もりを比べている", sourceQuote: "引っ越しの見積もりを3社から取って比べてる",
-  },
-  {
-    kind: "DECISION", status: "FORGOTTEN", confidence: "HIGH", daysAgo: 20,
-    content: "毎週日曜に長い散歩をする（忘れた）", sourceQuote: "日曜は長めに散歩することにした",
-  },
-];
-
+// （一覧にもダッシュボードにも出ないことを確かめる）。
 const TOPIC_SEEDS = [
   {
     category: "life",
@@ -420,204 +243,25 @@ const TOPIC_SEEDS = [
 ];
 
 async function main() {
-  // 自宅の情報（#167）。**実際の取り込みはNotionへ繋がないと走らない**ので、開発では
-  // ここで入れたダミーを見て画面と相談のプロンプトを確かめる。実物と同じく箇条書きの
-  // 素の文で、住所は実在しない値にしてある。
-  const homeProfile = [
-    "- 住まい: 〒000-0000 どこか県ダミー市さんぷる町1-2-3 サンプルコーポ101（最寄り駅: ダミー駅）",
-    "- ゴミ: 燃えるゴミは火・金、資源ゴミは水曜",
-    "- 電気とガス: ダミー電力、水道: ダミー市水道局、固定回線: ダミーネット",
-    "- 通勤: 平日はダミー駅から電車で約1時間",
-  ].join("\n");
-
   const user = await db.user.upsert({
     where: { supabaseUserId: CI_BYPASS_SUPABASE_USER_ID },
-    update: { homeProfile, homeProfileFetchedAt: new Date() },
+    update: {},
     create: {
       supabaseUserId: CI_BYPASS_SUPABASE_USER_ID,
       email: "ci-screenshot-bot@example.com",
       name: "開発用ダミーユーザー",
-      homeProfile,
-      homeProfileFetchedAt: new Date(),
     },
   });
 
   console.log(`[aide-bot] バイパス用ユーザーをupsertしました: id=${user.id} name=${user.name}`);
 
-  // 連続セッション（#157）。**利用者につき1本**で、画面の分け目は日付だけ。
-  // 認証を抜けても画面が空のままでは、日付一覧・日付の区切り・Markdown表示のどれも
-  // 確かめられない。
-  const conversation = await db.conversation.upsert({
-    where: { id: `main_${user.id}` },
-    update: {},
-    create: { id: `main_${user.id}`, userId: user.id, isPrimary: true, title: "秘書との記録" },
-    select: { id: true },
-  });
-
-  // 繰り返し流しても増えないよう、1通目の本文で引いてから入れる。タイトルで引いていた
-  // 頃（#24）と違い、連続セッションには塊ごとの見出しが無い。
-  for (const seed of DAY_SEEDS) {
-    const firstContent =
-      typeof seed.messages[0] === "string" ? seed.messages[0] : seed.messages[0].content;
-
-    const existing = await db.message.findFirst({
-      where: { conversationId: conversation.id, content: firstContent },
-      select: { id: true },
-    });
-    if (existing) continue;
-
-    await db.message.createMany({
-      data: seed.messages.map((message, index) => ({
-        conversationId: conversation.id,
-        // 既定は利用者と秘書の交互。**秘書から話しかけた発言（#278）は交互にならない**ので、
-        // その1件だけ `role` を明示できるようにしてある。
-        role: (typeof message === "string" ? null : message.role) ?? (index % 2 === 0 ? "USER" : "ASSISTANT"),
-        // createdAtが同一だと並び順が不定になるため、1分ずつずらす。
-        createdAt: new Date(seed.startedAt.getTime() + index * 60_000),
-        content: typeof message === "string" ? message : message.content,
-        interrupted: typeof message === "string" ? false : message.interrupted === true,
-        proactive: typeof message === "string" ? false : message.proactive === true,
-      })),
-    });
-
-    // 書き込みの道具の記録（#81）。発言とは別のテーブルに持ち、画面が時刻順に混ぜて出す。
-    if (seed.toolCalls?.length) {
-      await db.toolCall.createMany({
-        data: seed.toolCalls.map((call) => ({
-          userId: user.id,
-          conversationId: conversation.id,
-          serverLabel: call.serverLabel,
-          serverSlug: call.serverSlug,
-          toolName: call.toolName,
-          input: call.input,
-          output: call.output,
-          failed: call.failed,
-          // 直後の返答より前に並ぶよう、その発言の1秒前にする。
-          createdAt: new Date(
-            seed.startedAt.getTime() + (call.afterMessageIndex + 1) * 60_000 - 1_000,
-          ),
-        })),
-      });
-    }
-
-    // 消費量は返答とは別の行に持つ（#51）。返答1件につきAPIを1回呼んだ形にする。
-    await db.apiUsage.createMany({
-      data: seed.messages
-        .map((message, index) => ({ message, index }))
-        .filter(({ index }) => index % 2 === 1)
-        .map(({ index }) => ({
-          ...dummyUsage((index - 1) / 2, new Date(seed.startedAt.getTime() + index * 60_000), user.id),
-          conversationId: conversation.id,
-        })),
-    });
-  }
-
-  // 使用量の画面（#51）は日別のグラフを持つ。数日ぶんしか無いとグラフがほぼ空になり、
-  // 「日ごとに並んで見えるか」を確かめられないため、直近14日ぶんの往復も足す。
-  // **左メニューの日付一覧（#157）が14日ぶん並ぶのもこれのおかげ**なので、消さないこと。
+  // 使用量の記録（#133）。**これが無いと、使用量の画面の従量課金の節が「今日ぶん1件」だけになり、
+  // 日別のグラフも表も空に近い状態でしか確かめられない。**
   //
-  // 日ごとの往復数（古い日→今日）。棒の高さが散るように、あえて凸凹させてある。
-  const USAGE_DAILY_TURNS = [1, 2, 3, 1, 4, 1, 2, 3, 1, 5, 1, 3, 2, 2];
-  const USAGE_HISTORY_MARKER = `${USAGE_DAILY_TURNS.length - 1}日前の1件目の相談です。`;
-
-  const usageHistoryExists = await db.message.findFirst({
-    where: { conversationId: conversation.id, content: USAGE_HISTORY_MARKER },
-    select: { id: true },
-  });
-
-  if (!usageHistoryExists) {
-    const messages = [];
-    const usages = [];
-
-    USAGE_DAILY_TURNS.forEach((turns, dayIndex) => {
-      // 配列の先頭がいちばん古い日。最後の要素が今日。
-      const daysBefore = USAGE_DAILY_TURNS.length - 1 - dayIndex;
-
-      for (let turn = 0; turn < turns; turn += 1) {
-        // 同じ日の中でも時刻をずらす。9時台から1往復ごとに1時間ずつ後ろへ。
-        const askedAt = new Date(daysAgo(daysBefore).getTime());
-        askedAt.setHours(9 + turn, 0, 0, 0);
-
-        messages.push({
-          role: "USER",
-          createdAt: askedAt,
-          content: `${daysBefore}日前の${turn + 1}件目の相談です。`,
-          interrupted: false,
-        });
-        messages.push({
-          role: "ASSISTANT",
-          createdAt: new Date(askedAt.getTime() + 60_000),
-          content: "承知しました。要点だけお伝えします。",
-          interrupted: false,
-        });
-        // 日ごとにモデルを回して、単価の違う記録が混ざった状態を作る（#71）。
-        usages.push(
-          dummyUsage(
-            turn,
-            new Date(askedAt.getTime() + 60_000),
-            user.id,
-            USAGE_MODELS[dayIndex % USAGE_MODELS.length],
-          ),
-        );
-      }
-    });
-
-    await db.message.createMany({
-      data: messages.map((message) => ({ ...message, conversationId: conversation.id })),
-    });
-    await db.apiUsage.createMany({
-      data: usages.map((usage) => ({ ...usage, conversationId: conversation.id })),
-    });
-  }
-
-  // 最後に話した時刻（#101のひとりごとが読む）と、畳んだ発言の数（#157のcompact）。
-  //
-  // **要約を入れておかないと、記録の先頭に出る「ここまでは要約にまとめてあります」の印が
-  // 開発環境で一度も出ない。** 畳んだことにするのは14日より前の発言——`summarizedCount` は
-  // 「古い方から数えた件数」なので、その数をそのまま数えて入れる（ずれると、畳んでいない
-  // 発言まで読み飛ばされてモデルへ渡らなくなる）。
-  const compactBefore = daysAgo(14);
-  const summarizedCount = await db.message.count({
-    where: { conversationId: conversation.id, createdAt: { lt: compactBefore } },
-  });
-  const lastMessage = await db.message.findFirst({
-    where: { conversationId: conversation.id },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    select: { createdAt: true },
-  });
-
-  // 会話の区切り（#322）は毎回まっさらへ戻す。`summarizedCount` は記録全体の先頭から数えて
-  // いるので、区切りの起点が残っていると件数とずれる。区切りは画面のボタン・自動区切りの
-  // 動作確認で作る（`lastUserMessageAt` を過去へ書き換えれば次の送信で自動区切りが走る）。
-  await db.contextBreak.deleteMany({ where: { conversationId: conversation.id } });
-
-  await db.conversation.update({
-    where: { id: conversation.id },
-    data: {
-      contextStartedAt: null,
-      lastUserMessageAt: null,
-      summarizedCount,
-      summary:
-        summarizedCount === 0
-          ? null
-          : [
-              "- 引っ越しは来月頭。1Kの単身で、大物は洗濯機と冷蔵庫。解約予告期間の確認がまだ。",
-              "- 今月の食費が予算より1万円多い。外食・中食・材料費の3つに割って見直す話をした。",
-              "- 通勤用の自転車（片道5km）を買い替え検討中。予算と駐輪場所は未確定。",
-            ].join("\n"),
-      ...(lastMessage ? { updatedAt: lastMessage.createdAt } : {}),
-    },
-  });
-
-  // 相談に紐づかない記録（#133）。**この2つが無いと、使用量の画面の従量課金の節が
-  // 「今日ぶん1件」だけになり、日別のグラフも表も空に近い状態でしか確かめられない。**
-  //
-  // - 朝の見通し（#79）: `conversationId` は付かない（相談は生成が終わってから作るため）。
-  //   1日1回で、`pause_turn` で頼み直した日だけ2行になる
-  // - お知らせの選定（#132）: Codexで動くぶん。相談以外にも定額の記録が積まれることを
-  //   画面で確かめられるように入れてある
+  // - 朝の見通し（#79）: 移行前の記録（Claude）を再現する行。1日1回で、頼み直した日だけ2行になる
+  // - お知らせの選定（#132）・話題の仕入れ（#144）: Codexで動くぶん（定額）
   const standaloneUsageExists = await db.apiUsage.count({
-    where: { userId: user.id, conversationId: null },
+    where: { userId: user.id },
   });
 
   if (standaloneUsageExists === 0) {
@@ -643,7 +287,7 @@ async function main() {
         });
       }
 
-      // お知らせの選定は「話す」画面を開いている間だけ走る。毎日は積まない。
+      // お知らせの選定はダッシュボードを開いている間だけ走る。毎日は積まない。
       if (daysBefore % 3 === 0) {
         const noticeAt = new Date(at.getTime());
         noticeAt.setHours(21, 10, 0, 0);
@@ -661,9 +305,7 @@ async function main() {
 
       // 使用量API（#297）が機能ごとに分けて返せるよう、残りの機能も少しずつ積む。
       // 話題の仕入れ（#144）は入力が桁違いに大きい（検索を重ねるため）。自宅の取り込み（#167）は
-      // 1日1回。**Lunaを使うお知らせの選定と話題、相談（Sol・Terra・Luna）が同じモデル名で
-      // 別の機能として並ぶ**ことをAPIの応答から確かめるためのもの。要約（#157）は相談に紐づく
-      // ため、ここ（紐付けの無い記録）には入れていない。
+      // 1日1回。機能ごとの記録を使用量API（#297）の応答から確かめるためのもの。
       if (daysBefore % 2 === 1) {
         const topicAt = new Date(at.getTime());
         topicAt.setHours(10, 5, 0, 0);
@@ -678,32 +320,11 @@ async function main() {
           createdAt: topicAt,
         });
       }
-      if (daysBefore === 0 || daysBefore === 5) {
-        const profileAt = new Date(at.getTime());
-        profileAt.setHours(7, 2, 0, 0);
-        standalone.push({
-          userId: user.id,
-          feature: "home_profile",
-          model: "gpt-6-sol",
-          inputTokens: 14200,
-          outputTokens: 900,
-          cacheWriteTokens: 0,
-          cacheReadTokens: 8960,
-          createdAt: profileAt,
-        });
-      }
     }
 
     await db.apiUsage.createMany({ data: standalone });
-    console.log(`[aide-bot] 相談に紐づかない使用量を投入しました: ${standalone.length}件`);
+    console.log(`[aide-bot] 使用量を投入しました: ${standalone.length}件`);
   }
-
-  const messageCount = await db.message.count({ where: { conversationId: conversation.id } });
-  const toolCallCount = await db.toolCall.count({ where: { userId: user.id } });
-  console.log(
-    `[aide-bot] 連続セッションへ発言を投入しました: ${messageCount}件` +
-      `（うち要約へ畳んだもの ${summarizedCount}件 / 書き込みの記録 ${toolCallCount}件）`,
-  );
 
   // 外部サービスとの接続（#46）。slugは利用者の中で一意なのでupsertできる。
   for (const seed of CONNECTION_SEEDS) {
@@ -755,29 +376,7 @@ async function main() {
     const briefedAt = new Date(now.getTime());
     briefedAt.setHours(7, 0, 0, 0);
 
-    // #157から新しい相談は作らず、連続セッションの今日ぶんへ追記する。
-    await db.message.createMany({
-      data: [
-        {
-          conversationId: conversation.id,
-          role: "USER",
-          content: BRIEFING_REQUEST,
-          createdAt: briefedAt,
-          interrupted: false,
-        },
-        {
-          conversationId: conversation.id,
-          role: "ASSISTANT",
-          content: BRIEFING_ANSWER,
-          createdAt: new Date(briefedAt.getTime() + 1000),
-          interrupted: false,
-        },
-      ],
-    });
-
-    // 見通しの生成もMessages APIの呼び出し1回ぶんとして数える（#51）。**相談との紐付けは
-    // 付けない**——実際の経路（`src/lib/briefing.ts`）でも、記録するのは生成の直後で
-    // 追記より前になる。
+    // 見通しの生成も呼び出し1回ぶんとして数える（#51）。
     await db.apiUsage.create({
       data: {
         userId: user.id,
@@ -798,7 +397,6 @@ async function main() {
         dedupeKey,
         title: "今日の見通し",
         body: BRIEFING_ANSWER,
-        conversationId: conversation.id,
         deliveredCount: PUSH_SUBSCRIPTION_SEEDS.length,
         createdAt: new Date(briefedAt.getTime() + 2000),
       },
@@ -807,12 +405,66 @@ async function main() {
     console.log("[aide-bot] 朝の見通しを1件投入しました");
   }
 
+  // ダッシュボード（#573）の「今日届いた通知」。朝の見通しだけだと、種類ごとの見た目（急ぎの赤）を
+  // 確かめられない。会話へは積まない（画面が読むのは NotificationLog だけ）。
+  for (const seed of [
+    { kind: "urgent-notice", key: `seed-urgent-${dedupeKey}`, title: "経費精算の締切", body: "本日18時締切の経費精算が未提出です。", share: 0.6 },
+    {
+      kind: "proactive-suggestion",
+      key: `seed-proactive-${dedupeKey}`,
+      title: "先回りの提案",
+      body: "19時過ぎから22時まで空いています。「いつかやりたいこと」の読書メモの整理はいかがでしょう。",
+      share: 0.9,
+    },
+  ]) {
+    // 日本時間の今日の0時から今までのあいだに置く（サーバーのタイムゾーンによらず「今日」に入る）。
+    const dayStartMs = new Date(`${dedupeKey}T00:00:00+09:00`).getTime();
+    const at = new Date(dayStartMs + (now.getTime() - dayStartMs) * seed.share);
+    await db.notificationLog.upsert({
+      where: { userId_kind_dedupeKey: { userId: user.id, kind: seed.kind, dedupeKey: seed.key } },
+      update: {},
+      create: {
+        userId: user.id,
+        kind: seed.kind,
+        dedupeKey: seed.key,
+        title: seed.title,
+        body: seed.body,
+        deliveredCount: PUSH_SUBSCRIPTION_SEEDS.length,
+        createdAt: at,
+      },
+    });
+  }
+
+  // 届いた通知（`/pushes`。#581）。きのう以前の行が無いと、日をまたいで並ぶか（ダッシュボードには出ないか）を
+  // 確かめられない。黙った日（本文が空）も1件入れ、一覧に出ないことを見る。鍵は日付で固定するので何度流しても増えない。
+  for (const seed of [
+    { daysAgo: 1, kind: "morning-briefing", title: "今日の見通し", body: "きのうの見通しのダミーです。10時から定例、午後は雨の予報でした。" },
+    { daysAgo: 1, kind: "urgent-notice", title: "宅配の再配達", body: "きのうの急ぎのダミーです。再配達の受付が19時まででした。", key: "seed-urgent-past" },
+    { daysAgo: 3, kind: "morning-briefing", title: "今日の見通し", body: "" },
+  ]) {
+    const pastAt = new Date(now.getTime() - seed.daysAgo * 24 * 60 * 60 * 1000);
+    const pastKey = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(pastAt);
+    const key = seed.key ? `${seed.key}-${pastKey}` : pastKey;
+    await db.notificationLog.upsert({
+      where: { userId_kind_dedupeKey: { userId: user.id, kind: seed.kind, dedupeKey: key } },
+      update: {},
+      create: {
+        userId: user.id,
+        kind: seed.kind,
+        dedupeKey: key,
+        title: seed.title,
+        body: seed.body,
+        deliveredCount: seed.body ? PUSH_SUBSCRIPTION_SEEDS.length : 0,
+        createdAt: new Date(`${pastKey}T${seed.kind === "urgent-notice" ? "15:30" : "07:00"}:00+09:00`),
+      },
+    });
+  }
+
   // お知らせの受け皿（#93）。dedupeKeyで畳まれるので、何度流しても増えない。
   for (const seed of NOTICE_SEEDS) {
     const { expiresInMinutes, shownMinutesAgo, showAtInMinutes, fromMorningBriefing, ...rest } = seed;
 
     // アプリの中を指すぶん（#137）。**#157で行き先が今日の記録（`/`）に固定された**
-    // ——朝の見通しは新しい相談を作らず連続セッションへ追記するので、指すべきIDが無い。
     // 実際の経路（`src/lib/briefing.ts` の `ingestNotice()`）と同じ値にしてある。
     let url = rest.url ?? null;
     if (fromMorningBriefing) {
@@ -861,7 +513,7 @@ async function main() {
       fetchedAt: new Date(now.getTime() - fetchedMinutesAgo * 60 * 1000),
       // 初めて取り込んだ時刻（#418）。省略した記事は仕入れた時刻と同じ（最新の回。NEWになる）。
       createdAt: new Date(now.getTime() - (createdMinutesAgo ?? fetchedMinutesAgo) * 60 * 1000),
-      // すでに秘書から振った話題（#278）。一覧にも吹き出しにも出るが、声かけには二度選ばれない。
+      // すでに秘書から振った話題（#278）。一覧にもダッシュボードにも出る。
       spokenAt: spokenMinutesAgo ? new Date(now.getTime() - spokenMinutesAgo * 60 * 1000) : null,
     };
 
@@ -894,26 +546,6 @@ async function main() {
   await db.user.update({ where: { id: user.id }, data: { topicCategoriesReady: true } });
   console.log(`[aide-bot] 話題の種類を${TOPIC_CATEGORY_SEEDS.length}件投入しました`);
 
-  // 継続記憶（#323）。候補・確定・Notionで達成済み・忘れたの各状態を入れておく
-  // （空だと、状態ごとの出し分けを画面から確かめられない）。dedupeKeyは本番の正規化ハッシュと
-  // 一致しなくてよい（一意であればよいダミー）。
-  const DAY = 24 * 60 * 60 * 1000;
-  for (const [index, seed] of MEMORY_SEEDS.entries()) {
-    const { daysAgo, checkedDaysAgo, ...rest } = seed;
-    const data = {
-      ...rest,
-      sourceAt: new Date(now.getTime() - daysAgo * DAY),
-      notionCheckedAt: checkedDaysAgo === undefined ? null : new Date(now.getTime() - checkedDaysAgo * DAY),
-      confirmedAt: rest.status === "CANDIDATE" ? null : new Date(now.getTime() - daysAgo * DAY),
-    };
-    const dedupeKey = createHash("sha256").update(`seed-memory-${index}`).digest("hex");
-    await db.memory.upsert({
-      where: { userId_dedupeKey: { userId: user.id, dedupeKey } },
-      update: data,
-      create: { userId: user.id, dedupeKey, ...data },
-    });
-  }
-
   // 定時のお知らせ（#344）のダミー。有効・無効の両方を入れておく（画面で状態の出し分けを確かめるため）。
   await db.scheduledPush.deleteMany({ where: { userId: user.id } });
   await db.scheduledPush.createMany({
@@ -923,7 +555,6 @@ async function main() {
     ],
   });
 
-  console.log(`[aide-bot] 継続記憶を${MEMORY_SEEDS.length}件投入しました`);
 }
 
 main()

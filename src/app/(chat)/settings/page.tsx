@@ -3,17 +3,12 @@ import { redirect } from "next/navigation";
 
 import { BriefingTimePicker } from "@/components/settings/briefing-time-picker";
 import { ConnectionList } from "@/components/settings/connection-list";
-import { HomeProfileCard } from "@/components/settings/home-profile-card";
 import { ProactiveSettingsCard } from "@/components/settings/proactive-settings";
 import { PushKindsCard } from "@/components/settings/push-kinds-card";
 import { NotificationSettings } from "@/components/settings/notification-settings";
 import { WakeTriggerCard } from "@/components/settings/wake-trigger-card";
-import { WriteToolPicker } from "@/components/settings/write-tool-picker";
 import { getCurrentUser } from "@/lib/auth-user";
 import { listConnections } from "@/lib/mcp/connections";
-import { writeToolsFor } from "@/lib/mcp/presets";
-import { selectedWriteToolPolicy } from "@/lib/mcp/write-tools-server";
-import { hasNotionConnection } from "@/lib/home-profile";
 import { pushPublicKey } from "@/lib/push/config";
 import { normalizeFrequency } from "@/lib/proactive-labels";
 import { parseDisabledKinds } from "@/lib/push/kinds";
@@ -52,24 +47,11 @@ export default async function SettingsPage({ searchParams }: Props) {
     redirect("/login");
   }
 
-  const [connections, query, writeToolPolicy, deviceCount] = await Promise.all([
+  const [connections, query, deviceCount] = await Promise.all([
     listConnections(user.id),
     searchParams,
-    selectedWriteToolPolicy(),
     countSubscriptions(user.id),
   ]);
-
-  // 繋いでいる接続すべてを並べる（#78）。いま相談へ渡っているのは「使用中」のものだけだが、
-  // 休止中のものも使うようにした時点で同じ扱いになるため、状態を添えて全部出す。
-  const writeToolTargets = connections.map((connection) => ({
-    label: connection.label,
-    tools: writeToolsFor(connection.url),
-    inUse: connection.connected && connection.enabled,
-  }));
-
-  // 自宅の情報（#167）。取り込んだ時刻はサーバー側で日本時間へ整形して渡す
-  // （クライアントで作ると端末のタイムゾーンで出て、ハイドレーションでもずれる）。
-  const homeProfileFetchedAt = jstDateTimeLabel(user.homeProfileFetchedAt);
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -77,8 +59,7 @@ export default async function SettingsPage({ searchParams }: Props) {
         <header>
           <h2 className="text-lg font-medium">設定</h2>
           <p className="mt-2 text-sm leading-relaxed text-muted">
-            秘書からのお知らせ、自宅の情報、外部サービスとの接続、書き込みの道具の
-            扱いをここで変えられます。
+            秘書からのお知らせ、通知の種類、外部サービスとの接続をここで変えられます。
           </p>
         </header>
 
@@ -123,17 +104,8 @@ export default async function SettingsPage({ searchParams }: Props) {
           usedAtLabel={user.wakeTokenHash ? jstDateTimeLabel(user.wakeTokenUsedAt) : null}
         />
 
-        <HomeProfileCard
-          initialProfile={user.homeProfile}
-          fetchedAtLabel={homeProfileFetchedAt}
-          notionConnected={hasNotionConnection(
-            connections.filter((connection) => connection.connected).map((connection) => connection.url),
-          )}
-        />
-
         <ConnectionList connections={connections} error={query.error} connected={query.connected} />
 
-        <WriteToolPicker initial={writeToolPolicy} targets={writeToolTargets} />
       </div>
     </div>
   );

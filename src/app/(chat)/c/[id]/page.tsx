@@ -8,8 +8,10 @@ import { redirect } from "next/navigation";
  * 焼き込んで配っており、送った後で消せない。このリポジトリには `not-found.tsx` が無いので、
  * 消すと既定の404に着地して左メニューごと消え、アプリへ戻る導線が無くなる（#102）。
  *
- * 移す先は今日の記録。押した通知の中身は連続セッションの中にあり、そのまま続きを話せる。
+ * 移す先は「届いた通知」（`/pushes`。#581）。この形の通知は今日のものではないので、今日の分しか出さない
+ * ダッシュボード（`/`）へ送ると本文に辿れない（#574で過去の日の画面も無くなった）。IDはもう使わない
+ * （スレッドは無く、通知の記録 `NotificationLog` とも結び付いていない）。
  */
 export default async function LegacyConversationPage() {
-  redirect("/");
+  redirect("/pushes");
 }

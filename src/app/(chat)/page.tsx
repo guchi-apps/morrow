@@ -1,39 +1,40 @@
 import { redirect } from "next/navigation";
 
-import { ConversationView } from "@/components/chat/conversation-view";
+import { DashboardView } from "@/components/dashboard/dashboard-view";
 import { getCurrentUser } from "@/lib/auth-user";
-import { dayHeading, jstDayKey, jstTimeLabel } from "@/lib/day-key";
-import { entriesForToday, primaryConversation } from "@/lib/day-log";
+import { dashboardNotices, dashboardTopics, todaysPushes } from "@/lib/dashboard/today";
+import { dayLabel, jstDayKey } from "@/lib/day-key";
 
 /**
- * 今日の記録（#157）。連続セッションの続きで、話しかけられるのはこの画面だけ。
+ * トップ（`/`）＝今日のダッシュボード（#573）。
  *
- * 相談はテーマごとに分けなくなったので、**ここは「新しい相談」ではなく「いまの続き」**。
- * 今日まだ何も話していない日はきのう以前から少し引き継いで出す（`entriesForToday()`）
- * ——毎朝まっさらだと、1本の記録が続いているように見えない。
+ * チャットをやめて「集めて・選んで・届ける」に絞る第1段階で、相談（今日の記録）は `/chat` へ移した。
+ * **通知（朝の見通し・急ぎのお知らせ・先回りの提案）を押した先もここ**で、本文は「今日届いた通知」に
+ * 出る。きのう以前の本文は「届いた通知」（`/pushes`。#581）で読み、古い通知の `/c/<ID>` もそちらへ転送する。
  */
-export default async function TodayPage() {
+export default async function DashboardPage() {
   const user = await getCurrentUser();
   if (!user) {
     redirect("/login");
   }
 
   const now = new Date();
-  const conversation = await primaryConversation(user.id);
-
-  const entries = await entriesForToday(conversation.id, now);
-
-  // いまの会話の始まり。日本時間で確定させて渡す（クライアントで組むとハイドレーションがずれる）。
-  const started = conversation.contextStartedAt;
   const todayKey = jstDayKey(now);
-  const contextSince = started ? `${dayHeading(jstDayKey(started), todayKey)} ${jstTimeLabel(started)}` : null;
+
+  const [pushes, notices, topics] = await Promise.all([
+    todaysPushes(user.id, now),
+    dashboardNotices(user.id, now),
+    dashboardTopics(user.id, now),
+  ]);
 
   return (
-    <ConversationView
-      initialEntries={entries}
-      todayKey={todayKey}
-      compactedCount={conversation.summarizedCount}
-      contextSince={contextSince}
+    <DashboardView
+      userId={user.id}
+      now={now}
+      heading={dayLabel(todayKey)}
+      pushes={pushes}
+      notices={notices}
+      topics={topics}
     />
   );
 }

@@ -1,5 +1,5 @@
 /**
- * 相談（チャット）の返答生成に使うモデル（#128）。
+ * Codex CLIに渡すモデル（#128。相談は#574で廃止し、いまは通知・お知らせ・話題の生成が使う）。
  *
  * **このモジュールはクライアントコンポーネントからもimportする。** 設定の画面がモデルを
  * 選ぶため、PrismaやCodex CLIの起動処理に触れるものをここへ持ち込まないこと
@@ -9,9 +9,6 @@
  * Cookieの読み書きもここには置かない。`next/headers` はサーバー専用で、import した時点で
  * クライアント側のビルドが落ちる（読み出しは `src/lib/chat-model-server.ts`）。
  */
-
-/** 返答をどう受け取るか。体裁の指示と上限トークンがこれで変わる（#27）。 */
-export type ReplyStyle = "text" | "voice";
 
 /**
  * `/usage` 画面の単価表。**Anthropic（Claude）の単価だけを載せる。**
@@ -96,47 +93,22 @@ export const CHAT_MODELS: ChatModelOption[] = [
  * （`User.modelSettings`）へ持つ。用途を足したら `MODEL_USES`・`MODEL_USE_META`・`DEFAULT_MODELS`
  * の3つを揃える（型で漏れは落ちる）。
  */
-export type ModelUse =
-  | "chat_voice"
-  | "chat_text"
-  | "briefing"
-  | "proactive"
-  | "notice"
-  | "topic"
-  | "compact"
-  | "home_profile"
-  | "memory";
+export type ModelUse = "briefing" | "proactive" | "notice" | "topic";
 
-export const MODEL_USES: readonly ModelUse[] = [
-  "chat_voice",
-  "chat_text",
-  "briefing",
-  "proactive",
-  "notice",
-  "topic",
-  "compact",
-  "home_profile",
-  "memory",
-];
+export const MODEL_USES: readonly ModelUse[] = ["briefing", "proactive", "notice", "topic"];
 
-export type ModelUseGroup = "chat" | "scheduled" | "background";
+export type ModelUseGroup = "scheduled" | "background";
 
 export const MODEL_USE_GROUP_LABELS: Record<ModelUseGroup, string> = {
-  chat: "相談",
   scheduled: "定時・通知",
   background: "バックグラウンド",
 };
 
 export const MODEL_USE_META: Record<ModelUse, { group: ModelUseGroup; label: string; hint: string }> = {
-  chat_voice: { group: "chat", label: "声での返事", hint: "音声の短い返事" },
-  chat_text: { group: "chat", label: "文字での返事", hint: "見出しや表を使う長い返事" },
   briefing: { group: "scheduled", label: "朝の見通し", hint: "毎朝1回・10本の道具を集約" },
   proactive: { group: "scheduled", label: "先回りの提案", hint: "空き時間と希望から判断" },
-  notice: { group: "scheduled", label: "お知らせの選定", hint: "吹き出しに出す1件を選ぶ" },
+  notice: { group: "scheduled", label: "お知らせの選定", hint: "ダッシュボードに出す1件を選ぶ" },
   topic: { group: "background", label: "話題の仕入れ", hint: "ウェブ検索でニュース収集（重い）" },
-  compact: { group: "background", label: "会話の要約", hint: "古い発言を畳む" },
-  home_profile: { group: "background", label: "自宅の前提", hint: "Notionから取り込み" },
-  memory: { group: "background", label: "継続記憶", hint: "候補の抽出と照合" },
 };
 
 /**
@@ -145,15 +117,10 @@ export const MODEL_USE_META: Record<ModelUse, { group: ModelUseGroup; label: str
  * 変えると、設定を触っていない利用者の返答が黙って変わる。
  */
 export const DEFAULT_MODELS: Record<ModelUse, ChatModelId> = {
-  chat_voice: "gpt-6-astra",
-  chat_text: "gpt-6-astra",
   briefing: "gpt-6-astra",
   proactive: "gpt-6-astra",
   notice: "gpt-6-luna",
   topic: "gpt-6-luna",
-  compact: "gpt-6-sol",
-  home_profile: "gpt-6-sol",
-  memory: "gpt-6-sol",
 };
 
 export function isChatModelId(value: unknown): value is ChatModelId {

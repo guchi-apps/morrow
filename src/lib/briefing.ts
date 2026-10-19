@@ -1,13 +1,11 @@
 import {
   BRIEFING_SKIP_TOKEN,
   MORNING_BRIEFING_REQUEST,
-  MORNING_TOPICS_REQUEST,
   briefingSystemPrompt,
 } from "@/lib/anthropic";
 import { modelFor } from "@/lib/chat-model-server";
 import { runCodexRecorded } from "@/lib/codex-run";
 import { jstDayKey } from "@/lib/day-key";
-import { appendSecretaryExchange, primaryConversation } from "@/lib/day-log";
 import { db } from "@/lib/db";
 import { allowedUserIds, isAllowedUserId } from "@/lib/allowed-user-ids";
 import { listConnectedServers, toCodexMcpServers } from "@/lib/mcp/connections";
@@ -110,7 +108,7 @@ export type BriefingOutcome = {
  * **Codexにはシステムプロンプトを別に渡す口が無い。** お知らせ選定（`buildNoticePrompt()`）と
  * 同じく、体裁・材料の指示（`briefingSystemPrompt()`）と依頼の文面を `---` で繋いで1本にする。
  *
- * **依頼の文面はそのまま相談の1通目として保存される**ので、ここで足し引きしないこと（#79）。
+ * 依頼の文面は `MORNING_BRIEFING_REQUEST` をそのまま使う。
  */
 function buildBriefingPrompt(labels: string[]): string {
   return [briefingSystemPrompt(labels), "---", MORNING_BRIEFING_REQUEST].join("\n\n");
@@ -229,7 +227,6 @@ async function runFor(
  */
 async function deliverMorningTopics(
   userId: string,
-  conversationId: string,
   dedupeKey: string,
   now: Date,
 ): Promise<number | undefined> {
@@ -249,8 +246,6 @@ async function deliverMorningTopics(
       // Pushが全滅した回は、会話・抑制記録・話題のどれも消費しない。
       if (topicsDelivered === 0) return 0;
 
-      await appendSecretaryExchange(conversationId, MORNING_TOPICS_REQUEST, body, topicsSavedAt);
-
       await db.notificationLog.create({
         data: {
           userId,
@@ -258,7 +253,6 @@ async function deliverMorningTopics(
           dedupeKey,
           title: MORNING_TOPICS_TITLE,
           body,
-          conversationId: conversationId,
           deliveredCount: topicsDelivered,
         },
       });
@@ -298,8 +292,7 @@ async function deliverTopicsOnly(
     console.error("[aide-bot] 朝のニュースの仕入れに失敗した", error);
   });
 
-  const conversation = await primaryConversation(userId);
-  const delivered = await deliverMorningTopics(userId, conversation.id, dedupeKey, now);
+  const delivered = await deliverMorningTopics(userId, dedupeKey, now);
   if (delivered === 0) {
     return { userId, status: "failed", delivered: 0, detail: "朝のニュースを届けられる端末がありません" };
   }
@@ -355,34 +348,13 @@ async function deliverFor(userId: string, now: Date): Promise<BriefingOutcome> {
     return { userId, status: "silent", delivered: 0 };
   }
 
-  // **#157から、新しい相談は作らず連続セッションへ追記する。** 秘書とのやり取りは1本に
-  // 続いているので、朝の見通しだけ別のスレッドになっていると、続きを話しかけたときに
-  // きのうまでの流れがモデルから見えない。
-  //
-  // **1通目は実際にモデルへ渡した依頼そのもの**にしてある。秘書の返答だけを積むと、
-  // 履歴を読み返したときに秘書が突然しゃべり出したように見える（#79）。
-  // **記録の画面には出さない**（#280。`EntryList`）が、DBとモデルへ渡す履歴には残る。
-  const conversation = await primaryConversation(userId);
-
-  // **発言の時刻は、受けた時刻（`now`）ではなく書き込む直前に取り直す**（#261）。`now` は
-  // 生成を始める前の値で、Codexの往復（最大180秒）のあいだに利用者が話しかけると、
-  // その発言より前へ見通しが割り込み、画面の並びも次の往復でモデルへ渡す履歴も実際の
-  // 順序と食い違う。抑制の鍵（`dedupeKey`）と吹き出しの期限は日付・基準時刻の話なので
-  // `now` のまま。
-  const savedAt = new Date();
-
   const delivered = await sendPushToUser(userId, {
     title: BRIEFING_TITLE,
-    // 押した先は今日の記録。**追記した先がそこ**なので、開けば見通しがいちばん下にある
-    // （#157で `/c/<ID>` を指さなくなった。古い通知の受け皿は残してある）。
+    // 押した先は今日のダッシュボード（#573）。本文は「今日届いた通知」に出る。
     body: text,
     url: "/",
     tag: MORNING_BRIEFING_KIND,
   });
-
-  if (delivered > 0) {
-    await appendSecretaryExchange(conversation.id, MORNING_BRIEFING_REQUEST, text, savedAt);
-  }
 
   // 同じ内容を、秘書の吹き出しの受け皿へも積む（#93）。
   //
@@ -419,7 +391,6 @@ async function deliverFor(userId: string, now: Date): Promise<BriefingOutcome> {
         dedupeKey,
         title: BRIEFING_TITLE,
         body: text,
-        conversationId: conversation.id,
         deliveredCount: delivered,
       },
     });
@@ -428,7 +399,7 @@ async function deliverFor(userId: string, now: Date): Promise<BriefingOutcome> {
   // ニュースは見通しとは別の会話・別の通知で届ける。種類がオフなら送らない（#488）。
   await topicRefresh;
   if (!disabled.has("morning-topics")) {
-    await deliverMorningTopics(userId, conversation.id, dedupeKey, now);
+    await deliverMorningTopics(userId, dedupeKey, now);
   }
 
   return delivered > 0

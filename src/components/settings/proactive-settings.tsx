@@ -68,8 +68,7 @@ export function ProactiveSettingsCard({ initial, hasDevice }: Props) {
         <h3 className="text-sm font-medium">先回りの提案</h3>
         <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-muted">
           予定・タスク・Notionの「いつかやりたいこと」を見て、「今ならできる」ことを秘書から通知でお伝えします。
-          押すと会話が開き、そのときの予定や希望を読み直して続きを相談できます。提案するだけで、予定やタスクは
-          あなたが頼むまで書き換えません。
+          押すとダッシュボードが開き、提案の内容を読めます。提案するだけで、予定やタスクは書き換えません。
         </p>
       </header>
 
