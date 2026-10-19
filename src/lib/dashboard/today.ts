@@ -48,18 +48,30 @@ export async function todaysPushes(userId: string, now = new Date()): Promise<De
 }
 
 /**
- * 日をまたいで遡る、送った通知の本文（「届いた通知」`/pushes`。#581）。新しい順に最大
- * `PUSH_HISTORY_LIMIT` 件。条件は今日の分（`todaysPushes()`）と同じで、日付の下限だけを外す。
+ * 日をまたいで遡る、送った通知の本文（「届いた通知」`/pushes`。#581）。新しい順に
+ * `PUSH_HISTORY_LIMIT` 件（いちばん古い日は途中で切らずに、その日の分を全部足す）。条件は今日の分（`todaysPushes()`）と同じで、日付の下限だけを外す。
  *
  * **端末に残っている前日以前の通知を開いたときの受け皿。** #574で会話・過去の日の画面が無くなり、
  * ダッシュボードは今日の分しか出さないので、ここが無いと古い通知の本文へ辿れない。
  */
 export async function pushHistory(userId: string): Promise<DeliveredPush[]> {
+  const where = { userId, kind: { in: DASHBOARD_PUSH_KINDS }, NOT: { body: "" } };
   const rows = await db.notificationLog.findMany({
-    where: { userId, kind: { in: DASHBOARD_PUSH_KINDS }, NOT: { body: "" } },
+    where,
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: PUSH_HISTORY_LIMIT,
   });
+
+  // 上限で切れた回は、いちばん古い日の残りも足す。日の途中で切ると、その日の通知が欠けて見える。
+  const oldest = rows.at(-1);
+  if (rows.length === PUSH_HISTORY_LIMIT && oldest) {
+    const seen = new Set(rows.map((row) => row.id));
+    const rest = await db.notificationLog.findMany({
+      where: { ...where, createdAt: { gte: dayStart(jstDayKey(oldest.createdAt)), lte: oldest.createdAt } },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    });
+    rows.push(...rest.filter((row) => !seen.has(row.id)));
+  }
   return rows.map(toDeliveredPush);
 }
 

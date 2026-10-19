@@ -175,7 +175,7 @@ export function ChatShell({
               isUsageActive={isUsage}
               isSettingsActive={isSettings}
               isNoticesActive={isNotices}
-          isPushesActive={isPushes}
+              isPushesActive={isPushes}
               isTopicsActive={isTopics}
               isModelsActive={isModels}
               pendingNoticeCount={pendingNoticeCount}

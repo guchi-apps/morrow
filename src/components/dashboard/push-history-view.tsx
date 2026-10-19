@@ -38,7 +38,9 @@ export function PushHistoryView({ days, limit }: { days: PushDay<DeliveredPush>[
           ))
         )}
 
-        {total >= limit && <p className="text-xs text-muted">新しいものから{limit}件まで出しています。</p>}
+        {total >= limit && (
+          <p className="text-xs text-muted">新しいものから{limit}件ほど（日の途中では切らずに）出しています。</p>
+        )}
       </div>
     </div>
   );
