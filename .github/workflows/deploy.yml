@@ -219,6 +219,11 @@ jobs:
       - name: Construct DATABASE_URL
         run: bash scripts/construct-database-url.sh
 
+      # NOTICE_INGEST_TOKEN・OPS_API_TOKEN は環境変数で配らず共有トークンから読む（#570）。未登録だと
+      # お知らせの受け口とAI利用APIが401で閉じるので、何も送る前にここで落とす（#581）。
+      - name: Check shared tokens are registered
+        run: bash scripts/check-shared-tokens.sh
+
       - name: Install SSH key
         uses: shimataro/ssh-key-action@v2
         with:
