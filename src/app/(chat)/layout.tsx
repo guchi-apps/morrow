@@ -3,8 +3,6 @@ import { redirect } from "next/navigation";
 import { ChatShell } from "@/components/chat/chat-shell";
 import { APP_VERSION } from "@/lib/app-version";
 import { getCurrentUser } from "@/lib/auth-user";
-import { jstDayKey } from "@/lib/day-key";
-import { listDays, primaryConversation } from "@/lib/day-log";
 import { pendingNoticeCount } from "@/lib/notice-list";
 import { recentTopicCount } from "@/lib/topics";
 import { formatUsd, startOfMonth, usageBreakdown, type UsageBreakdown } from "@/lib/usage";
@@ -20,21 +18,16 @@ export default async function ChatLayout({ children }: { children: React.ReactNo
 
   const now = new Date();
 
-  // 今月の使用量（#51・#133）。一覧の下に出すため、相談の画面でも毎回引くことになる。
+  // 今月の使用量（#51・#133）。一覧の下に出すため、どの画面でも毎回引くことになる。
   // モデル別に集計した数行しか返らないので、一覧の取得と一緒に流して待ち時間を足さない。
   const monthlyUsagePromise = usageBreakdown({ userId: user.id, since: startOfMonth(now) });
 
-  // まだ秘書が出していないお知らせの件数（#114）。使用量と同じく相談の画面でも毎回引くことに
+  // まだ秘書が出していないお知らせの件数（#114）。使用量と同じくどの画面でも毎回引くことに
   // なるが、`count` 1本なので一覧の取得と一緒に流して待ち時間を足さない。
   const pendingNoticesPromise = pendingNoticeCount(user.id, now);
 
   // 溜まっている話題の件数（#144）。こちらも `count` 1本なので同じく並行して流す。
   const topicCountPromise = recentTopicCount(user.id, now);
-
-  // 左メニューに並べる日付（#157）。相談はテーマごとに分けなくなったので、一覧の元は
-  // スレッドではなく1本の連続セッションの発言になる。
-  const conversation = await primaryConversation(user.id);
-  const days = await listDays(conversation.id, now);
 
   const [monthlyUsage, pendingNotices, topicCount] = await Promise.all([
     monthlyUsagePromise,
@@ -44,8 +37,6 @@ export default async function ChatLayout({ children }: { children: React.ReactNo
 
   return (
     <ChatShell
-      days={days}
-      todayKey={jstDayKey(now)}
       monthlyUsageLabel={monthlyUsageLabel(monthlyUsage)}
       pendingNoticeCount={pendingNotices}
       topicCount={topicCount}

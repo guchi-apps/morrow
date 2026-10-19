@@ -305,7 +305,7 @@ export function TopicCategoryPicker({ initial }: Props) {
 
       <p className="text-[0.6875rem] leading-relaxed text-muted">
         <b className="font-medium text-foreground">すべて外すと仕入れを止めます。</b>
-        種類が増えるほど1回の仕入れは重くなります。仕入れと試し検索は相談と同じChatGPTのサブスク枠で動き、費用は付きません（使った量は「使用量」に出ます）。
+        種類が増えるほど1回の仕入れは重くなります。仕入れと試し検索はChatGPTのサブスク枠で動き、費用は付きません（使った量は「使用量」に出ます）。
       </p>
 
       {message && (

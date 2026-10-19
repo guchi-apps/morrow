@@ -114,8 +114,7 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
           <b className="font-medium text-foreground">
             話題はお知らせとは別の場所に溜まり、通知（Push）は上の「通知する時間」に設定した時刻にだけ届きます。
           </b>
-          吹き出しに出るのは新しい{bubbleLimit}件だけで、{lifetimeHours}時間経つと入れ替わります。相談のときも、直近の話題を秘書が
-          材料として持っています（頼まれていないのに持ち出すことはありません）。要点と一言はモデルが
+          ダッシュボードに出るのは新しい{bubbleLimit}件だけで、{lifetimeHours}時間経つと入れ替わります。要点と一言はモデルが
           記事から書いたもので、細部は出典の記事で確かめてください。
         </p>
       </div>

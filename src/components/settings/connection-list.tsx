@@ -27,8 +27,7 @@ export function ConnectionList({ connections, error, connected }: Props) {
       <header>
         <h3 className="text-sm font-medium">接続</h3>
         <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-muted">
-          外部サービスのMCPサーバーへ繋ぐと、秘書が相談の中でそのデータを見に行けるようになります。
-          繋いだ内容は相談のたびに参照され、必要だと判断したときだけ呼び出されます。
+          外部サービスのMCPサーバーへ繋ぐと、朝の見通しや先回りの提案で、秘書がそのデータを見に行けるようになります。
         </p>
       </header>
 

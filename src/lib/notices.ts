@@ -1,9 +1,8 @@
 import { NoticePriority, type Notice } from "@prisma/client";
 
-import { noticeSystemPrompt, URGENT_NOTICE_REQUEST } from "@/lib/anthropic";
+import { noticeSystemPrompt } from "@/lib/anthropic";
 import { modelFor } from "@/lib/chat-model-server";
 import { runCodexRecorded } from "@/lib/codex-run";
-import { appendSecretaryExchange, primaryConversation } from "@/lib/day-log";
 import { db } from "@/lib/db";
 import { parseChoice, type Choice } from "@/lib/notice-choice";
 import { currentNoticeWhere, isWithinShowWindow, pendingNoticeWhere } from "@/lib/notice-conditions";
@@ -15,7 +14,7 @@ import { sendPushToUser } from "@/lib/push/subscriptions";
 /**
  * お知らせの受け皿と、そこから1件を選んで吹き出しへ出す仕組み（#93）。**サーバー専用。**
  *
- * 各アプリが `POST /api/notices` で「利用者に知らせたいこと」を積み、今日の記録の画面で待って
+ * 各アプリが `POST /api/notices` で「利用者に知らせたいこと」を積み、ダッシュボードで待って
  * いる間、秘書がここから1件を選んで自分の言葉に直す。#79の朝の見通しと違い、材料を外部
  * サービスから取りに行かない——材料はもう積まれている。
  *
@@ -29,8 +28,6 @@ import { sendPushToUser } from "@/lib/push/subscriptions";
  * - **いま伝える価値が無ければ黙る。** `NOTICE_SKIP_TOKEN` を返した回は何も出さない
  * - **一度出したものは繰り返さない。** `shownAt` が入った行はもう候補にならない
  * - **未読が0件ならモデルを1回も叩かない。** 黙っている間の費用も、消費する枠も0
- * - **選ばれた一言は記録にも残る**（#278。`nudgeFromNotice()`。`src/lib/nudge.ts`）。積むのは
- *   この関数ではない——会話の最中は積まないので、**吹き出しへ出した回とは別の時点で積まれる**
  *
  * ## 選ばせる相手（#132）
  *
@@ -52,9 +49,6 @@ const MAX_CANDIDATES = 12;
 
 /**
  * 急ぎのお知らせをPushで届けたときの `NotificationLog.kind`。
- *
- * 声かけ（#278。`src/lib/nudge.ts`）も同じ鍵を読む——ここでPushした用件は#115が記録へ2通で
- * 積んでいるので、声かけとして重ねない。
  */
 export const URGENT_NOTICE_KIND = "urgent-notice";
 
@@ -131,7 +125,7 @@ export async function ingestNotice(userId: string, input: NoticeInput): Promise<
     update: data,
   });
 
-  // 急ぎ（#115）。今日の記録の画面を開いている端末にしか届かない吹き出しとは別に、その場でPushを
+  // 急ぎ（#115）。ダッシュボードを開いている端末にしか届かない「いまの一言」とは別に、その場でPushを
   // 送る。失敗しても積んだこと自体は成立させたいので、独立したtry/catchに包む
   // （#51・#79と同じ「記録・通知の失敗で本筋を止めない」方針）。
   if (notice.priority === NoticePriority.URGENT) {
@@ -149,7 +143,7 @@ export async function ingestNotice(userId: string, input: NoticeInput): Promise<
  * 急ぎ（`URGENT`）のお知らせをその場でPushする（#115）。
  *
  * `URGENT` が効くのはこれまで「選び直しの間隔を10分から1分へ詰める」ところまでで、
- * `/api/notices/current` を叩くのは今日の記録の画面を開いている端末だけだった。画面を閉じていれば
+ * `/api/notices/current` を叩くのはダッシュボードを開いている端末だけだった。画面を閉じていれば
  * 届かないまま `expiresAt` を過ぎるため、ここでは経路を分けてWeb Pushを直接送る。
  *
  * - **文面はモデルに書かせない。** 積む側の `body` をそのまま出す。生成を挟むと#93の
@@ -161,13 +155,7 @@ export async function ingestNotice(userId: string, input: NoticeInput): Promise<
  *   何度も届く運用ではないため許容している）
  * - **押した先は、リンクがあればそのページ（#137）。** 積む側が `url` を付けた用件では、その
  *   ページを開く方が用が足りる（「支払期限が近い」を押して支払いの画面が出る）。**リンクが
- *   無い用件だけ、今日の記録を開く**
- * - **リンクの有無によらず記録には残す。** 押した先が外のアプリでも、届いた文面と時刻は
- *   左のメニューの日付から辿れるようにしておく
- * - **#157から、新しい相談は作らず連続セッションへ追記する。** 1通目はUSER（履歴の先頭が
- *   USERである必要がある。#79と同じ制約）、2通目はASSISTANTとして `body` をそのまま置く。
- *   モデルを呼ばずに「秘書からのお知らせ」として自然に見せるための構成で、朝の見通し
- *   （#79）の「USER=依頼・ASSISTANT=生成物」とは違い、ASSISTANT側も積んだ側の文面そのもの
+ *   無い用件だけ、ダッシュボード（`/`）を開く**。届いた文面は「今日届いた通知」に出る（`NotificationLog`）
  * - **1日あたりの上限は設けない。** 同じ用件の二重送信だけを防ぐ
  * - **`showAt` / `expiresAt` は吹き出し側（`pendingNotices()`）と同じ条件で絞る。** ここを
  *   見ないと、まだ早い用件が積まれた瞬間に飛んだり、届く前に意味を失った用件までPushして
@@ -190,14 +178,10 @@ async function notifyUrgentNotice(userId: string, notice: Notice): Promise<void>
   });
   if (existing) return;
 
-  const conversation = await primaryConversation(userId);
-
-  await appendSecretaryExchange(conversation.id, URGENT_NOTICE_REQUEST, notice.body, new Date());
-
   const delivered = await sendPushToUser(userId, {
     title: notice.title,
     body: notice.body,
-    // 積む側が付けたリンクがあればそこへ、無ければ今日の記録へ（#137・#157）。
+    // 積む側が付けたリンクがあればそこへ、無ければダッシュボードへ（#137・#573）。
     url: safeNoticeUrl(notice.url) ?? "/",
     tag: URGENT_NOTICE_KIND,
   });
@@ -209,7 +193,6 @@ async function notifyUrgentNotice(userId: string, notice: Notice): Promise<void>
       dedupeKey: notice.id,
       title: notice.title,
       body: notice.body,
-      conversationId: conversation.id,
       deliveredCount: delivered,
     },
   });
@@ -267,7 +250,7 @@ function candidateList(pending: Notice[], now: Date): string {
  * `codex exec` を待つ上限（#132）。
  *
  * 実測（サブPC・`gpt-5.6-luna`）では3.5〜5.3秒で返る。上限を置くのは、返らなくなったときに
- * `/api/notices/current` の応答がそのまま止まるため——この経路は今日の記録の画面から3分ごとに
+ * `/api/notices/current` の応答がそのまま止まるため——この経路はダッシュボードから3分ごとに
  * 叩かれるので、詰まったリクエストが積み上がる。実測の10倍以上を取って、遅いだけの回を
  * 切らない値にしてある。
  */
@@ -315,7 +298,7 @@ async function chooseNotice(userId: string, pending: Notice[], now: Date): Promi
 }
 
 /**
- * いま吹き出しに出すものを返す。今日の記録の画面から定期的に呼ばれる。
+ * いま「いまの一言」に出すものを返す。ダッシュボードから定期的に呼ばれる。
  *
  * 生成が要らない回（間隔の中・未読が0件）はDBを引くだけで戻る。**生成に失敗した回は
  * 何も消費しない**——`lastRuns` にも残さないので、次の問い合わせでやり直せる

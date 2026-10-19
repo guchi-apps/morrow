@@ -30,7 +30,6 @@ type Props = {
    * 声と文字で別々に選べるため複数入る。ここに出るのは**これから使う**モデルで、
    * 上の集計は呼び出した時点のモデルで足し上げてある。
    */
-  chatModels: { label: string; model: string }[];
 };
 
 /**
@@ -47,7 +46,7 @@ type Props = {
  * サーバーコンポーネントのまま置いている。数字を見るだけで操作が無く、クライアントにすると
  * `@/lib/usage`（Prismaを引き込む）がバンドルへ入るため。
  */
-export function UsageView({ today, month, total, daily, tableDays, monthLabel, chatModels }: Props) {
+export function UsageView({ today, month, total, daily, tableDays, monthLabel }: Props) {
   const rows = daily.slice(-tableDays).reverse();
   const hasSubscription = total.subscription.calls > 0;
   const hasMetered = total.metered.calls > 0;
@@ -57,14 +56,14 @@ export function UsageView({ today, month, total, daily, tableDays, monthLabel, c
       <div className="mx-auto flex w-full max-w-[900px] flex-col gap-5 px-3.5 py-4 md:gap-7 md:px-7 md:py-6">
         {!hasSubscription && !hasMetered && (
           <p className="rounded-xl border border-border bg-surface px-4 py-3 text-xs leading-relaxed text-muted">
-            まだ記録がありません。相談を送るか、朝の見通しが届くと、その往復で使ったぶんがここに出ます。
+            まだ記録がありません。朝の見通しやお知らせの選定が動くと、その往復で使ったぶんがここに出ます。
           </p>
         )}
 
         {hasSubscription && (
           <section className="flex flex-col gap-3">
             <BandHead
-              title="相談・お知らせ・朝の見通し"
+              title="お知らせ・朝の見通し・話題"
               source="Codex（GPT-5.6）"
               badge="サブスク定額 ・ 費用なし"
             />
@@ -91,7 +90,6 @@ export function UsageView({ today, month, total, daily, tableDays, monthLabel, c
               </b>
               非対話で取得できる口がCodex CLIに無いためで、残量を見るときは端末で{" "}
               <Code>codex</Code> を起動し <Code>/status</Code> を開いてください。
-              {selectedModelsNote(chatModels)}
             </p>
           </section>
         )}
@@ -255,25 +253,6 @@ function PanelHead({ title, withLegend = false }: { title: string; withLegend?: 
       )}
     </div>
   );
-}
-
-/**
- * いま選んでいるモデルの注記（#71）。
- *
- * 声と文字で同じモデルを選んでいるときは、モードの名前を出さず1つにまとめる。
- * 既定のまま使っている人にとって、分かれている事実はここでは要らない情報になる。
- *
- * **単価は書かない。** 定額制の節に出す文言で、Codexのモデルにトークン単価は無い。
- */
-function selectedModelsNote(chatModels: { label: string; model: string }[]): string {
-  const unique = Array.from(new Set(chatModels.map((entry) => entry.model)));
-
-  if (unique.length === 0) return "";
-  if (unique.length === 1) return ` いま選んでいる相談のモデルは ${unique[0]} です。`;
-
-  return ` いま選んでいる相談のモデルは${chatModels
-    .map((entry) => `${entry.label}が ${entry.model}`)
-    .join("、")}です。`;
 }
 
 /**
