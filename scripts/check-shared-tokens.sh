@@ -24,7 +24,9 @@ for name in "${NAMES[@]}"; do
     -H "Authorization: Bearer ${SHARED_TOKEN_API_SECRET}" \
     -H "x-shared-token-consumer: aide-bot" \
     -H "accept: application/json" \
-    "${ISSUE_DECK_URL%/}/api/shared-tokens?name=${name}" || echo "000")"
+    "${ISSUE_DECK_URL%/}/api/shared-tokens?name=${name}" || true)"
+  # 接続できなかった回は -w が 000 を出すので、空のときだけ補う（二重に 000000 と出さない）。
+  status="${status:-000}"
   case "$status" in
     200) echo "共有トークン ${name}: 読めました" ;;
     404) echo "::error::共有トークン ${name} がissue-deckに未登録です（404）。issue-deckの設定画面で登録し、利用元に aide-bot が出ることを確かめてから配ってください（#570）" >&2; failed=1 ;;

@@ -87,7 +87,9 @@ describe("scripts/check-shared-tokens.sh", () => {
   it("接続先が空・届かないときも落ちる", async () => {
     assert.equal((await run({ SHARED_TOKEN_API_SECRET: SECRET, ISSUE_DECK_URL: "" })).code, 1);
     assert.equal((await run({ SHARED_TOKEN_API_SECRET: "", ISSUE_DECK_URL: "http://127.0.0.1:9" })).code, 1);
-    assert.equal((await run({ SHARED_TOKEN_API_SECRET: SECRET, ISSUE_DECK_URL: "http://127.0.0.1:9" })).code, 1);
+    const unreachable = await run({ SHARED_TOKEN_API_SECRET: SECRET, ISSUE_DECK_URL: "http://127.0.0.1:9" });
+    assert.equal(unreachable.code, 1);
+    assert.match(unreachable.out, /HTTP 000）/);
   });
 });
 
