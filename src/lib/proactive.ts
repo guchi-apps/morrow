@@ -2,7 +2,6 @@ import { PROACTIVE_REQUEST, proactiveSystemPrompt } from "@/lib/anthropic";
 import { modelFor } from "@/lib/chat-model-server";
 import { runCodexRecorded } from "@/lib/codex-run";
 import { dayStart, jstDayKey } from "@/lib/day-key";
-import { appendSecretaryExchange, primaryConversation } from "@/lib/day-log";
 import { db } from "@/lib/db";
 import { allowedUserIds } from "@/lib/allowed-user-ids";
 import { listConnectedServers, toCodexMcpServers } from "@/lib/mcp/connections";
@@ -165,11 +164,6 @@ async function runFor(user: ProactiveUser, now: Date): Promise<ProactiveOutcome>
   });
   if (existing) return { userId, status: "silent", delivered: 0, detail: "送信済みの提案" };
 
-  // 連続セッションへ追記する（#157）。1通目は依頼（USER）で、記録の画面には出ない（#280）。
-  // 押した先（`/`）は今日の記録で、開けば提案がいちばん下にある。時刻は書き込む直前に取り直す（#261）。
-  const conversation = await primaryConversation(userId);
-  await appendSecretaryExchange(conversation.id, PROACTIVE_REQUEST, suggestion.text, new Date());
-
   const delivered = await sendPushToUser(userId, {
     title: PROACTIVE_TITLE,
     body: suggestion.text,
@@ -184,7 +178,6 @@ async function runFor(user: ProactiveUser, now: Date): Promise<ProactiveOutcome>
       dedupeKey,
       title: PROACTIVE_TITLE,
       body: suggestion.text,
-      conversationId: conversation.id,
       deliveredCount: delivered,
     },
   });

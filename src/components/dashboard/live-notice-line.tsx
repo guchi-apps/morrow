@@ -2,24 +2,19 @@
 
 import { createContext, useCallback, useContext, useState } from "react";
 
-import { useNudges } from "@/components/chat/use-nudge";
-import { OpenLink, noticeStamp } from "@/components/voice/speech-bubble";
-import type { BubblePayload, NoticeBubble } from "@/components/voice/use-notice";
+import { OpenLink, noticeStamp } from "@/components/dashboard/open-link";
+import { useNoticePoll, type NoticeBubble } from "@/components/dashboard/use-notice-poll";
 import { cn } from "@/lib/utils";
 
 /**
  * ダッシュボードの「いまの一言」（#573）。**お知らせの選定・話題の仕入れの起点も兼ねる。**
  *
- * `/api/notices/current` は、お知らせの選定（#93。`shownAt` を書く）・ニュースの仕入れ（#144。応答後の
- * `refreshTopicsIfStale()`）・声かけ（#278）の起点で、これまで叩いていたのは相談の画面だけだった。
- * トップを相談から外すと、トップを開くだけの日はどれも走らなくなる（#573の計画レビュー）。
- * そこで「書く」画面と同じ問い合わせ（`useNudges()`。3分ごと・見えている間だけ・1時間触られなければ休む）
- * をここでも持つ。**選ばれたお知らせはここに出す**ので、出さずに消費する形にはならない（#114）。
+ * `/api/notices/current` は、お知らせの選定（#93。`shownAt` を書く）とニュースの仕入れ（#144。応答後の
+ * `refreshTopicsIfStale()`）の起点。チャットを廃止した（#574）後、アプリを開いたときにこれを叩くのは
+ * ここだけ。選ばれたお知らせはここに出すので、出さずに消費する形にはならない（#114）。
  *
  * **問い合わせは `NoticeLiveProvider` の1本だけ。** ダッシュボードはスマホ用とPC用の並びを両方描く
  * （CSSで片方を隠す）ので、`LiveNoticeLine` に持たせると同じ口を2本で叩く。
- *
- * 声かけは受け取っても並べない（相談の記録には積まれており、`/chat` で読める）。
  * 最初の描画はサーバーが引いた値で、問い合わせの応答が来たらそちらに替える。
  */
 
@@ -34,9 +29,8 @@ export function NoticeLiveProvider({
 }) {
   const [notice, setNotice] = useState<NoticeBubble | null>(initial);
 
-  const ignoreNudges = useCallback(() => {}, []);
-  const onPayload = useCallback((payload: BubblePayload) => setNotice(payload.notice), []);
-  useNudges(ignoreNudges, false, onPayload);
+  const onNotice = useCallback((next: NoticeBubble | null) => setNotice(next), []);
+  useNoticePoll(onNotice);
 
   return <NoticeContext.Provider value={notice}>{children}</NoticeContext.Provider>;
 }

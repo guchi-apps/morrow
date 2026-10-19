@@ -49,7 +49,7 @@ export function NoticesView({ board, now, displayTtlMs }: Props) {
           <Stat
             label="いま出している"
             value={current ? 1 : 0}
-            note={current ? remainingLabel(current, now, displayTtlMs) : "吹き出しは待機中です"}
+            note={current ? remainingLabel(current, now, displayTtlMs) : "いまは出していません"}
           />
           <Stat label="今日出した" value={shownToday + currentToday} note="選び直しは10分に1回" />
         </div>

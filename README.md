@@ -1,6 +1,6 @@
 # Morrow（aide-bot）
 
-**Morrow（モロー）** — NotionやAIDEなどを参照し、チャットボットでプライベートを補佐するPWA。
+**Morrow（モロー）** — NotionやAIDEなどを参照し、朝の見通し・お知らせ・話題を集めて選んで届け、プライベートを補佐するPWA（相談・音声対話はChatGPTで代替するため#574で廃止）。
 利用者に見える名前は Morrow で、リポジトリ名は `guchi-apps/morrow`（#414）、URL・DB名・環境変数などの内部識別子は `aide-bot` のまま。
 
 | 項目 | 値 |
@@ -91,40 +91,22 @@ curl -s -b /tmp/cookies.txt -o /dev/null -w '%{http_code}\n' http://localhost:30
 
 | パス | 内容 |
 |---|---|
-| `/` | 今日の記録。話しかけられるのはここだけ |
-| `/d/<日付>` | 過去の日の記録（読むだけ） |
+| `/` | 今日のダッシュボード（天気・予定・今日届いた通知・お知らせ・話題。通知を押した先） |
+| `/notices` | 積まれたお知らせの一覧 |
+| `/topics` | 仕入れた話題と、定時のお知らせの設定 |
+| `/models` | 用途ごとのAIモデル |
+| `/usage` | 使用量 |
+| `/settings` | 通知・接続などの設定 |
 | `/c/<ID>` | 古い通知の受け皿（`/` へリダイレクトするだけ） |
 | `/login` | ログイン |
 
-チャットの返答は `POST /api/chat` がServer-Sent Eventsで逐次返す。相談は利用者につき
-**1本の連続した会話**（`Conversation`）に積み続け、日付は表示の区切りでしかない（#157）。
-**対話相手は常に同じ「秘書」1人**で、相手を選ぶ・切り替える導線は無い。
-
 ChatGPTのスケジュールから情報を登録する方法は [docs/chatgpt-mcp.md](docs/chatgpt-mcp.md) を参照。
 
-### 文字と声（#433）
+### 実機（iPhoneのPWA）で開発環境を見る
 
-今日の記録は常に文字の画面で、**声は入力欄の「話しかける」（音声バー）から使う**
-（立ち絵の全画面「話す」・ヘッダーの切り替えは#433で廃止した）。どちらで話しても同じ会話へ
-残る。声で話した返答は声で読み上げ、文字で送った返答は読み上げない。
-
-- 聞き取りと読み上げは**ブラウザ内蔵のWeb Speech API**で行う。音声を外部サービスへ送らない
-  ため、追加のAPIキーも実費も要らない。代わりに**対応はChrome / Edge / Safariに限られる**
-  （Firefoxは聞き取りに非対応）。使えない端末ではマイクを出さず、文字で相談できる
-- 音声モードでは `POST /api/chat` に `mode: "voice"` を渡す。返答が読み上げ向きの短さになり、
-  見出しや表を使わなくなる（`VOICE_STYLE_INSTRUCTION`）。保存の仕方は「書く」と同じ
-- **マイクはHTTPS（またはlocalhost）でしか開けない**（secure context 限定）。**スマホ実機での
-  確認に `sslip.io` は使えない**——http でしか開けず、画面は出るのにマイクが起動しない。
-  Tailscale越しのHTTPSで開く
-
-  ```bash
-  # サブPCで一度だけ（Tailscale管理画面でHTTPS証明書を有効にしてある前提）
-  tailscale serve --bg --https=443 24027
-  # → iPhoneのSafariで https://subpc.<tailnet>.ts.net/ を開く
-  ```
-
-  `next.config.mjs` の `allowedDevOrigins` に `**.ts.net` が入っているので追加の設定は要らない。
-  片付けるときは `tailscale serve --https=443 off`
+マイク機能は廃止したが、ホーム画面に追加したPWAはHTTPSでないと確かめられない。`pnpm dev:https`（`scripts/dev-https.sh`）が
+Tailscale越しのHTTPSで開発サーバーを公開する。`next.config.mjs` の `allowedDevOrigins` に `**.ts.net` が入っている。
+**443は他のアプリが使っているので、ポートを明示せずに `tailscale serve` を張らない**（詳細は [CLAUDE.md](CLAUDE.md)）。
 
 ## デプロイ
 

@@ -6,7 +6,7 @@ import type { UsageFeature } from "@/lib/usage-feature";
  * `runCodexExec()` の結果を `ApiUsage` へ残す（#133・#229）。**サーバー専用。**
  *
  * **`usage` がnullの回（中断・起動失敗。`turn.completed` が届いていない）は何も残さない。**
- * 相談（`/api/chat`）も、下の `runCodexRecorded()` も、使った量を残すのはここ1か所に通す
+ * 下の `runCodexRecorded()` も、使った量を残すのはここ1か所に通す
  * ——新しい経路を足すたびに記録を書き忘れる、をここで塞ぐ。
  */
 export async function recordCodexUsage(params: {
@@ -26,11 +26,9 @@ export async function recordCodexUsage(params: {
 /**
  * Codexを1回呼び、使った量を残し、打ち切り・失敗を例外にして返す（#229）。
  *
- * **利用者からの割り込みが無い経路の共通の流れ**——要約（`compact.ts`）・朝の見通し
- * （`briefing.ts`）・お知らせの選定（`notices.ts`）・話題の仕入れ（`topics.ts`）・自宅の
- * 取り込み（`home-profile.ts`）。以前は5か所が同じ「使用量を記録 → 打ち切り → エラー」を
- * 手で書いていた。相談（`/api/chat`）は `interrupted` を保存に使うので、ここを通さず
- * `recordCodexUsage()` だけを使う。
+ * **利用者からの割り込みが無い経路の共通の流れ**——朝の見通し（`briefing.ts`）・先回りの提案
+ * （`proactive.ts`）・お知らせの選定（`notices.ts`）・話題の仕入れ（`topics.ts`）。以前は
+ * 各所が同じ「使用量を記録 → 打ち切り → エラー」を手で書いていた。
  *
  * - **使用量は失敗より先に残す。** 失敗した回でも `turn.completed` が届いていれば量は使い終わって
  *   いる（読めない形で返ってきた回・エラーで終わった回）

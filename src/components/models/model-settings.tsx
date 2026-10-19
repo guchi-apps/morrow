@@ -25,7 +25,7 @@ type Props = {
   initial: Record<ModelUse, ChatModelId>;
 };
 
-const GROUPS: ModelUseGroup[] = ["chat", "scheduled", "background"];
+const GROUPS: ModelUseGroup[] = ["scheduled", "background"];
 
 type Status = { kind: "idle" } | { kind: "saved" } | { kind: "error"; message: string };
 

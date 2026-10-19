@@ -46,7 +46,7 @@ export async function POST(request: Request) {
     ? PUSH_KIND_INFO[kind].sample
     : {
         title: "テスト通知",
-        body: "この形で朝の見通しが届きます。押すと相談の画面が開きます。",
+        body: "この形で朝の見通しが届きます。押すとダッシュボードが開きます。",
         url: "/settings",
       };
 

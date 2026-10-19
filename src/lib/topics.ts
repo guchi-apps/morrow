@@ -16,17 +16,16 @@ import { OTHER_CATEGORY_ID, type TopicCategory } from "@/lib/topic-categories";
  * 話題（#144）。**サーバー専用。**
  *
  * 秘書が雑談の話題として振れるように、ニュースをウェブ検索で仕入れて `Topic` に溜める。
- * 待機中の吹き出し（#101）にはここから新しい数件を回し、相談（`/api/chat`）にも直近のぶんを
- * 材料として添える。**どちらもモデルは呼ばない**——仕入れたときに一度だけ書かせた文を出す
+ * ダッシュボードの「話題」にはここから新しい数件を出す。**出すときにモデルは呼ばない**——仕入れたときに一度だけ書かせた文を出す
  * だけなので、#93・#101の「黙っている間の費用は0円」はそのまま守られる。
  *
  * ## 仕入れの起点はアプリを開いたときと、定時のお知らせの直前（#362）。専用のcronは足さない
  *
- * 常駐の仕入れは持たない。仕入れは今日の記録の画面の問い合わせ（`/api/notices/current`）の応答後に
+ * 常駐の仕入れは持たない。仕入れはダッシュボードの問い合わせ（`/api/notices/current`）の応答後に
  * バックグラウンドで走る
  * （`refreshTopicsIfStale()`）。前回から `TOPIC_REFRESH_INTERVAL_MS` あいていなければ何もしない
  * ので、開きっぱなしでも1時間に1回まで。1時間触られなければ問い合わせ自体が止まる
- * （`IDLE_LIMIT_MS`。`use-notice.ts`）ので、放置した画面が夜通し仕入れ続けることも無い。
+ * （`IDLE_LIMIT_MS`。`use-notice-poll.ts`）ので、放置した画面が夜通し仕入れ続けることも無い。
  *
  * ## 検索は `codex --search exec`（ChatGPTのサブスク枠）
  *
@@ -50,14 +49,11 @@ export const TOPIC_REFRESH_INTERVAL_MS = 60 * 60 * 1000;
  */
 const TOPIC_RETRY_INTERVAL_MS = 15 * 60 * 1000;
 
-/** 吹き出し・相談の材料として使う期間。これより古い記事は「最近の話題」ではない。 */
+/** ダッシュボードに出す期間。これより古い記事は「最近の話題」ではない。 */
 export const TOPIC_LIFETIME_MS = 24 * 60 * 60 * 1000;
 
-/** 吹き出しの輪へ渡す件数。多すぎると輪の半分がニュースになり、用件が薄まる。 */
+/** ダッシュボードの「話題」に出す件数。 */
 export const TOPIC_BUBBLE_LIMIT = 3;
-
-/** 相談の材料として添える件数。 */
-const TOPIC_CHAT_LIMIT = 8;
 
 /**
  * 定時のお知らせ（#362）の前に仕入れるときの最小の間隔。前回の仕入れからこれだけあいていなければ、
@@ -226,33 +222,6 @@ export async function topicsForBubble(userId: string, now = new Date()): Promise
     console.error("[aide-bot] 話題の取得に失敗した", error);
     return [];
   }
-}
-
-/**
- * 相談のプロンプトへ添える「最近の話題」の一覧。無ければ空文字。
- *
- * 出典URLも渡す。利用者が「それどこの記事？」と聞いたときに、モデルが作ったURLではなく
- * 仕入れたときの実物を答えられるようにするため。
- */
-export async function topicsForChat(userId: string, now = new Date()): Promise<string> {
-  let topics: Topic[];
-  try {
-    topics = groupDuplicateTopics(await recentTopics(userId, now, TOPIC_MERGE_FETCH))
-      .slice(0, TOPIC_CHAT_LIMIT)
-      .map((group) => group.primary);
-  } catch (error) {
-    console.error("[aide-bot] 相談の材料になる話題の取得に失敗した", error);
-    return "";
-  }
-
-  if (topics.length === 0) return "";
-
-  const lines = topics.map((topic) => {
-    const source = [topic.sourceName, topic.publishedOn].filter((part) => part !== "").join("・");
-    return `- ${topic.title}: ${topic.summary}（${source || "出典"}: ${topic.url}）`;
-  });
-
-  return lines.join("\n");
 }
 
 /** 「話題」ページに出す一式。 */

@@ -3,7 +3,6 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse, after } from "next/server";
 
 import { runMorningBriefing } from "@/lib/briefing";
-import { refreshHomeProfiles } from "@/lib/home-profile";
 import { runProactiveSuggestions } from "@/lib/proactive";
 import { runScheduledPushes } from "@/lib/scheduled-push";
 
@@ -61,11 +60,6 @@ export async function POST(request: Request) {
 
   const outcomes = await runMorningBriefing();
 
-  // 自宅の情報の取り込み（#167）。**朝の見通しとは独立**で、設定時刻の前でも走る
-  // （見通しを送ったかどうかとは関係が無い）。前回から1日あいていなければDBを1回引くだけで
-  // 戻るので、cronが30分ごとに叩いても取り込みは1日1回に収まる。
-  const homeProfiles = await refreshHomeProfiles();
-
   // 先回りの提案（#325）。**応答を待たせない**——判定を通ればCodexが最大180秒かかるため、
   // 朝の見通しの結果を返した後（`after()`）で走らせる。判定の大半はDBを引くだけで戻る。
   // 朝の見通しとは抑制の単位（種類・上限）を分けてあり、その1日1本の枠を消費しない。
@@ -102,6 +96,5 @@ export async function POST(request: Request) {
       delivered,
       ...(detail ? { detail } : {}),
     })),
-    homeProfiles,
   });
 }

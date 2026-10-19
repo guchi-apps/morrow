@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 
 import { UsageView } from "@/components/chat/usage-view";
 import { getCurrentUser } from "@/lib/auth-user";
-import { modelSettingsFor } from "@/lib/chat-model-server";
 import { dailyUsage, startOfDay, startOfMonth, usageBreakdown } from "@/lib/usage";
 
 /** グラフに並べる日数。スマホの幅（393px）でも棒が潰れない範囲に収める。 */
@@ -29,12 +28,11 @@ export default async function UsagePage() {
 
   const now = new Date();
 
-  const [today, month, total, daily, models] = await Promise.all([
+  const [today, month, total, daily] = await Promise.all([
     usageBreakdown({ userId: user.id, since: startOfDay(now) }),
     usageBreakdown({ userId: user.id, since: startOfMonth(now) }),
     usageBreakdown({ userId: user.id }),
     dailyUsage(user.id, CHART_DAYS, now),
-    modelSettingsFor(user.id),
   ]);
 
   return (
@@ -45,10 +43,6 @@ export default async function UsagePage() {
       daily={daily}
       tableDays={TABLE_DAYS}
       monthLabel={`${now.getMonth() + 1}月`}
-      chatModels={[
-        { label: "声での返事", model: models.chat_voice },
-        { label: "文字での返事", model: models.chat_text },
-      ]}
     />
   );
 }
