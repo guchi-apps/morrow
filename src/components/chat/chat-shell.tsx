@@ -71,6 +71,7 @@ export function ChatShell({
   const isUsage = pathname === "/usage";
   const isSettings = pathname === "/settings";
   const isNotices = pathname === "/notices";
+  const isPushes = pathname === "/pushes";
   const isTopics = pathname === "/topics";
   const isModels = pathname === "/models";
   const heading = isDashboard
@@ -81,11 +82,13 @@ export function ChatShell({
         ? "設定"
         : isNotices
           ? "お知らせ"
-          : isTopics
-            ? "話題"
-            : isModels
-              ? "モデル"
-              : "Morrow";
+          : isPushes
+            ? "届いた通知"
+            : isTopics
+              ? "話題"
+              : isModels
+                ? "モデル"
+                : "Morrow";
 
   // 開いたドロワーは、閉じるボタン・スクリム・中のリンク（onNavigate）で閉じる。
   // pathnameの変化をuseEffectで見て閉じる形にはしない——描画のたびにsetStateが走る。
@@ -129,6 +132,7 @@ export function ChatShell({
           isUsageActive={isUsage}
           isSettingsActive={isSettings}
           isNoticesActive={isNotices}
+          isPushesActive={isPushes}
           isTopicsActive={isTopics}
           isModelsActive={isModels}
           pendingNoticeCount={pendingNoticeCount}
@@ -171,6 +175,7 @@ export function ChatShell({
               isUsageActive={isUsage}
               isSettingsActive={isSettings}
               isNoticesActive={isNotices}
+          isPushesActive={isPushes}
               isTopicsActive={isTopics}
               isModelsActive={isModels}
               pendingNoticeCount={pendingNoticeCount}

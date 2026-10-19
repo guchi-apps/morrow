@@ -435,6 +435,31 @@ async function main() {
     });
   }
 
+  // 届いた通知（`/pushes`。#581）。きのう以前の行が無いと、日をまたいで並ぶか（ダッシュボードには出ないか）を
+  // 確かめられない。黙った日（本文が空）も1件入れ、一覧に出ないことを見る。鍵は日付で固定するので何度流しても増えない。
+  for (const seed of [
+    { daysAgo: 1, kind: "morning-briefing", title: "今日の見通し", body: "きのうの見通しのダミーです。10時から定例、午後は雨の予報でした。" },
+    { daysAgo: 1, kind: "urgent-notice", title: "宅配の再配達", body: "きのうの急ぎのダミーです。再配達の受付が19時まででした。", key: "seed-urgent-past" },
+    { daysAgo: 3, kind: "morning-briefing", title: "今日の見通し", body: "" },
+  ]) {
+    const pastAt = new Date(now.getTime() - seed.daysAgo * 24 * 60 * 60 * 1000);
+    const pastKey = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(pastAt);
+    const key = seed.key ? `${seed.key}-${pastKey}` : pastKey;
+    await db.notificationLog.upsert({
+      where: { userId_kind_dedupeKey: { userId: user.id, kind: seed.kind, dedupeKey: key } },
+      update: {},
+      create: {
+        userId: user.id,
+        kind: seed.kind,
+        dedupeKey: key,
+        title: seed.title,
+        body: seed.body,
+        deliveredCount: seed.body ? PUSH_SUBSCRIPTION_SEEDS.length : 0,
+        createdAt: new Date(`${pastKey}T${seed.kind === "urgent-notice" ? "15:30" : "07:00"}:00+09:00`),
+      },
+    });
+  }
+
   // お知らせの受け皿（#93）。dedupeKeyで畳まれるので、何度流しても増えない。
   for (const seed of NOTICE_SEEDS) {
     const { expiresInMinutes, shownMinutesAgo, showAtInMinutes, fromMorningBriefing, ...rest } = seed;

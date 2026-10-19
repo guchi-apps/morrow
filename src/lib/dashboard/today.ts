@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { dayStart, jstDayKey } from "@/lib/day-key";
+import { PUSH_HISTORY_LIMIT } from "@/lib/dashboard/push-history";
 import { noticeBoard } from "@/lib/notice-list";
 import { PUSH_KIND_INFO, isPushKind } from "@/lib/push/kinds";
 import { listTopicCategories } from "@/lib/topic-category-store";
@@ -43,7 +44,27 @@ export async function todaysPushes(userId: string, now = new Date()): Promise<De
     take: 30,
   });
 
-  return rows.map((row) => ({
+  return rows.map(toDeliveredPush);
+}
+
+/**
+ * 日をまたいで遡る、送った通知の本文（「届いた通知」`/pushes`。#581）。新しい順に最大
+ * `PUSH_HISTORY_LIMIT` 件。条件は今日の分（`todaysPushes()`）と同じで、日付の下限だけを外す。
+ *
+ * **端末に残っている前日以前の通知を開いたときの受け皿。** #574で会話・過去の日の画面が無くなり、
+ * ダッシュボードは今日の分しか出さないので、ここが無いと古い通知の本文へ辿れない。
+ */
+export async function pushHistory(userId: string): Promise<DeliveredPush[]> {
+  const rows = await db.notificationLog.findMany({
+    where: { userId, kind: { in: DASHBOARD_PUSH_KINDS }, NOT: { body: "" } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: PUSH_HISTORY_LIMIT,
+  });
+  return rows.map(toDeliveredPush);
+}
+
+function toDeliveredPush(row: { id: string; kind: string; title: string; body: string; createdAt: Date }): DeliveredPush {
+  return {
     id: row.id,
     kind: row.kind,
     label: isPushKind(row.kind) ? PUSH_KIND_INFO[row.kind].label : row.title,
@@ -51,7 +72,7 @@ export async function todaysPushes(userId: string, now = new Date()): Promise<De
     body: row.body,
     createdAt: row.createdAt,
     urgent: row.kind === "urgent-notice",
-  }));
+  };
 }
 
 export type DashboardNotices = {

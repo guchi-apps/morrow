@@ -10,7 +10,7 @@ import { dayLabel, jstDayKey } from "@/lib/day-key";
  *
  * チャットをやめて「集めて・選んで・届ける」に絞る第1段階で、相談（今日の記録）は `/chat` へ移した。
  * **通知（朝の見通し・急ぎのお知らせ・先回りの提案）を押した先もここ**で、本文は「今日届いた通知」に
- * 出る。古い通知の `/c/<ID>` もここへ転送される。
+ * 出る。きのう以前の本文は「届いた通知」（`/pushes`。#581）で読み、古い通知の `/c/<ID>` もそちらへ転送する。
  */
 export default async function DashboardPage() {
   const user = await getCurrentUser();
