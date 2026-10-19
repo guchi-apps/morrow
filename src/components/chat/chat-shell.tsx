@@ -74,9 +74,11 @@ export function ChatShell({
   const wasOpenRef = useRef(false);
 
   const isUsage = pathname === "/usage";
-  // 過去の日（`/d/<date>`。#157）。今日の記録は `/` で、この形のURLを持たない。
+  // 過去の日（`/d/<date>`。#157）。今日の記録は `/chat`（#573で `/` から移した）で、この形のURLを持たない。
   const activeDate = pathname.startsWith("/d/") ? pathname.slice("/d/".length) : null;
-  const isToday = pathname === "/";
+  // トップ（`/`）は今日のダッシュボード（#573）。
+  const isDashboard = pathname === "/";
+  const isToday = pathname === "/chat";
   const isSettings = pathname === "/settings";
   const isNotices = pathname === "/notices";
   const isTopics = pathname === "/topics";
@@ -89,7 +91,9 @@ export function ChatShell({
     : null;
   // 使用量（#51）・設定（#46・#71）・お知らせ（#114）・話題（#144）は記録ではないので、見出しも
   // 「話す / 書く」の切り替えもこれらの画面には出さない。
-  const heading = isUsage
+  const heading = isDashboard
+    ? "今日"
+    : isUsage
     ? "使用量"
     : isSettings
       ? "設定"
@@ -145,6 +149,7 @@ export function ChatShell({
         <ConversationRail
           days={days}
           activeDate={activeDate}
+          isDashboardActive={isDashboard}
           isTodayActive={isToday}
           todayKey={todayKey}
           isUsageActive={isUsage}
@@ -191,7 +196,8 @@ export function ChatShell({
             <ConversationRail
               days={days}
               activeDate={activeDate}
-              isTodayActive={isToday}
+              isDashboardActive={isDashboard}
+          isTodayActive={isToday}
               todayKey={todayKey}
               isUsageActive={isUsage}
               isSettingsActive={isSettings}

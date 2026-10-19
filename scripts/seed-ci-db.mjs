@@ -807,6 +807,36 @@ async function main() {
     console.log("[aide-bot] 朝の見通しを1件投入しました");
   }
 
+  // ダッシュボード（#573）の「今日届いた通知」。朝の見通しだけだと、種類ごとの見た目（急ぎの赤）を
+  // 確かめられない。会話へは積まない（画面が読むのは NotificationLog だけ）。
+  for (const seed of [
+    { kind: "urgent-notice", key: `seed-urgent-${dedupeKey}`, title: "経費精算の締切", body: "本日18時締切の経費精算が未提出です。", share: 0.6 },
+    {
+      kind: "proactive-suggestion",
+      key: `seed-proactive-${dedupeKey}`,
+      title: "先回りの提案",
+      body: "19時過ぎから22時まで空いています。「いつかやりたいこと」の読書メモの整理はいかがでしょう。",
+      share: 0.9,
+    },
+  ]) {
+    // 日本時間の今日の0時から今までのあいだに置く（サーバーのタイムゾーンによらず「今日」に入る）。
+    const dayStartMs = new Date(`${dedupeKey}T00:00:00+09:00`).getTime();
+    const at = new Date(dayStartMs + (now.getTime() - dayStartMs) * seed.share);
+    await db.notificationLog.upsert({
+      where: { userId_kind_dedupeKey: { userId: user.id, kind: seed.kind, dedupeKey: seed.key } },
+      update: {},
+      create: {
+        userId: user.id,
+        kind: seed.kind,
+        dedupeKey: seed.key,
+        title: seed.title,
+        body: seed.body,
+        deliveredCount: PUSH_SUBSCRIPTION_SEEDS.length,
+        createdAt: at,
+      },
+    });
+  }
+
   // お知らせの受け皿（#93）。dedupeKeyで畳まれるので、何度流しても増えない。
   for (const seed of NOTICE_SEEDS) {
     const { expiresInMinutes, shownMinutesAgo, showAtInMinutes, fromMorningBriefing, ...rest } = seed;

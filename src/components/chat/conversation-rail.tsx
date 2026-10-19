@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, Bell, Brain, CalendarDays, Cpu, Newspaper, Settings } from "lucide-react";
+import { BarChart3, Bell, Brain, CalendarDays, Cpu, LayoutDashboard, Newspaper, Settings } from "lucide-react";
 import Link from "next/link";
 
 import { AppLogo } from "@/components/brand/app-icon";
@@ -14,7 +14,9 @@ type Props = {
   days: DayRow[];
   /** いま開いている過去の日（`2026-09-01`）。今日の記録を開いているときはnull。 */
   activeDate: string | null;
-  /** 今日の記録（`/`）を開いているか。 */
+  /** 今日のダッシュボード（`/`。#573）を開いているか。 */
+  isDashboardActive: boolean;
+  /** 今日の記録（`/chat`。#573で `/` から移した）を開いているか。 */
   isTodayActive: boolean;
   /** 今日の日付（`2026-09-03`）。一覧に無くても「今日」の行を出すために使う。 */
   todayKey: string;
@@ -45,12 +47,13 @@ type Props = {
  * 日付の一覧（#157）。PCでは常に見えている左の帯、スマホではドロワーの中身として同じものを使う。
  *
  * **相談はテーマごとに分けなくなったので、並ぶのはスレッドではなく日付。** 押すとその日の
- * 記録（`/d/<date>`）が開く。今日の行だけは `/` を指す——話しかけられるのはそこだけで、
+ * 記録（`/d/<date>`）が開く。今日の行だけは `/chat` を指す——話しかけられるのはそこだけで、
  * 同じ内容を2つのURLで出すと入力欄の有無が説明できなくなる。
  */
 export function ConversationRail({
   days,
   activeDate,
+  isDashboardActive,
   isTodayActive,
   todayKey,
   isUsageActive,
@@ -88,18 +91,33 @@ export function ConversationRail({
         <AppLogo className="text-xl" />
 
         {/*
-          #157で「新しい相談」から「今日の記録」へ変わった。押しても新しいスレッドは
-          作られず、続きを話す場所へ戻るだけ（`/` を開いている間は何も起きない）。
+          トップ（`/`）は今日のダッシュボード（#573）。相談は後続のIssueで消すまで「今日の記録」
+          （`/chat`）として残す。#157で「新しい相談」から「今日の記録」へ変わっていて、押しても新しい
+          スレッドは作られず、続きを話す場所へ戻るだけ。
         */}
-        <Link
-          href="/"
-          onClick={onNavigate}
-          aria-current={isTodayActive ? "page" : undefined}
-          className="flex items-center justify-center gap-1.5 rounded-[10px] bg-accent px-3 py-2.5 text-[0.8125rem] font-medium text-accent-foreground transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-        >
-          <CalendarDays className="size-3.5" aria-hidden="true" />
-          今日の記録
-        </Link>
+        <div className="flex flex-col gap-1.5">
+          <Link
+            href="/"
+            onClick={onNavigate}
+            aria-current={isDashboardActive ? "page" : undefined}
+            className="flex items-center justify-center gap-1.5 rounded-[10px] bg-accent px-3 py-2.5 text-[0.8125rem] font-medium text-accent-foreground transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            <LayoutDashboard className="size-3.5" aria-hidden="true" />
+            今日
+          </Link>
+          <Link
+            href="/chat"
+            onClick={onNavigate}
+            aria-current={isTodayActive ? "page" : undefined}
+            className={cn(
+              "flex items-center justify-center gap-1.5 rounded-[10px] border border-border bg-surface px-3 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+              isTodayActive && "bg-rail-active font-medium",
+            )}
+          >
+            <CalendarDays className="size-3.5" aria-hidden="true" />
+            今日の記録
+          </Link>
+        </div>
       </div>
 
       <nav aria-label="日付ごとの記録" className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 pb-3">
@@ -119,7 +137,7 @@ export function ConversationRail({
                 </div>
               )}
               <Link
-                href={isToday ? "/" : `/d/${day.date}`}
+                href={isToday ? "/chat" : `/d/${day.date}`}
                 onClick={onNavigate}
                 aria-current={isActive ? "page" : undefined}
                 className={cn(
