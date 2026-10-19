@@ -117,8 +117,6 @@ jobs:
       APNS_TEAM_ID: ${{ secrets.APNS_TEAM_ID }}
       APNS_KEY_P8: ${{ secrets.APNS_KEY_P8 }}
       BRIEFING_TRIGGER_TOKEN: ${{ secrets.BRIEFING_TRIGGER_TOKEN }}
-      NOTICE_INGEST_TOKEN: ${{ secrets.NOTICE_INGEST_TOKEN }}
-      OPS_API_TOKEN: ${{ secrets.OPS_API_TOKEN }}
       SHARED_TOKEN_API_SECRET: ${{ secrets.SHARED_TOKEN_API_SECRET }}
       ISSUE_DECK_URL: ${{ vars.APP_BASE_URL }}
       NOTION_API_TOKEN: ${{ secrets.NOTION_API_TOKEN }}
@@ -203,8 +201,6 @@ jobs:
       APNS_TEAM_ID: ${{ secrets.APNS_TEAM_ID }}
       APNS_KEY_P8: ${{ secrets.APNS_KEY_P8 }}
       BRIEFING_TRIGGER_TOKEN: ${{ secrets.BRIEFING_TRIGGER_TOKEN }}
-      NOTICE_INGEST_TOKEN: ${{ secrets.NOTICE_INGEST_TOKEN }}
-      OPS_API_TOKEN: ${{ secrets.OPS_API_TOKEN }}
       SHARED_TOKEN_API_SECRET: ${{ secrets.SHARED_TOKEN_API_SECRET }}
       ISSUE_DECK_URL: ${{ vars.APP_BASE_URL }}
       NOTION_API_TOKEN: ${{ secrets.NOTION_API_TOKEN }}
@@ -269,8 +265,6 @@ jobs:
           APNS_TEAM_ID: ${{ env.APNS_TEAM_ID }}
           APNS_KEY_P8: ${{ env.APNS_KEY_P8 }}
           BRIEFING_TRIGGER_TOKEN: ${{ env.BRIEFING_TRIGGER_TOKEN }}
-          NOTICE_INGEST_TOKEN: ${{ env.NOTICE_INGEST_TOKEN }}
-          OPS_API_TOKEN: ${{ env.OPS_API_TOKEN }}
           SHARED_TOKEN_API_SECRET: ${{ env.SHARED_TOKEN_API_SECRET }}
           ISSUE_DECK_URL: ${{ env.ISSUE_DECK_URL }}
           NOTION_API_TOKEN: ${{ env.NOTION_API_TOKEN }}
@@ -289,7 +283,7 @@ jobs:
           esac
           for name in DATABASE_URL MIGRATE_DATABASE_URL NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY \
             ALLOWED_GOOGLE_EMAILS VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY APNS_KEY_ID APNS_TEAM_ID APNS_KEY_P8 \
-            BRIEFING_TRIGGER_TOKEN NOTICE_INGEST_TOKEN OPS_API_TOKEN SHARED_TOKEN_API_SECRET ISSUE_DECK_URL \
+            BRIEFING_TRIGGER_TOKEN SHARED_TOKEN_API_SECRET ISSUE_DECK_URL \
             NOTION_API_TOKEN TASK_API_TOKEN; do
             case "${!name}" in
               *$'\n'*) echo "::error::${name} が改行を含むためgateへ送れません"; exit 1 ;;
@@ -315,11 +309,8 @@ jobs:
             printf '%s\n' "APNS_TEAM_ID=${APNS_TEAM_ID}"
             printf '%s\n' "APNS_KEY_P8=${APNS_KEY_P8}"
             printf '%s\n' "BRIEFING_TRIGGER_TOKEN=${BRIEFING_TRIGGER_TOKEN}"
-            # お知らせの受け皿（#93）。空だと他アプリからの POST /api/notices が401で閉じたままになる。
-            printf '%s\n' "NOTICE_INGEST_TOKEN=${NOTICE_INGEST_TOKEN}"
-            # ops-dashboardのアプリ別のAI利用（#297）。空だと GET /api/ai-usage が401で閉じたままになる。
-            printf '%s\n' "OPS_API_TOKEN=${OPS_API_TOKEN}"
-            # 共有トークンAPI（#403）。空だと共有トークンを取れず、環境変数へのフォールバックで動く。
+            # NOTICE_INGEST_TOKEN・OPS_API_TOKEN は共有トークンAPIから実行時に取る（#403・#570）ので配らない。
+            # 共有トークンAPI（#403）。空だと共有トークンを取れず、受け口（お知らせ・AI利用）とログイン判定が閉じる。
             printf '%s\n' "SHARED_TOKEN_API_SECRET=${SHARED_TOKEN_API_SECRET}"
             printf '%s\n' "ISSUE_DECK_URL=${ISSUE_DECK_URL}"
             # Notionのタスク管理API・MCP（#373）。空だと /api/tasks とタスクのMCPツールが503で閉じたままになる。
