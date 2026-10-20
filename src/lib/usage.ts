@@ -351,8 +351,6 @@ export async function aiUsageGroups(now: Date): Promise<{ last24h: UsageGroup[];
  */
 export async function recordApiUsage(params: {
   userId: string;
-  /** 相談に紐づかない経路（朝の見通し・お知らせ選定）は `null`。 */
-  conversationId: string | null;
   /** どの機能の呼び出しか（#297）。使用量APIが機能ごとに畳むのに使う。 */
   feature: UsageFeature;
   model: string;
@@ -363,14 +361,14 @@ export async function recordApiUsage(params: {
     cacheReadTokens: number;
   };
 }): Promise<void> {
-  const { userId, conversationId, feature, model, usage } = params;
+  const { userId, feature, model, usage } = params;
 
   const total =
     usage.inputTokens + usage.outputTokens + usage.cacheWriteTokens + usage.cacheReadTokens;
   if (total <= 0) return;
 
   try {
-    await db.apiUsage.create({ data: { userId, conversationId, feature, model, ...usage } });
+    await db.apiUsage.create({ data: { userId, feature, model, ...usage } });
   } catch (error) {
     console.error("[aide-bot] 使用量の記録に失敗した", error);
   }

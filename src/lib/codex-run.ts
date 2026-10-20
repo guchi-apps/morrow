@@ -12,15 +12,13 @@ import type { UsageFeature } from "@/lib/usage-feature";
 export async function recordCodexUsage(params: {
   result: CodexResult;
   userId: string;
-  /** 相談に紐づかない経路（朝の見通し・お知らせ選定など）は `null`。 */
-  conversationId: string | null;
   feature: UsageFeature;
   model: string;
 }): Promise<void> {
-  const { result, userId, conversationId, feature, model } = params;
+  const { result, userId, feature, model } = params;
   if (!result.usage) return;
 
-  await recordApiUsage({ userId, conversationId, feature, model, usage: result.usage });
+  await recordApiUsage({ userId, feature, model, usage: result.usage });
 }
 
 /**
@@ -39,7 +37,6 @@ export async function recordCodexUsage(params: {
  */
 export async function runCodexRecorded(params: {
   userId: string;
-  conversationId?: string | null;
   feature: UsageFeature;
   /** 失敗の文言の主語（「朝の見通しの生成」など）。 */
   label: string;
@@ -49,7 +46,7 @@ export async function runCodexRecorded(params: {
   search?: boolean;
   mcpServers?: CodexMcpServer[];
 }): Promise<CodexResult> {
-  const { userId, conversationId = null, feature, label, model, prompt, timeoutMs, search, mcpServers } = params;
+  const { userId, feature, label, model, prompt, timeoutMs, search, mcpServers } = params;
 
   const result = await runCodexExec({
     model,
@@ -59,7 +56,7 @@ export async function runCodexRecorded(params: {
     mcpServers,
   });
 
-  await recordCodexUsage({ result, userId, conversationId, feature, model });
+  await recordCodexUsage({ result, userId, feature, model });
   throwIfCodexFailed(result, label, timeoutMs);
 
   return result;
