@@ -386,8 +386,7 @@ function parseTopics(answer: string, categories: TopicCategory[]): ParsedTopic[]
 /**
  * 仕入れを1回走らせ、溜めた件数を返す。**失敗は投げる**（呼び出し元が記録して黙る）。
  *
- * 使った量は、読める形で返ってきたかに関わらず `ApiUsage` へ残す（#133。`conversationId` は
- * 付かない）。上限に掛かった回は `usage` がnullで行が作られない——`turn.completed` が届いて
+ * 使った量は、読める形で返ってきたかに関わらず `ApiUsage` へ残す（#133）。上限に掛かった回は `usage` がnullで行が作られない——`turn.completed` が届いて
  * いないので、そこまでの消費量が分からない。
  */
 async function fetchTopics(userId: string, categories: TopicCategory[], now: Date): Promise<number> {

@@ -197,11 +197,11 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
 - **残したもの**: 朝の見通し・起きた合図（#79・#233）、お知らせの受け皿と急ぎのPush（#93・#115）、話題の仕入れと
   定時のお知らせ（#144・#344・#362）、先回りの提案（#325）、通知の種類ごとのオン・オフ（#488）、使用量の記録と
   `/api/ai-usage`（#297）、`/c/<ID>` の転送（古い通知のURL。「届いた通知」（`/pushes`。#581）へ飛ばすだけ。消さない）
-- **DBのテーブル・列は消していない**（`Conversation`・`Message`・`ToolCall`・`ContextBreak`・`Memory`、`User.homeProfile*` など）。
-  後続Issueで、本番で落ち着いてから落とす。**新しいコードから読み書きしない**。`ApiUsage.feature` の `chat`・`compact`・
+- **DBのテーブル・列は#575で落とした**（`Conversation`・`Message`・`ToolCall`・`ContextBreak`・`Memory`、`User.homeProfile*`、
+  `ApiUsage.conversationId`・`NotificationLog.conversationId`）。`User.modelSettings` は朝の見通しなど4用途で使うので残す。`ApiUsage.feature` の `chat`・`compact`・
   `home_profile`・`memory` は移行前の行の名前としてだけ残している（`USAGE_FEATURE_LABELS`）
 - **通知の本文の読み先は `NotificationLog`**（ダッシュボードの「今日届いた通知」）。朝の見通し・急ぎ・先回りの提案・朝のニュースは、
-  もう相談へ積まない（`appendSecretaryExchange()` は無い）。`NotificationLog.conversationId` も付けない
+  もう相談へ積まない（`appendSecretaryExchange()` は無い）
 - **ニュースの仕入れの起点は、ダッシュボードが叩く `/api/notices/current`（応答後の `refreshTopicsIfStale()`）と、
   定時のお知らせの直前（cron）の2つ。** ダッシュボードの `NoticeLiveProvider`（`use-notice-poll.ts`。3分ごと・見えている間だけ・
   1時間触られなければ休む）が唯一の問い合わせなので、**外さないこと**。`/api/notices/current` は `{ notice }` だけを返す
@@ -438,7 +438,7 @@ AIDEの `src/worker/notify.ts` が「成功を毎回送ると `zaim-keep-alive`�
 - **モデルは用途「朝の見通し」（`briefing`。既定はAstra。#349から「モデル」の画面で選べる）。** 利用者ごとのDBに持つので、選ぶ主体が
   居ない場面（cronから叩かれる）でも読める。プロンプトキャッシュも効かない（1日1回では保持時間の
   5分をとうに過ぎている）
-- **消費量は「呼び出し1回＝`ApiUsage` 1行」**（#51）。`conversationId` は付かない
+- **消費量は「呼び出し1回＝`ApiUsage` 1行」**（#51）
 - **書き込みの道具は設定によらず常に止める**（`toCodexMcpServers(servers, false)`。#78）。
   朝の見通しは利用者のいないところで動いており、**登録の前に復唱して確かめる相手がいない。**
   システムプロンプトは `briefingServiceRules()`（`src/lib/anthropic.ts`）に持つ
@@ -650,7 +650,7 @@ issue-deckの共有トークンAPIから実行時に取る**（`src/lib/shared-t
   実際に答えており、同じ候補ですぐ叩き直しても結果は変わらないため
 - **`ApiUsage` への記録は#133で戻した。** #132の時点では「定額制だから」という理由でやめたが、
   トークン量そのものは `turn.completed` から取れる。いまは `/usage` の「お知らせ・朝の見通し・話題」の節に
-  量として出る（`conversationId` は付かない。**#183からこの節には朝の見通しも入る**）。
+  量として出る（**#183からこの節には朝の見通しも入る**）。
   **金額には積まれない**——単価表を引かないため
 - **Codexは自前の指示文を毎回前置きする。** 実測（サブPC・`codex-cli 0.152.1`）で、プロンプトを
   `"ok"` の2文字にしても入力は12,113トークンだった。お知らせ選定の実回は12,568〜12,615トークン

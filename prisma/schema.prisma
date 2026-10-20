@@ -49,14 +49,6 @@ model User {
   /// Cookieにしないのは、読むのがcronや返答後の後始末（Cookieの届かない経路）でもあるため。
   modelSettings Json?
 
-  /// Notionから取り込んだ「自宅・暮らしの前提」の覚え書き（#167）。nullなら一度も取り込めていない。
-  /// 相談のプロンプトへ毎回そのまま載る（`src/lib/home-profile.ts`）。道具として引かせないのは、
-  /// 呼ぶたびに返事が約9秒遅れるため（#131）。
-  homeProfile String? @db.Text
-  /// 最後に取り込んだ時刻。1日あいていなければ取り込み直さない歯止めに使う。
-  /// **本文がnullでもここは進む**——取り込みを試して見つからなかった回も間隔を空けるため。
-  homeProfileFetchedAt DateTime?
-
   // 先回りの提案（#325）。秘書の方から「今ならできる」を届ける通知の設定。
   // 読むのがcronから叩かれる利用者のいない経路なので、Cookieではなくここへ持つ。
   /// 週末のまとまった空きに未達成の希望が合うとき。
@@ -81,9 +73,7 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  conversations     Conversation[]
   apiUsages         ApiUsage[]
-  toolCalls         ToolCall[]
   mcpConnections    McpConnection[]
   pushSubscriptions PushSubscription[]
   apnsDevices       ApnsDevice[]
@@ -91,128 +81,16 @@ model User {
   scheduledPushes   ScheduledPush[]
   notices           Notice[]
   topics            Topic[]
-  memories          Memory[]
-}
-
-// --- チャット ---
-// **#157で「話題ごとのスレッド」をやめ、利用者につき1本の連続セッションにした。**
-// 秘書は今日のできごとを伝える相手で、話題ごとに分ける手間はその使い方に合っていない。
-// 分け目は利用者ではなく日付が付ける（画面は `src/lib/day-log.ts` が日ごとに切って出す）。
-//
-// **#24が単一スレッドを採らなかった理由——「同時に複数の依頼を投げたときに、片方の返答が
-// まだ保存されていない履歴でもう片方が動き、返答が食い違う」——は消えていない。**
-// #48の `pendingGenerations` は同じスレッドの生成が畳まれるまで次を待たせるが、上限は5秒で、
-// Codexの1往復は数十秒かかる。全経路が1本に集まったぶん、当たる窓はこれまでより広い。
-// **利用者1人・端末1つという前提で受け入れている**（画面から次を送る操作は必ず割り込み
-// （`abort()`）を伴い、打ち切られた側がすぐ保存して錠を外すため、実際に待たされるのは
-// 2つの端末で同時に話しかけた場合だけ）。前提が変わるなら、まずここを見直すこと。
-
-model Conversation {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  /// 連続セッション本体（#157）。**利用者につき1本だけtrueになる。**
-  /// falseの行は残していないが、列を消さずに残してあるのは、統合の失敗に気付けるようにするため
-  /// （2本目ができていれば `primaryConversation()` が古い方を返し続ける）。
-  /// `(userId, isPrimary)` に一意制約は張れない（falseの行は複数あってよい）ので、作るときの
-  /// idを `main_<userId>` に決め打ちして主キーで守る（#264）。
-  isPrimary Boolean @default(false)
-
-  // 相談を分けていた頃の見出し（#24）。連続セッションでは固定の文言が入るだけで画面に出ない。
-  // 消さずに残してあるのは、統合前のスレッド名をマイグレーション後に読み返せるようにするため。
-  title String @db.VarChar(120)
-
-  /// 畳んだ古い発言の要約（#157のcompact）。nullなら一度も畳んでいない。
-  /// プロンプトでは履歴の手前へ置く（`src/lib/compact.ts`）。
-  summary String? @db.Text
-  /// 要約に含めた発言の数。**履歴はこの数だけ読み飛ばした先から組み立てる。**
-  /// 時刻ではなく件数で持つのは、同じ時刻の発言があっても取りこぼさないため。
-  summarizedCount Int @default(0)
-
-  /// 会話の作業文脈の起点（#322）。nullなら区切っていない（記録の先頭から）。
-  /// **履歴・要約・件数はこの時刻以降の発言だけを対象にする**（`src/lib/context-break.ts`）。
-  /// それ以前の発言・通知・書き込みの記録・使用量は消さず、日別の記録からそのまま読める。
-  contextStartedAt DateTime?
-  /// 利用者本人が最後に発言した時刻（#322）。自動区切りの「無操作時間」の基準。
-  /// **秘書の側が積んだ発言（朝の見通し・お知らせ・声かけ）では進めない**——進めると、
-  /// 自動発言だけで区切りが延び続ける。`updatedAt` は自動発言でも進むので代わりにならない。
-  lastUserMessageAt DateTime?
-
-  createdAt DateTime @default(now())
-  // 発言を足しても親のこの列は自動では動かないため、APIハンドラ側で明示的に更新する。
-  // 連続セッションでは並び順に使わなくなったが、最後に話した時刻（#101のひとりごと）で読む。
-  updatedAt DateTime @updatedAt
-
-  messages      Message[]
-  apiUsages     ApiUsage[]
-  toolCalls     ToolCall[]
-  contextBreaks ContextBreak[]
-
-  // 連続セッションの取り出しはこの組で引く。
-  @@index([userId, isPrimary])
-  @@index([userId, updatedAt])
-}
-
-/// 会話を区切った履歴（#322）。記録の画面に「ここから新しい会話」の線を出すために持つ。
-/// 文脈の起点そのものは `Conversation.contextStartedAt` が正で、これは表示用の控え。
-model ContextBreak {
-  id             String       @id @default(cuid())
-  conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  /// 区切った時刻（＝そのときの `contextStartedAt`）。
-  at   DateTime
-  /// `MANUAL`（利用者が押した）／`AUTO`（無操作のまま日をまたいだ）。
-  kind String   @db.VarChar(10)
-
-  @@index([conversationId, at])
-}
-
-enum MessageRole {
-  USER
-  ASSISTANT
-}
-
-model Message {
-  id             String       @id @default(cuid())
-  conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  role        MessageRole
-  // 返答はMarkdownで数千字になりうるため、VARCHARではなくTEXTにする。
-  content     String      @db.Text
-  // 利用者に割り込まれて途中で終わった返答（#48）。次の往復でモデルへ「言い切っていない」
-  // ことを伝えるために持つ。本文へ注記を混ぜないのは、保存した文面をそのまま画面へ出すため。
-  // USERの発言では常にfalse。
-  interrupted Boolean     @default(false)
-  /// 秘書の側から話しかけた発言（#278）。利用者の依頼への返答ではなく、積まれた用件（#93）や
-  /// 仕入れた話題（#144）を秘書の言葉としてそのまま置いたもの。画面で「秘書から」の印を
-  /// 出すために持つ。USERの発言では常にfalse。
-  proactive   Boolean     @default(false)
-
-  createdAt DateTime @default(now())
-
-  @@index([conversationId, createdAt])
 }
 
 // --- APIの消費量（#51） ---
-// 数える単位は「Messages APIの呼び出し1回」で、秘書の返答（Message）とは別の行に持つ。
-//
-// **返答の行に持たせると、行が作られない往復のぶんが丸ごと落ちる。** 1文字も出ないうちに
-// 割り込まれた往復・生成に失敗した往復では返答を保存しない（route.tsの `answer.trim() !== ""`）が、
-// 履歴を毎回まるごと送り直す設計上、入力ぶんはその時点で使い終わっている。
-// 1発言に対してAPIを複数回叩く形（ツール利用など）になっても、この単位なら数え方が変わらない。
+// 数える単位は「モデルの呼び出し1回」。
+// 相談（#574で廃止）の頃に持っていた `conversationId` は#575で消した。
 
 model ApiUsage {
   id     String @id @default(cuid())
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // どの相談で使ったか。スレッドを消しても使った事実は残したいので、Cascadeではなく
-  // SetNullにする（消えるのは紐付けだけ）。
-  conversationId String?
-  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
 
   // 単価はモデルごとに違う。呼び出したときのモデルが分からないと、CHAT_MODELを変えた時点で
   // 過去ぶんの概算費用まで新しい単価で計算し直されてしまう。
@@ -296,49 +174,6 @@ model McpConnection {
   @@unique([userId, slug])
   // コールバックはstateだけを手掛かりに引く。
   @@index([pendingState])
-}
-
-// --- 書き込みの道具の記録（#81） ---
-// 秘書が「あとから取り消せない書き込み」を行ったときだけ、その1回を1行として残す（#78）。
-//
-// **Messageとは別のテーブルに置く。** ツールの呼び出しと結果を発言として保存すると、
-// 次の往復で宙に浮いた `tool_use` を履歴へ渡すことになる（#46「保存するのは本文だけ」）。
-// ここはモデルへ渡す履歴の組み立て（route.tsの `toPromptMessages()`）が一切見ない場所なので、
-// 画面に記録を残しても送るリクエストの形は変わらない。
-//
-// **残るのは「書き込みだと把握している道具」だけ。** 名前の正は `MCP_PRESETS` の `writeTools`
-// （src/lib/mcp/presets.ts）で、挙げ漏らした道具は絞り込みと同じく記録にも残らない。
-// 「記録に無い＝書き込んでいない」とは読めない。
-
-model ToolCall {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // どの相談で呼んだか。スレッドを消しても「取り消せない書き込みをした事実」は残したいので、
-  // ApiUsageと同じくCascadeではなくSetNullにする（消えるのは紐付けだけ）。
-  conversationId String?
-  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
-
-  /// 画面に出す接続先の名前。接続を消した後も読めるよう、slugと一緒にここへ写す。
-  serverLabel String @db.VarChar(60)
-  serverSlug  String @db.VarChar(40)
-  /// 道具の名前（`aide_zaim_payment` など）。
-  toolName    String @db.VarChar(120)
-
-  /// モデルが渡した引数のJSON。**「何を登録したのか」はここにしか残らない。**
-  input  String  @db.Text
-  /// 接続先が返した内容。受け取る前に打ち切られた往復ではnullのまま残る。
-  output String? @db.Text
-  /// 接続先が失敗を返した（`mcp_tool_result` の `is_error`）。
-  failed Boolean @default(false)
-
-  // 呼んだ時刻を明示的に入れる（route.ts）。行を作るのは返答を保存した後なので、
-  // 既定のnow()に任せると、相談の画面で秘書の返答より後ろに並ぶ。
-  createdAt DateTime @default(now())
-
-  @@index([userId, createdAt])
-  @@index([conversationId, createdAt])
 }
 
 // --- プロアクティブ通知（#79） ---
@@ -431,8 +266,6 @@ model NotificationLog {
   /// 送った本文。空文字は「知らせることが無いと判断して黙った」ことを表す。
   body  String @db.Text
 
-  /// 通知を押したときに開く相談。黙ったときはnull。
-  conversationId String? @db.VarChar(191)
   /// 実際に届けられた端末の数。0なら購読が全部落ちていた。
   deliveredCount Int     @default(0)
 
@@ -552,69 +385,6 @@ model Topic {
   @@unique([userId, urlHash])
   // 取り出しは「自分のぶんを新しい順・期間で切る」だけ。
   @@index([userId, fetchedAt])
-}
-
-// --- 継続記憶（#323） ---
-// 会話を区切っても（#322）、本人が続けてほしい希望・判断・進行中の用件を思い出せるようにする。
-// **会話の要約（`Conversation.summary`。#157）とは別物**——あちらは作業用の畳み込みで、出典も
-// 有効期限も直す導線も無い。要約を無条件にここへ移さない。`Conversation` には紐づけず利用者単位で持つ
-// （区切りをまたいで残るため）。「候補」は自動抽出しただけで、相談へ渡すのは利用者が残した「確定」だけ。
-
-enum MemoryKind {
-  /// 行きたい・やりたい。正本はNotionの「いつかやりたいこと」で、こちらは複製を作らない。
-  WISH
-  /// 本人が決めたこと・続けてほしい方針。
-  DECISION
-  /// 進行中の用件。
-  ONGOING
-}
-
-enum MemoryStatus {
-  CANDIDATE
-  CONFIRMED
-  /// 見送り。候補のまま採らなかったもの。同じ内容を再び候補にしない。
-  DISMISSED
-  /// 忘れる。確定を取り下げたもの。本文は残すが、回答の根拠には二度と使わない。
-  FORGOTTEN
-}
-
-enum MemoryConfidence {
-  HIGH
-  MEDIUM
-  LOW
-}
-
-model Memory {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  kind       MemoryKind
-  content    String           @db.VarChar(400)
-  status     MemoryStatus     @default(CANDIDATE)
-  confidence MemoryConfidence @default(MEDIUM)
-
-  /// 元の発言。**FKにしない**（発言を消す機能は無いが、記憶は発言より長く残す前提のため、
-  /// 引用と時刻を自分で持つ）。`sourceMessageId` は辿るためだけの参照。
-  sourceMessageId String?
-  sourceQuote     String   @db.VarChar(400)
-  /// 元の発言の日時。「いつ言ったことか」を画面と回答に出す。
-  sourceAt        DateTime
-
-  /// 正規化した本文のハッシュ。同じ内容の候補を作り直さず、忘れた・見送ったものを蘇らせない。
-  dedupeKey String @db.VarChar(64)
-
-  /// Notion側の状態（WISHのみ）: open / done / skipped / not_found。nullは未確認。
-  notionStatus    String?   @db.VarChar(20)
-  notionUrl       String?   @db.VarChar(500)
-  notionCheckedAt DateTime?
-
-  confirmedAt DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  @@unique([userId, dedupeKey])
-  @@index([userId, status, updatedAt])
 }
 
 // --- 話題の種類（#345） ---
