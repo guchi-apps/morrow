@@ -260,6 +260,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Morrow;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "ダッシュボードで現在地の天気を表示するために、ボタンを押したときだけ位置情報を使います。";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "音声バーで秘書に話しかけるためにマイクを使います。";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "話した内容を文字にして秘書へ送るために音声認識を使います。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -299,6 +300,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Morrow;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "ダッシュボードで現在地の天気を表示するために、ボタンを押したときだけ位置情報を使います。";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "音声バーで秘書に話しかけるためにマイクを使います。";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "話した内容を文字にして秘書へ送るために音声認識を使います。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
