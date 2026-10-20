@@ -20,6 +20,9 @@
   /* 話題（#144）のチップ。用件（accent）と見分けるための落ち着いた青灰。 */
   --topic: #3b5b7d;
   --topic-surface: #e8eef5;
+  /* 天気の「降らない見込み」（#586）。雨（topic）・降るかも（accent）と見分ける落ち着いた緑。 */
+  --fair: #3f7a52;
+  --fair-surface: #e7f3eb;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -38,6 +41,8 @@
     --accent-foreground: #3a120a;
     --topic: #9dbbe0;
     --topic-surface: #16243a;
+    --fair: #8fd1a4;
+    --fair-surface: #13291c;
   }
 }
 
@@ -56,6 +61,8 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-topic: var(--topic);
   --color-topic-surface: var(--topic-surface);
+  --color-fair: var(--fair);
+  --color-fair-surface: var(--fair-surface);
 }
 
 /*

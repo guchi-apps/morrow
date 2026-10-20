@@ -137,8 +137,7 @@ async function generateBriefing(userId: string): Promise<string> {
     throw new Error("朝の見通しの材料になる接続（AIDE）が無いため、今日の材料を取れませんでした。");
   }
 
-  // 相談はまだ作っていないので conversationId は付けない（#51は「1呼び出し＝1行」で、
-  // 相談への紐付けは任意）。**打ち切られた回は `usage` がnullで行が作られない**——
+  // **打ち切られた回は `usage` がnullで行が作られない**——
   // `turn.completed` が届いておらず、そこまでの消費量が分からないため（#133）。
   const result = await runCodexRecorded({
     userId,

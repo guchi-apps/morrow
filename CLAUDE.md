@@ -197,11 +197,11 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
 - **残したもの**: 朝の見通し・起きた合図（#79・#233）、お知らせの受け皿と急ぎのPush（#93・#115）、話題の仕入れと
   定時のお知らせ（#144・#344・#362）、先回りの提案（#325）、通知の種類ごとのオン・オフ（#488）、使用量の記録と
   `/api/ai-usage`（#297）、`/c/<ID>` の転送（古い通知のURL。「届いた通知」（`/pushes`。#581）へ飛ばすだけ。消さない）
-- **DBのテーブル・列は消していない**（`Conversation`・`Message`・`ToolCall`・`ContextBreak`・`Memory`、`User.homeProfile*` など）。
-  後続Issueで、本番で落ち着いてから落とす。**新しいコードから読み書きしない**。`ApiUsage.feature` の `chat`・`compact`・
+- **DBのテーブル・列は#575で落とした**（`Conversation`・`Message`・`ToolCall`・`ContextBreak`・`Memory`、`User.homeProfile*`、
+  `ApiUsage.conversationId`・`NotificationLog.conversationId`）。`User.modelSettings` は朝の見通しなど4用途で使うので残す。`ApiUsage.feature` の `chat`・`compact`・
   `home_profile`・`memory` は移行前の行の名前としてだけ残している（`USAGE_FEATURE_LABELS`）
 - **通知の本文の読み先は `NotificationLog`**（ダッシュボードの「今日届いた通知」）。朝の見通し・急ぎ・先回りの提案・朝のニュースは、
-  もう相談へ積まない（`appendSecretaryExchange()` は無い）。`NotificationLog.conversationId` も付けない
+  もう相談へ積まない（`appendSecretaryExchange()` は無い）
 - **ニュースの仕入れの起点は、ダッシュボードが叩く `/api/notices/current`（応答後の `refreshTopicsIfStale()`）と、
   定時のお知らせの直前（cron）の2つ。** ダッシュボードの `NoticeLiveProvider`（`use-notice-poll.ts`。3分ごと・見えている間だけ・
   1時間触られなければ休む）が唯一の問い合わせなので、**外さないこと**。`/api/notices/current` は `{ notice }` だけを返す
@@ -340,6 +340,28 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
   （`pushHistory()`・`groupPushesByDay()`。後者は純粋で `test/push-history.test.ts`）。`NotificationLog` は消していないので期間では切らない。
   `/c/<ID>` は `/pushes` へ転送し、ダッシュボードのカードと左メニューから入れる
 - 天気・予定は `Suspense` で後から流し、DBだけで出せる部分を先に描く
+
+### 天気の地点・時間と場所ごとの雨・現在地（#586）
+
+天気カードは、自宅の1日の予報（AIDE）に加えて、今日の予定の移動から作った区間（〜06:30 自宅 → 07:30–17:30 栗東市 →
+18:30〜 自宅）ごとの天気と雨、折りたたみの中に明日・明後日の行き先の雨、押したときだけの現在地の天気を出す。
+
+- **地点の名前・座標の正はAIDE**（`aide_weather` の `location`。guchi-apps/aide#673。`parseWeather()` は無ければnull）。AIDEが返すまでは見出しに
+  市町村名を出さず、自宅の区間はAIDEの日別予報で代用する（「1日の予報」と添える）。Morrowの設定で自宅を持つ案は二重管理になるので採らなかった
+- **行き先・現在地の予報と地名は、Morrowのサーバーからキー無しの公開APIを直接叩く**（依存は足していない）。予報はOpen-Meteo
+  （`src/lib/weather/open-meteo.ts`。30分キャッシュ）、地名⇔座標は国土地理院の住所検索・逆ジオコーダ・市町村コード表
+  （`geocode.ts`。24時間キャッシュ。解決できなかった地名も持つ）。座標は小数2桁（≒1km）に丸めてから外へ送る
+- **行き先の材料は `travels[].destination`（無ければタイトルの `→` の右）と `events[].location` だけ。タイトルの括弧（「出張（門真）」）は
+  読まない**（利用者の判断。誤読を避ける）。区間・判定・地名の選び方は純粋な `rain-check.ts`（`test/rain-check.test.ts`）
+- **地名の解決は推定。** 候補のうち「都道府県＋（地名）市/町/村/区」に一致するものだけを採り、複数あれば自宅に近い方（草津→滋賀県草津市）。
+  住所が書かれていれば先頭の候補から逆ジオコーダで市町村名を引く。どちらでもない語（「本社」「京都駅」）は「場所不明」にする——
+  見当違いの地点の天気を出すより「分からない」と出す方へ倒してある
+- 予定は `aide_schedule` を `days: 3` で1回だけ取り（`scheduleSource()`）、今日の予定（`parseSchedule()` は1日目だけ読む）と区間で共有する
+- **現在地は `POST /api/weather/here`**（ログイン必須・利用者ごと10秒に1回・位置は保存もログ出力もしない）。`navigator.geolocation` は
+  HTTPSか `localhost` でしか動かない。**iOSアプリ（UA `MorrowIOS/`）でも出す**（#587）——殻のビルド設定に位置の利用目的
+  （`INFOPLIST_KEY_NSLocationWhenInUseUsageDescription`）を持ち、WKWebViewがOSの許可ダイアログ経由で位置を渡す（Swiftの追加は無い）。
+  利用目的を持たない古い殻では拒否として返るので、アプリ内の拒否の案内は「設定アプリで許可／最新版へ更新」にしてある
+- 手元で確かめるときは、上のスタブMCPに `aide_weather`（`location` 付き・無しの両方）と `aide_schedule`（`days` を受ける）を答えさせる
 - 手元では、ローカルのスタブMCP（`initialize` と `tools/call` に答えるだけ）を立て、`McpConnection.url` と
   `MCP_PRESETS` の `aide` の `url` を一時的にそちらへ向けて確かめる（**`presets.ts` は戻すこと**）。シードは
   AIDE接続を `enabled: false` で入れるので、そのままでは「未接続」が出る
@@ -416,7 +438,7 @@ AIDEの `src/worker/notify.ts` が「成功を毎回送ると `zaim-keep-alive`�
 - **モデルは用途「朝の見通し」（`briefing`。既定はAstra。#349から「モデル」の画面で選べる）。** 利用者ごとのDBに持つので、選ぶ主体が
   居ない場面（cronから叩かれる）でも読める。プロンプトキャッシュも効かない（1日1回では保持時間の
   5分をとうに過ぎている）
-- **消費量は「呼び出し1回＝`ApiUsage` 1行」**（#51）。`conversationId` は付かない
+- **消費量は「呼び出し1回＝`ApiUsage` 1行」**（#51）
 - **書き込みの道具は設定によらず常に止める**（`toCodexMcpServers(servers, false)`。#78）。
   朝の見通しは利用者のいないところで動いており、**登録の前に復唱して確かめる相手がいない。**
   システムプロンプトは `briefingServiceRules()`（`src/lib/anthropic.ts`）に持つ
@@ -628,7 +650,7 @@ issue-deckの共有トークンAPIから実行時に取る**（`src/lib/shared-t
   実際に答えており、同じ候補ですぐ叩き直しても結果は変わらないため
 - **`ApiUsage` への記録は#133で戻した。** #132の時点では「定額制だから」という理由でやめたが、
   トークン量そのものは `turn.completed` から取れる。いまは `/usage` の「お知らせ・朝の見通し・話題」の節に
-  量として出る（`conversationId` は付かない。**#183からこの節には朝の見通しも入る**）。
+  量として出る（**#183からこの節には朝の見通しも入る**）。
   **金額には積まれない**——単価表を引かないため
 - **Codexは自前の指示文を毎回前置きする。** 実測（サブPC・`codex-cli 0.152.1`）で、プロンプトを
   `"ok"` の2文字にしても入力は12,113トークンだった。お知らせ選定の実回は12,568〜12,615トークン

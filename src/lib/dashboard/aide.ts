@@ -1,6 +1,6 @@
 import { jstDayKey } from "@/lib/day-key";
 import { parseSchedule, parseWeather, type ScheduleView, type WeatherView } from "@/lib/dashboard/parse";
-import { callToolJson, connectedServerFor } from "@/lib/mcp/direct-call";
+import { callToolJson, connectedServerFor, type ToolJson } from "@/lib/mcp/direct-call";
 
 /**
  * ダッシュボードの天気・予定をAIDEから取る（#573）。**モデルは通さない**（`direct-call.ts`）。
@@ -20,7 +20,7 @@ type Entry<T> = { value: T; expiresAt: number };
 const cache = new Map<string, Entry<unknown>>();
 const inFlight = new Map<string, Promise<unknown>>();
 
-async function cached<T extends { status: string }>(key: string, load: () => Promise<T>): Promise<T> {
+export async function cached<T extends { status: string }>(key: string, load: () => Promise<T>): Promise<T> {
   const hit = cache.get(key) as Entry<T> | undefined;
   if (hit && hit.expiresAt > Date.now()) return hit.value;
 
@@ -57,16 +57,29 @@ export function dashboardWeather(userId: string, now = new Date()): Promise<Weat
   });
 }
 
-export function dashboardSchedule(userId: string, now = new Date()): Promise<ScheduleView> {
-  return cached(`schedule:${userId}:${jstDayKey(now)}`, async (): Promise<ScheduleView> => {
+/** 予定は3日ぶんを1回で取り、今日の予定（`parseSchedule()` は1日目だけ読む）と行き先の雨（#586）で共有する。 */
+const SCHEDULE_DAYS = 3;
+
+export type ScheduleSource =
+  | { status: "unconnected" }
+  | { status: "failed"; detail: string }
+  | { status: "ok"; json: ToolJson };
+
+export function scheduleSource(userId: string, now = new Date()): Promise<ScheduleSource> {
+  return cached(`schedule:${userId}:${jstDayKey(now)}`, async (): Promise<ScheduleSource> => {
     try {
       const server = await connectedServerFor(userId, "aide");
       if (!server) return { status: "unconnected" };
       // `date` は渡さない（DaySpanの設定タイムゾーンでの今日。こちらで日付を作り直さない）。
-      return parseSchedule(await callToolJson(server, "aide_schedule"));
+      return { status: "ok", json: await callToolJson(server, "aide_schedule", { days: SCHEDULE_DAYS }) };
     } catch (error) {
       console.error("[aide-bot] ダッシュボードの予定を取得できなかった", error);
       return { status: "failed", detail: failureDetail(error) };
     }
   });
+}
+
+export async function dashboardSchedule(userId: string, now = new Date()): Promise<ScheduleView> {
+  const source = await scheduleSource(userId, now);
+  return source.status === "ok" ? parseSchedule(source.json) : source;
 }

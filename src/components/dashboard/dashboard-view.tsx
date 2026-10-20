@@ -1,12 +1,15 @@
-import { CloudRain, CloudSun, Umbrella } from "lucide-react";
+import { CloudRain, CloudSun, MapPin, Umbrella } from "lucide-react";
 import Link from "next/link";
 import { Suspense } from "react";
 
+import { CurrentLocationWeather } from "@/components/dashboard/current-location-weather";
 import { LiveNoticeLine, NoticeLiveProvider } from "@/components/dashboard/live-notice-line";
 import { dashboardSchedule, dashboardWeather } from "@/lib/dashboard/aide";
 import type { ScheduleItem, ScheduleView, WeatherDay, WeatherView } from "@/lib/dashboard/parse";
+import { dashboardPlaces, type PlaceSegment, type PlacesView } from "@/lib/dashboard/places";
 import type { DashboardNotices, DashboardTopic, DeliveredPush } from "@/lib/dashboard/today";
-import { jstTimeLabel } from "@/lib/day-key";
+import { dayLabel, jstTimeLabel } from "@/lib/day-key";
+import { RAIN_POP, type RainVerdict } from "@/lib/weather/rain-check";
 import { cn } from "@/lib/utils";
 
 /**
@@ -28,15 +31,18 @@ type Props = {
   topics: DashboardTopic[];
 };
 
-const RAIN_POP = 50;
-
 export function DashboardView({ userId, now, heading, pushes, notices, topics }: Props) {
+  // 見出しに地点（市町村名）を出すので、カードごと後から流す。
   const weather = (
-    <Card title="今日の天気">
-      <Suspense fallback={<Loading />}>
-        <WeatherBody userId={userId} now={now} />
-      </Suspense>
-    </Card>
+    <Suspense
+      fallback={
+        <Card title="今日の天気">
+          <Loading />
+        </Card>
+      }
+    >
+      <WeatherCard userId={userId} now={now} />
+    </Suspense>
   );
   const schedule = (
     <Card title="今日の予定">
@@ -100,16 +106,20 @@ function DesktopOnly({ children }: { children: React.ReactNode }) {
 function Card({
   title,
   link,
+  aside,
   children,
 }: {
   title: string;
   link?: { href: string; label: string };
+  /** 見出しの右に置く補足（天気の地点など）。 */
+  aside?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <section className="flex min-w-0 flex-col gap-2.5 rounded-xl border border-border bg-surface px-4 py-3.5 md:rounded-2xl md:px-[18px] md:py-4">
       <h3 className="flex items-center justify-between gap-2 text-xs font-bold tracking-[0.1em] text-muted">
         {title}
+        {aside}
         {link && (
           <Link
             href={link.href}
@@ -159,9 +169,43 @@ function Unconnected() {
 
 /* ---------------- 天気 ---------------- */
 
-async function WeatherBody({ userId, now }: { userId: string; now: Date }) {
-  const weather: WeatherView = await dashboardWeather(userId, now);
+/** 見出しの右の地点（#586）。AIDEが `location` を返すまでは出さない。 */
+function PlaceChip({ name }: { name: string }) {
+  return (
+    <span className="inline-flex items-center gap-0.5 rounded-full border border-border bg-background py-px pr-2 pl-1.5 text-xs font-semibold tracking-normal text-foreground">
+      <MapPin className="size-3 text-accent" aria-hidden="true" />
+      {name}
+      <span className="font-normal text-muted">・自宅</span>
+    </span>
+  );
+}
 
+async function WeatherCard({ userId, now }: { userId: string; now: Date }) {
+  const weather: WeatherView = await dashboardWeather(userId, now);
+  const homeName = weather.status === "ok" ? (weather.location?.name ?? null) : null;
+
+  return (
+    <Card title="今日の天気" aside={homeName && <PlaceChip name={homeName} />}>
+      <WeatherBody weather={weather} />
+      <Suspense fallback={<p className="text-xs text-muted">時間と場所ごとの天気を取得しています…</p>}>
+        <PlacesSection
+          userId={userId}
+          now={now}
+          dailyRainy={weather.status === "ok" && weather.today.pop !== null && weather.today.pop >= RAIN_POP}
+          tomorrow={weather.status === "ok" ? weather.tomorrow : null}
+          homeName={homeName}
+        />
+      </Suspense>
+      <CurrentLocationWeather />
+      <p className="text-[0.625rem] text-muted">
+        {weather.status === "ok" && weather.attribution ? weather.attribution : "Weather data by Open-Meteo.com (CC BY 4.0)"}
+        ・地名: 国土地理院
+      </p>
+    </Card>
+  );
+}
+
+function WeatherBody({ weather }: { weather: WeatherView }) {
   switch (weather.status) {
     case "unconnected":
       return <Unconnected />;
@@ -172,7 +216,7 @@ async function WeatherBody({ userId, now }: { userId: string; now: Date }) {
         <Empty>予報がまだ届いていません（AIDE側で取得できていません）。雨か晴れかは分かりません。</Empty>
       );
     case "ok":
-      return <WeatherOk today={weather.today} tomorrow={weather.tomorrow} stale={weather.stale} attribution={weather.attribution} />;
+      return <WeatherOk today={weather.today} stale={weather.stale} />;
   }
 }
 
@@ -180,63 +224,202 @@ function temp(value: number | null): string {
   return value === null ? "—" : `${value.toFixed(1)}°`;
 }
 
-function WeatherOk({
-  today,
-  tomorrow,
-  stale,
-  attribution,
-}: {
-  today: WeatherDay;
-  tomorrow: WeatherDay | null;
-  stale: boolean;
-  attribution: string | null;
-}) {
+function WeatherOk({ today, stale }: { today: WeatherDay; stale: boolean }) {
   const rainy = today.pop !== null && today.pop >= RAIN_POP;
   const Icon = rainy ? CloudRain : CloudSun;
 
   return (
     <>
       <div className="flex items-center gap-3.5">
-        <div className="grid size-14 shrink-0 place-items-center rounded-[14px] bg-topic-surface text-topic">
-          <Icon className="size-7" aria-hidden="true" />
+        <div className="grid size-12 shrink-0 place-items-center rounded-[14px] bg-topic-surface text-topic">
+          <Icon className="size-6" aria-hidden="true" />
         </div>
         <div className="min-w-0">
-          <div className="text-xl font-bold">{today.summary}</div>
-          <div className="text-sm tabular-nums">
+          <div className="text-lg font-bold">
+            {today.summary}
+            {today.pop !== null && (
+              <span className="text-xs font-normal tabular-nums text-muted">　降水 {today.pop}%</span>
+            )}
+          </div>
+          <div className="text-[0.8125rem] tabular-nums">
             最高 <span className="font-bold text-accent">{temp(today.max)}</span> ／ 最低{" "}
             <span className="font-bold text-topic">{temp(today.min)}</span>
           </div>
         </div>
       </div>
 
-      <div className="flex items-center gap-2.5">
-        <span className="text-xs text-muted">降水確率</span>
-        <span className="h-2 flex-1 overflow-hidden rounded bg-border" aria-hidden="true">
-          <span className="block h-full bg-topic" style={{ width: `${Math.min(100, Math.max(0, today.pop ?? 0))}%` }} />
-        </span>
-        <span className="min-w-[46px] text-right font-bold tabular-nums text-topic">
-          {today.pop === null ? "—" : `${today.pop}%`}
-        </span>
+      {stale && <p className="text-xs text-muted">AIDE側の更新が止まっているため、古い予報の可能性があります。</p>}
+    </>
+  );
+}
+
+/* ---- 時間と場所ごと（#586） ---- */
+
+async function PlacesSection({
+  userId,
+  now,
+  dailyRainy,
+  tomorrow,
+  homeName,
+}: {
+  userId: string;
+  now: Date;
+  dailyRainy: boolean;
+  tomorrow: WeatherDay | null;
+  homeName: string | null;
+}) {
+  const places: PlacesView = await dashboardPlaces(userId, now);
+  const tomorrowLine = tomorrow && (
+    <div className="text-xs tabular-nums text-muted">
+      明日{homeName && `（${homeName}）`} {tomorrow.summary}　{temp(tomorrow.max)} / {temp(tomorrow.min)}
+      {tomorrow.pop !== null && `　降水 ${tomorrow.pop}%`}
+    </div>
+  );
+  const fallbackUmbrella = dailyRainy && <UmbrellaNote>傘が要りそうです</UmbrellaNote>;
+
+  if (places.status !== "ok") {
+    // 未接続・未設定は天気の側（AIDE）で案内が出るので、ここでは重ねない。
+    return (
+      <>
+        {fallbackUmbrella}
+        {places.status === "failed" && <Failed>時間と場所ごとの天気を取得できませんでした。</Failed>}
+        {tomorrowLine}
+      </>
+    );
+  }
+
+  // 傘の注意は、まだ終わっていない区間だけから選ぶ。行き先を自宅より先に挙げる。
+  const nowLabel = jstTimeLabel(now);
+  const rainy = places.today
+    .filter((segment) => segment.verdict === "rain" && segment.end > nowLabel)
+    .sort((a, b) => Number(a.home) - Number(b.home));
+  const later = places.later.filter((day) => day.segments.length > 0);
+
+  return (
+    <>
+      <div className="flex flex-col gap-1.5 border-t border-border pt-2.5">
+        <h4 className="flex justify-between gap-2 text-xs font-bold tracking-[0.06em] text-muted">
+          時間と場所ごと <span className="font-normal tracking-normal">今日の予定から</span>
+        </h4>
+        {places.partial && <Failed>予定の一部を取得できませんでした。行き先が欠けている可能性があります。</Failed>}
+        <SegmentList segments={places.today} />
+        {rainy.length > 0 ? (
+          <UmbrellaNote>
+            {placeLabel(rainy[0])}（{segmentTime(rainy[0])}）{rainy.length > 1 && "ほか"}は傘が要りそうです
+          </UmbrellaNote>
+        ) : null}
       </div>
 
-      {rainy && (
-        <div className="flex items-center gap-1.5 rounded-lg bg-topic-surface px-2.5 py-1.5 text-xs font-semibold text-topic">
-          <Umbrella className="size-3.5" aria-hidden="true" />
-          傘が要りそうです
+      {tomorrowLine}
+
+      {/* 明日以降は押したときだけ開く。JSが動く前でも開けるよう <details> にする。 */}
+      <details className="group border-t border-border pt-2.5">
+        <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-[0.8125rem] font-semibold hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
+          明日以降の行き先の雨を見る
+          <span className="text-xs text-muted group-open:rotate-180" aria-hidden="true">
+            ▾
+          </span>
+        </summary>
+        <div className="mt-2 flex flex-col">
+          {later.length === 0 ? (
+            <Empty>明日・明後日に場所の分かる予定はありません。</Empty>
+          ) : (
+            later.map((day) => (
+              <div key={day.date} className="flex flex-col">
+                <span className="pt-1.5 text-[0.6875rem] font-bold tracking-[0.06em] text-muted">
+                  {day.date === places.later[0]?.date ? "明日 " : ""}
+                  {dayLabel(day.date)}
+                </span>
+                <SegmentList segments={day.segments} />
+              </div>
+            ))
+          )}
+          <p className="pt-1 text-[0.6875rem] text-muted">
+            明後日まで。場所欄が空で移動も無い予定は対象外です。
+          </p>
         </div>
-      )}
-
-      {stale && <p className="text-xs text-muted">AIDE側の更新が止まっているため、古い予報の可能性があります。</p>}
-
-      {tomorrow && (
-        <div className="border-t border-dashed border-border pt-2 text-xs tabular-nums text-muted">
-          明日 {tomorrow.summary}　{temp(tomorrow.max)} / {temp(tomorrow.min)}
-          {tomorrow.pop !== null && `　降水 ${tomorrow.pop}%`}
-        </div>
-      )}
-
-      {attribution && <p className="text-[0.625rem] text-muted">{attribution}</p>}
+      </details>
     </>
+  );
+}
+
+function UmbrellaNote({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-1.5 rounded-lg bg-topic-surface px-2.5 py-1.5 text-xs font-semibold text-topic">
+      <Umbrella className="size-3.5 shrink-0" aria-hidden="true" />
+      <span>{children}</span>
+    </div>
+  );
+}
+
+function segmentTime(segment: PlaceSegment): string {
+  if (segment.allDay) return "終日";
+  if (segment.start === "00:00" && segment.end === "24:00") return "終日";
+  if (segment.start === "00:00") return `〜${segment.end}`;
+  if (segment.end === "24:00") return `${segment.start}〜`;
+  return `${segment.start}–${segment.end}`;
+}
+
+function placeLabel(segment: PlaceSegment): string {
+  if (segment.home) return segment.placeName ?? "自宅";
+  return segment.placeName ?? "場所不明";
+}
+
+const VERDICT_PILL: Record<RainVerdict, { label: string; className: string }> = {
+  rain: { label: "雨", className: "bg-topic-surface text-topic" },
+  maybe: { label: "降るかも", className: "bg-accent-surface text-accent" },
+  dry: { label: "降らない見込み", className: "bg-fair-surface text-fair" },
+  unknown: { label: "—", className: "bg-background text-muted" },
+};
+
+function segmentNote(segment: PlaceSegment): string {
+  if (segment.status === "unresolved") return `「${segment.placeText}」の天気は分かりません`;
+  if (segment.status === "failed") return "天気を取得できませんでした";
+  const weather = segment.weather;
+  const parts = [
+    segment.label,
+    weather?.summary,
+    weather && weather.min !== null && weather.max !== null
+      ? `${Math.round(weather.min)}〜${Math.round(weather.max)}°`
+      : null,
+    segment.daily ? "1日の予報" : null,
+  ];
+  return parts.filter(Boolean).join("・");
+}
+
+function SegmentList({ segments }: { segments: PlaceSegment[] }) {
+  return (
+    <ul className="flex flex-col">
+      {segments.map((segment) => {
+        const pill = VERDICT_PILL[segment.status === "ok" ? segment.verdict : "unknown"];
+        const pop = segment.status === "ok" ? segment.weather?.pop : null;
+        return (
+          <li
+            key={`${segment.date}-${segment.start}-${segment.placeText}`}
+            className="grid grid-cols-[78px_minmax(0,1fr)_auto] items-center gap-x-2.5 border-b border-border py-1.5 text-[0.8125rem] last:border-b-0 md:grid-cols-[84px_minmax(0,1fr)_auto]"
+          >
+            <span className="text-xs tabular-nums text-muted">{segmentTime(segment)}</span>
+            <span className="min-w-0">
+              <b className="font-bold">
+                <span
+                  className={cn("mr-1.5 inline-block size-1.5 rounded-full align-middle", segment.home ? "bg-muted" : "bg-accent")}
+                  aria-hidden="true"
+                />
+                {placeLabel(segment)}
+                {segment.home && segment.placeName && <span className="font-normal text-muted">・自宅</span>}
+              </b>
+              <span className="block text-[0.6875rem] tabular-nums text-muted [overflow-wrap:anywhere]">
+                {segmentNote(segment)}
+              </span>
+            </span>
+            <span className={cn("rounded-full px-2 py-0.5 text-[0.6875rem] font-bold whitespace-nowrap tabular-nums", pill.className)}>
+              {pill.label}
+              {pop !== null && pop !== undefined && ` ${pop}%`}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
