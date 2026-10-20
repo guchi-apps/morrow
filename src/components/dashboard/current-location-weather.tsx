@@ -9,7 +9,8 @@ import { jstTimeLabel } from "@/lib/day-key";
  * 「現在地の天気を見る」（#586）。**押したときだけ**位置を取り、`POST /api/weather/here` へ渡す。
  * 常時の追跡はしない。位置はサーバーでも保存しない（小数2桁に丸めて送る）。
  *
- * - iOSアプリ（殻。UAに `MorrowIOS/`）ではまだ位置の許可文言を持たないので出さない（別Issue）
+ * - iOSアプリ（殻。UAに `MorrowIOS/`）でも出す（#587）。殻のInfo.plistに位置の利用目的があり、WKWebViewが
+ *   OSの許可ダイアログを経由して位置を渡す。利用目的を持たない古い殻では拒否として返るので、案内の文を分ける
  * - `navigator.geolocation` はHTTPSか `localhost` でしか使えない。無い環境でも出さない
  */
 
@@ -24,14 +25,15 @@ type State =
   | { kind: "idle" }
   | { kind: "loading" }
   | { kind: "ok"; result: Result; at: Date }
-  | { kind: "denied" }
+  | { kind: "denied"; inApp: boolean }
   | { kind: "failed"; message: string };
 
 const RAIN_POP = 50;
 
 const noSubscribe = () => () => {};
 // サーバーでは判定できないので、サーバー側の描画では出さない（ハイドレーション後に決まる）。
-const canLocate = () => "geolocation" in navigator && !/MorrowIOS\//.test(navigator.userAgent);
+const canLocate = () => "geolocation" in navigator;
+const isInApp = () => /MorrowIOS\//.test(navigator.userAgent);
 const cannotLocate = () => false;
 
 function round2(value: number): number {
@@ -67,7 +69,7 @@ export function CurrentLocationWeather() {
       position = await currentPosition();
     } catch (error) {
       const denied = (error as GeolocationPositionError | undefined)?.code === 1;
-      setState(denied ? { kind: "denied" } : { kind: "failed", message: "位置を取得できませんでした。少し待ってもう一度押してください。" });
+      setState(denied ? { kind: "denied", inApp: isInApp() } : { kind: "failed", message: "位置を取得できませんでした。少し待ってもう一度押してください。" });
       return;
     }
 
@@ -117,7 +119,9 @@ export function CurrentLocationWeather() {
       )}
       {state.kind === "denied" && (
         <p className="rounded-[10px] border border-dashed border-border bg-background px-3 py-2.5 text-[0.8125rem] leading-relaxed text-muted">
-          位置情報を使えませんでした。ブラウザの設定で、このサイトの位置情報を許可すると見られます。
+          {state.inApp
+            ? "位置情報を使えませんでした。設定アプリの「Morrow」で位置情報を許可すると見られます。許可の項目が無いときは、アプリを最新版に更新してください。"
+            : "位置情報を使えませんでした。ブラウザの設定で、このサイトの位置情報を許可すると見られます。"}
         </p>
       )}
       {state.kind === "failed" && (

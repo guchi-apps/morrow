@@ -358,7 +358,9 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
   見当違いの地点の天気を出すより「分からない」と出す方へ倒してある
 - 予定は `aide_schedule` を `days: 3` で1回だけ取り（`scheduleSource()`）、今日の予定（`parseSchedule()` は1日目だけ読む）と区間で共有する
 - **現在地は `POST /api/weather/here`**（ログイン必須・利用者ごと10秒に1回・位置は保存もログ出力もしない）。`navigator.geolocation` は
-  HTTPSか `localhost` でしか動かない。**iOSアプリ（UA `MorrowIOS/`）ではボタンを出さない**——殻に位置の許可文言（Info.plist）が無いため（#587）
+  HTTPSか `localhost` でしか動かない。**iOSアプリ（UA `MorrowIOS/`）でも出す**（#587）——殻のビルド設定に位置の利用目的
+  （`INFOPLIST_KEY_NSLocationWhenInUseUsageDescription`）を持ち、WKWebViewがOSの許可ダイアログ経由で位置を渡す（Swiftの追加は無い）。
+  利用目的を持たない古い殻では拒否として返るので、アプリ内の拒否の案内は「設定アプリで許可／最新版へ更新」にしてある
 - 手元で確かめるときは、上のスタブMCPに `aide_weather`（`location` 付き・無しの両方）と `aide_schedule`（`days` を受ける）を答えさせる
 - 手元では、ローカルのスタブMCP（`initialize` と `tools/call` に答えるだけ）を立て、`McpConnection.url` と
   `MCP_PRESETS` の `aide` の `url` を一時的にそちらへ向けて確かめる（**`presets.ts` は戻すこと**）。シードは
