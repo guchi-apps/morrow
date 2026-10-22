@@ -321,7 +321,7 @@ async function PlacesSection({
       {hours.length > 0 && (
         <div className="flex flex-col gap-1.5 border-t border-border pt-2.5">
           <h4 className="flex justify-between gap-2 text-xs font-bold tracking-[0.06em] text-muted">
-            1時間ごと <span className="font-normal tracking-normal">居る場所の予報</span>
+            1時間ごと <span className="font-normal tracking-normal">居る場所の予報・24時間</span>
           </h4>
           <HourlyStrip cells={hours} />
           {rainy.length > 0 && <UmbrellaNote>{umbrellaText(rainy[0], rainy.length > 1, nowHour)}</UmbrellaNote>}
@@ -337,14 +337,14 @@ async function PlacesSection({
       {/* 明日以降は押したときだけ開く。JSが動く前でも開けるよう <details> にする。 */}
       <details className="group border-t border-border pt-2.5">
         <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-[0.8125rem] font-semibold hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
-          明日以降の行き先の雨を見る
+          明日以降の雨を見る
           <span className="text-xs text-muted group-open:rotate-180" aria-hidden="true">
             ▾
           </span>
         </summary>
         <div className="mt-2 flex flex-col">
           {later.length === 0 ? (
-            <Empty>明日・明後日に場所の分かる予定はありません。</Empty>
+            <Empty>明日・明後日に時間の決まった予定はありません。</Empty>
           ) : (
             later.map((day) => (
               <div key={day.date} className="flex flex-col">
@@ -357,7 +357,7 @@ async function PlacesSection({
             ))
           )}
           <p className="pt-1 text-[0.6875rem] text-muted">
-            明後日まで。場所欄が空で移動も無い予定は対象外です。
+            明後日まで。場所欄が空の予定は自宅に居るものとして出します。
           </p>
         </div>
       </details>
@@ -448,7 +448,8 @@ function HourlyStrip({ cells }: { cells: HourCell[] }) {
         ))}
         {cells.map((cell, index) => {
           const wet = cell.pop !== null && cell.pop >= RAIN_POP;
-          const time = index === 0 ? "今" : cell.date !== cells[0].date && cell.hour === 0 ? "翌0時" : `${cell.hour}時`;
+          const nextDay = index > 0 && cell.date !== cells[0].date && cell.hour === 0;
+          const time = index === 0 ? "今" : nextDay ? "翌0時" : `${cell.hour}時`;
           const known = cell.code !== null || cell.temperature !== null || cell.pop !== null;
           return (
             <li
@@ -461,7 +462,14 @@ function HourlyStrip({ cells }: { cells: HourCell[] }) {
                   : `${cell.hour}時 ${cell.placeLabel} 予報なし`
               }
             >
-              <span className={cn("text-[0.6875rem]", index === 0 ? "font-bold text-foreground" : "text-muted")}>{time}</span>
+              <span
+                className={cn(
+                  "text-[0.6875rem]",
+                  index === 0 ? "font-bold text-foreground" : nextDay ? "font-bold text-topic" : "text-muted",
+                )}
+              >
+                {time}
+              </span>
               {known ? (
                 <>
                   <WeatherIcon code={cell.code} className="size-[18px] text-topic" />

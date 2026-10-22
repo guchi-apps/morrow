@@ -126,8 +126,7 @@ export function TopicTabs({ categories, allTopics, byCategory, mergedCount, seen
 
       {tabs.length > 2 && <p className="text-[0.625rem] text-muted">左右にスワイプでテーマを切り替えられます</p>}
 
-      {/* 左右スワイプでタブを切り替える領域なので、メニューのスワイプ（#434）は始めさせない。 */}
-      <div data-swipe-drawer-ignore onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
+      <div onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
         {active.rows.length === 0 ? (
           <p
             key={active.id}

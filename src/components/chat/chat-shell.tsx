@@ -7,7 +7,6 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 import { ConversationRail } from "./conversation-rail";
-import { useSwipeDrawer } from "./use-swipe-drawer";
 import { useVisualViewportFit } from "./use-visual-viewport";
 
 type Props = {
@@ -53,14 +52,7 @@ export function ChatShell({
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
   useVisualViewportFit();
-  // 右スワイプで開き、左スワイプで閉じる（#434）。触っている間だけ指に追従する開き具合が入る。
-  const drawerRef = useRef<HTMLDivElement>(null);
-  const dragProgress = useSwipeDrawer({
-    open: drawerOpen,
-    onOpenChange: setDrawerOpen,
-    getWidth: () => drawerRef.current?.offsetWidth ?? 0,
-  });
-  const openAmount = dragProgress ?? (drawerOpen ? 1 : 0);
+  // スワイプでの開閉（#434）は、横スクロール・別の左右スワイプと干渉するため廃止した（#600）。開閉はボタンだけ。
   // aria-modalのドロワーのフォーカス制御（#464）。開いたら閉じるボタンへ移し、閉じたら開いたボタンへ戻す。
   const openerRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -144,8 +136,8 @@ export function ChatShell({
         />
       </aside>
 
-      {/* 閉じている間も描画して位置だけ動かす（#434。指に追従させるため）。`inert` で操作もフォーカスも止める。 */}
-      <div className="lg:hidden" inert={!drawerOpen && dragProgress === null}>
+      {/* 閉じている間も描画して位置だけ動かす（開閉のアニメーションのため）。`inert` で操作もフォーカスも止める。 */}
+      <div className="lg:hidden" inert={!drawerOpen}>
           <button
             type="button"
             aria-label="メニューを閉じる"
@@ -153,22 +145,19 @@ export function ChatShell({
             onClick={() => setDrawerOpen(false)}
             // ライト・ダークのどちらでも背後を沈ませたいので、テーマ変数ではなく黒を敷く。
             className={cn(
-              "fixed inset-0 z-40 bg-black/50",
-              dragProgress === null && "transition-opacity duration-200 motion-reduce:transition-none",
+              "fixed inset-0 z-40 bg-black/50 transition-opacity duration-200 motion-reduce:transition-none",
+              drawerOpen ? "opacity-100" : "pointer-events-none opacity-0",
             )}
-            style={{ opacity: openAmount, pointerEvents: openAmount > 0 ? "auto" : "none" }}
           />
           <div
-            ref={drawerRef}
             role="dialog"
             aria-modal="true"
             aria-label="メニュー"
             className={cn(
               "fixed inset-y-0 left-0 z-50 w-[calc(100%_-_72px)] max-w-[320px] border-r border-border",
-              openAmount > 0 && "shadow-2xl",
-              dragProgress === null && "transition-transform duration-200 motion-reduce:transition-none",
+              "transition-transform duration-200 motion-reduce:transition-none",
+              drawerOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full",
             )}
-            style={{ transform: `translateX(${(openAmount - 1) * 100}%)` }}
           >
             <ConversationRail
               isDashboardActive={isDashboard}

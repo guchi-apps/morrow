@@ -103,6 +103,8 @@ function cancelled(event: Record<string, unknown>): boolean {
  *   （自宅以外なら22:00まで）
  * - 場所欄のある予定は、その開始〜終了（終日なら8:00〜22:00）を行き先の区間として足す
  * - **`withHome` が真で、移動も場所欄も無い日は、自宅の1区間（終日）だけ**を返す
+ * - 場所欄が空の予定は、移動中・他の区間と重ならなければ自宅の区間として足す（#597。ラベルは予定のタイトル）
+ * - `withHome` が偽（明日以降）は、移動から作った自宅の区間（出発前・帰宅後）を出さない
  *
  * 中止・不参加の予定は使わない。
  */
@@ -147,15 +149,38 @@ export function staysForDay(day: Record<string, unknown>, withHome: boolean): St
     push({ start, end, placeText: location, label: str(event.title), allDay });
   }
 
-  stays.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
-
-  if (withHome) {
-    if (stays.length === 0) {
-      return [{ date, start: DAY_START, end: DAY_END, placeText: HOME_PREFIX, home: true, label: null, allDay: true }];
-    }
-    return stays;
+  if (withHome && stays.length === 0) {
+    return [{ date, start: DAY_START, end: DAY_END, placeText: HOME_PREFIX, home: true, label: null, allDay: true }];
   }
-  return stays.filter((stay) => !stay.home);
+  const kept = withHome ? stays : stays.filter((stay) => !stay.home);
+
+  // 場所欄が空の予定は自宅に居るものとして足す（#597）。移動中・他の区間と重なる予定は足さない
+  // （行き先に居る間の予定はラベルに使い済み。移動前の自宅区間に重なる「睡眠」なども二重に出さない）。
+  const blockers: { start: string; end: string }[] = [...kept, ...travels];
+  const homeEvents: Stay[] = [];
+  const locationless = events
+    .filter((event) => !str(event.location))
+    .map((event) => {
+      const allDay = event.allDay === true;
+      return {
+        start: allDay ? ALL_DAY_FROM : time(event.startTime),
+        end: allDay ? ALL_DAY_TO : time(event.endTime),
+        label: str(event.title),
+        allDay,
+      };
+    })
+    .filter((item): item is { start: string; end: string; label: string | null; allDay: boolean } =>
+      Boolean(item.start && item.end && item.start < item.end),
+    )
+    .sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+  for (const item of locationless) {
+    if (blockers.some((other) => item.start < other.end && item.end > other.start)) continue;
+    const stay: Stay = { date, placeText: HOME_PREFIX, home: true, ...item };
+    homeEvents.push(stay);
+    blockers.push(stay);
+  }
+
+  return [...kept, ...homeEvents].sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
 }
 
 /**
@@ -171,7 +196,7 @@ export function buildStays(json: unknown): StayDay[] | null {
 }
 
 /**
- * 明日（2日目）の区間を**自宅込みで**作る（#594）。1時間ごとの帯で、夜に翌朝まで出す時間の場所を決めるためだけに使う
+ * 明日（2日目）の区間を**自宅込みで**作る（#594）。1時間ごとの帯で、明日にかかる時間の場所を決めるためだけに使う
  * （「明日以降の行き先の雨」は `buildStays()` の行き先だけのまま）。2日目が無ければ空。
  */
 export function tomorrowStaysWithHome(json: unknown): Stay[] {
@@ -214,24 +239,22 @@ export function placeAtHour(stays: Stay[], hour: number): HourPlace {
   return after && next >= 0 ? { kind: "move", index: next } : { kind: "home" };
 }
 
-/** 帯に出す時間の範囲。いまの時間から今日の終わりまで。残りが `minimum` 時間に満たない夜は翌朝まで足す。 */
-export const HOURLY_MINIMUM = 6;
+/** 帯に出す時間の数。開いた時刻によらず、いまの時間から24時間ぶん（23時に開けば翌22時まで。#599）。 */
+export const HOURLY_SPAN = 24;
 
 /**
- * 終日ぶん（今日0時〜翌朝）の行から、いま（`nowDate` の `nowHour` 時台）以降を切り出す。
+ * 今日・明日の0〜24時の行から、いま（`nowDate` の `nowHour` 時台）以降の `span` 時間を切り出す。
  * 行は日付・時の順に並んでいる前提。キャッシュした行を描画のたびに切り出すため、ここは `now` だけで決まる。
  */
 export function hoursFrom<T extends { date: string; hour: number }>(
   rows: T[],
   nowDate: string,
   nowHour: number,
-  minimum = HOURLY_MINIMUM,
+  span = HOURLY_SPAN,
 ): T[] {
   const start = rows.findIndex((row) => row.date > nowDate || (row.date === nowDate && row.hour >= nowHour));
   if (start < 0) return [];
-  const rest = rows.slice(start);
-  const today = rest.filter((row) => row.date === nowDate).length;
-  return rest.slice(0, Math.max(today, minimum));
+  return rows.slice(start, start + span);
 }
 
 /** 予報の、ある日のある時（毎正時）の点。無ければnull。 */
@@ -319,6 +342,29 @@ export function pickMunicipality(
 /** 予定の地名から、検索に使う部分を取り出す（「自宅 大阪府高槻市…」→「大阪府高槻市…」）。 */
 export function searchTextOf(placeText: string): string {
   return placeText.replace(new RegExp(`^${HOME_PREFIX}\\s*`), "").trim();
+}
+
+/** 文中のどこにあっても都道府県名と分かるよう、名前を並べて持つ（`PREFECTURE` の `.{2,3}県` は先頭でしか使えない）。 */
+const PREFECTURE_ANYWHERE = new RegExp(
+  `(${[
+    "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県", "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県",
+    "東京都", "神奈川県", "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県", "岐阜県", "静岡県", "愛知県", "三重県",
+    "滋賀県", "京都府", "大阪府", "兵庫県", "奈良県", "和歌山県", "鳥取県", "島根県", "岡山県", "広島県", "山口県", "徳島県",
+    "香川県", "愛媛県", "高知県", "福岡県", "佐賀県", "長崎県", "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県",
+  ].join("|")})`,
+);
+
+/**
+ * 住所検索へ渡す文字列（#597）。場所欄は「店名 住所」の形が多く、丸ごと渡すと0件になるので、
+ * 都道府県名を含めばそこから後ろ（住所）だけにする。含まなければ従来どおり丸ごと。
+ *
+ * 都道府県の無い場所欄で「市・町・村・区を含む語」から切り出すことはしない——「区役所前」「町田」のような語で
+ * 見当違いの地点を拾いうる（`pickMunicipality()` は `市町村区` の1文字でも先頭の候補を採る）。
+ */
+export function addressQueryOf(placeText: string): string {
+  const text = searchTextOf(placeText);
+  const prefecture = text.search(PREFECTURE_ANYWHERE);
+  return prefecture > 0 ? text.slice(prefecture).trim() : text;
 }
 
 /**
