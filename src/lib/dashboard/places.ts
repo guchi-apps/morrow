@@ -155,6 +155,14 @@ async function cellsFor(
   );
 }
 
+/** `YYYY-MM-DD` の翌日。暦の計算だけなのでUTCで足す（タイムゾーンに依らない）。読めない日付なら空文字。 */
+function nextDayKey(date: string): string {
+  const next = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(next.getTime())) return "";
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next.toISOString().slice(0, 10);
+}
+
 const range = (from: number, to: number) => Array.from({ length: to - from }, (_, index) => from + index);
 
 export function dashboardPlaces(userId: string, now = new Date()): Promise<PlacesView> {
@@ -182,7 +190,8 @@ export function dashboardPlaces(userId: string, now = new Date()): Promise<Place
     const hourly = today
       ? [
           ...(await cellsFor(today.date, range(0, 24), today.resolved, home, homeName)),
-          ...(rest[0] ? await cellsFor(rest[0].date, range(0, 24), tomorrowResolved, home, homeName) : []),
+          // 予定の2日目が無い応答でも、明日の列は自宅で埋めて24時間ぶんを揃える（`tomorrowResolved` は空になる）。
+          ...(await cellsFor(rest[0]?.date ?? nextDayKey(today.date), range(0, 24), tomorrowResolved, home, homeName)),
         ]
       : [];
 
