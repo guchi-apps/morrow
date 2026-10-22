@@ -5,7 +5,6 @@ import { resolvePlace } from "@/lib/weather/geocode";
 import { forecastAt } from "@/lib/weather/open-meteo";
 import {
   buildStays,
-  HOURLY_MINIMUM,
   hourlyPoint,
   placeAtHour,
   rainVerdict,
@@ -26,7 +25,7 @@ import {
  * - 行き先は国土地理院で市町村に決める。決められない地名は `unresolved`（天気は出さない）
  * - **区間1つの失敗で全体を落とさない**（その区間だけ `failed`）。「降らない」とは混ぜない（#214）
  * - 1時間ごとの帯（#594）は、各時間に居る区間（`placeAtHour()`）の地点の時間別予報。自宅の地点が無い間・場所不明の
- *   時間は予報なし（日別予報で代用しない）。今日0時〜翌朝6時を持ち、「いまから」の切り出しは描画側
+ *   時間は予報なし（日別予報で代用しない）。今日・明日の0〜24時を持ち、「いまから24時間」の切り出しは描画側
  *
  * 結果は天気・予定と同じく利用者・日付ごとに5分持つ（`cached()`。失敗の全体は1分）。
  */
@@ -64,14 +63,11 @@ export type PlacesView =
       status: "ok";
       today: PlaceSegment[];
       later: { date: string; segments: PlaceSegment[] }[];
-      /** 今日0時〜翌朝の1時間ごと。「いまから」の切り出しは描画側（`hoursFrom()`）で行う（キャッシュに時刻を焼き込まない）。 */
+      /** 今日・明日の0〜24時の1時間ごと。「いまから」の切り出しは描画側（`hoursFrom()`）で行う（キャッシュに時刻を焼き込まない）。 */
       hourly: HourCell[];
       /** 予定の一部を取得できなかった（行き先が欠けているかもしれない）。 */
       partial: boolean;
     };
-
-/** 翌朝の何時まで帯の材料を作るか（`HOURLY_MINIMUM` 時間ぶんを、23時台から見ても足りるように）。 */
-const NEXT_MORNING_HOURS = HOURLY_MINIMUM;
 
 function homePoint(weather: WeatherView): Coordinates | null {
   if (weather.status !== "ok" || !weather.location) return null;
@@ -128,7 +124,7 @@ function segmentName(segment: PlaceSegment): string {
 
 /**
  * 1日ぶんの区間から、`hours` の各時間の列を作る。場所の決め方は `placeAtHour()`（区間の中→その区間、
- * 移動中→次の区間の地点、日の終わり・翌朝→自宅）。予報は区間ごとに取得済みのもの（30分キャッシュ）を使い回す。
+ * 移動中→次の区間の地点、最初の区間より前・最後の区間より後→自宅）。予報は区間ごとに取得済みのもの（30分キャッシュ）を使い回す。
  */
 async function cellsFor(
   date: string,
@@ -186,7 +182,7 @@ export function dashboardPlaces(userId: string, now = new Date()): Promise<Place
     const hourly = today
       ? [
           ...(await cellsFor(today.date, range(0, 24), today.resolved, home, homeName)),
-          ...(rest[0] ? await cellsFor(rest[0].date, range(0, NEXT_MORNING_HOURS), tomorrowResolved, home, homeName) : []),
+          ...(rest[0] ? await cellsFor(rest[0].date, range(0, 24), tomorrowResolved, home, homeName) : []),
         ]
       : [];
 
