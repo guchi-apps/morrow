@@ -14,10 +14,19 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { CurrentLocationWeather } from "@/components/dashboard/current-location-weather";
+import { DaySwipe } from "@/components/dashboard/day-swipe";
 import { LiveNoticeLine, NoticeLiveProvider } from "@/components/dashboard/live-notice-line";
-import { dashboardSchedule, dashboardWeather } from "@/lib/dashboard/aide";
-import type { ScheduleItem, ScheduleView, WeatherDay, WeatherView } from "@/lib/dashboard/parse";
-import { dashboardPlaces, type HourCell, type PlaceSegment, type PlacesView } from "@/lib/dashboard/places";
+import { dashboardSchedule } from "@/lib/dashboard/aide";
+import { addDays, cardDayName, DAY_RANGE, dayHref, relativeDayName } from "@/lib/dashboard/day-offset";
+import type { ScheduleItem, ScheduleView, WeatherDay } from "@/lib/dashboard/parse";
+import {
+  dashboardDayWeather,
+  dashboardPlaces,
+  type DayWeatherView,
+  type HourCell,
+  type PlaceSegment,
+  type PlacesView,
+} from "@/lib/dashboard/places";
 import type { DashboardNotices, DashboardTopic, DeliveredPush } from "@/lib/dashboard/today";
 import { dayLabel, jstDayKey, jstTimeLabel } from "@/lib/day-key";
 import { describeWeatherCode, hoursFrom, RAIN_POP, type RainVerdict } from "@/lib/weather/rain-check";
@@ -31,77 +40,178 @@ import { cn } from "@/lib/utils";
  *
  * 並びは、スマホ（1列）で上から「天気 → 予定 → 今日届いた通知 → お知らせ → 話題」。PC・iPad
  * （lg以上）は左に天気・お知らせ・話題、右に予定・届いた通知の2列。
+ *
+ * 左右のスワイプ（`DaySwipe`）・見出しの ‹ › で前後の日へめくる（#606。`?d=`）。今日以外の日は、天気・予定・
+ * その日届いた通知（未来の日は出さない）だけを出す。お知らせ・話題・現在地の天気・明日以降の雨は「いま」の
+ * 状態なので今日だけ。お知らせの問い合わせ（`NoticeLiveProvider`）はどの日でも外さない（仕入れの起点）。
  */
 
 type Props = {
   userId: string;
   now: Date;
-  heading: string;
+  todayKey: string;
+  /** 表示する日の今日からのずれ（0＝今日）。 */
+  offset: number;
   pushes: DeliveredPush[];
   notices: DashboardNotices;
   topics: DashboardTopic[];
 };
 
-export function DashboardView({ userId, now, heading, pushes, notices, topics }: Props) {
-  // 見出しに地点（市町村名）を出すので、カードごと後から流す。
+export function DashboardView({ userId, now, todayKey, offset, pushes, notices, topics }: Props) {
+  const dayKey = addDays(todayKey, offset);
+  const dayName = cardDayName(dayKey, offset);
+  const isToday = offset === 0;
+
+  // 見出しに地点（市町村名）を出すので、カードごと後から流す。`key` を日付にして、めくった直後は
+  // 前の日の中身を残さず「取得しています…」を出す（新しい境界として扱わせる）。
   const weather = (
     <Suspense
+      key={`weather-${dayKey}`}
       fallback={
-        <Card title="今日の天気">
+        <Card title={`${dayName}の天気`}>
           <Loading />
         </Card>
       }
     >
-      <WeatherCard userId={userId} now={now} />
+      <WeatherCard userId={userId} now={now} offset={offset} dayKey={dayKey} />
     </Suspense>
   );
   const schedule = (
-    <Card title="今日の予定">
-      <Suspense fallback={<Loading />}>
-        <ScheduleBody userId={userId} now={now} />
+    <Card title={`${dayName}の予定`}>
+      <Suspense key={`schedule-${dayKey}`} fallback={<Loading />}>
+        <ScheduleBody userId={userId} now={now} offset={offset} />
       </Suspense>
     </Card>
   );
-  const pushCard = <PushCard pushes={pushes} />;
-  const noticeCard = <NoticeCard notices={notices} />;
-  const topicCard = <TopicCard topics={topics} />;
+  // 未来の日はまだ何も届いていないので出さない。
+  const pushCard = offset <= 0 && <PushCard pushes={pushes} day={dayName} isToday={isToday} />;
+  const noticeCard = isToday && <NoticeCard notices={notices} />;
+  const topicCard = isToday && <TopicCard topics={topics} />;
+
+  const prev = offset > -DAY_RANGE ? offset - 1 : null;
+  const next = offset < DAY_RANGE ? offset + 1 : null;
+  const peekName = (target: number) => relativeDayName(target) ?? cardDayName(addDays(todayKey, target), target);
 
   return (
     // お知らせの問い合わせ（選定・仕入れの起点）は1本だけ。2つの並びのどちらからも同じ値を読む。
     <NoticeLiveProvider initial={notices.current}>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-[980px] flex-col gap-3 px-3.5 py-4 md:gap-4 md:px-7 md:py-6">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <h2 className="text-lg font-bold tracking-wide md:text-[1.375rem]">{heading}</h2>
-            <span className="text-xs text-muted">{jstTimeLabel(now)} 時点・天気と予定は開いたときに取得</span>
-          </div>
+      <DaySwipe
+        prevHref={prev === null ? null : dayHref(todayKey, prev)}
+        nextHref={next === null ? null : dayHref(todayKey, next)}
+        prevLabel={prev === null ? null : peekName(prev)}
+        nextLabel={next === null ? null : peekName(next)}
+      >
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto flex w-full max-w-[980px] flex-col gap-3 px-3.5 py-4 md:gap-4 md:px-7 md:py-6">
+            <DayNav todayKey={todayKey} offset={offset} prev={prev} next={next} now={now} />
 
-          {/* スマホ: 1列（読む順） */}
-          <div className="flex flex-col gap-3 lg:hidden">
-            {weather}
-            {schedule}
-            {pushCard}
-            {noticeCard}
-            {topicCard}
-          </div>
-
-          {/* PC・iPad横向き: 2列。どちらの並びもHTMLに入り、CSSで片方を隠す（取得の重複は `DesktopOnly` の注記） */}
-          <DesktopOnly>
-            <div className="grid grid-cols-[minmax(0,5fr)_minmax(0,7fr)] items-start gap-3.5">
-              <div className="flex min-w-0 flex-col gap-3.5">
-                {weather}
-                {noticeCard}
-                {topicCard}
-              </div>
-              <div className="flex min-w-0 flex-col gap-3.5">
-                {schedule}
-                {pushCard}
-              </div>
+            {/* スマホ: 1列（読む順） */}
+            <div className="flex flex-col gap-3 lg:hidden">
+              {weather}
+              {schedule}
+              {pushCard}
+              {noticeCard}
+              {topicCard}
             </div>
-          </DesktopOnly>
+
+            {/* PC・iPad横向き: 2列。どちらの並びもHTMLに入り、CSSで片方を隠す（取得の重複は `DesktopOnly` の注記） */}
+            <DesktopOnly>
+              <div className="grid grid-cols-[minmax(0,5fr)_minmax(0,7fr)] items-start gap-3.5">
+                <div className="flex min-w-0 flex-col gap-3.5">
+                  {weather}
+                  {noticeCard}
+                  {topicCard}
+                </div>
+                <div className="flex min-w-0 flex-col gap-3.5">
+                  {schedule}
+                  {pushCard}
+                </div>
+              </div>
+            </DesktopOnly>
+          </div>
         </div>
-      </div>
+      </DaySwipe>
     </NoticeLiveProvider>
+  );
+}
+
+const NAV_BUTTON =
+  "grid size-8 shrink-0 place-items-center rounded-full border border-border bg-surface text-base font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+
+/**
+ * 見出しの日付と前後への移動（#606）。ボタンは `Link`（`replace`）なので、JSが動く前でも押せる。
+ * 端の日では押せない形（薄い・リンクでない）にする。ドットは範囲（前後 `DAY_RANGE` 日）の中の位置。
+ */
+function DayNav({
+  todayKey,
+  offset,
+  prev,
+  next,
+  now,
+}: {
+  todayKey: string;
+  offset: number;
+  prev: number | null;
+  next: number | null;
+  now: Date;
+}) {
+  const dayKey = addDays(todayKey, offset);
+  const relative = relativeDayName(offset);
+  const step = (target: number | null, label: string, glyph: string) =>
+    target === null ? (
+      <span className={cn(NAV_BUTTON, "text-muted opacity-40")} aria-hidden="true">
+        {glyph}
+      </span>
+    ) : (
+      <Link href={dayHref(todayKey, target)} replace scroll={false} aria-label={label} className={cn(NAV_BUTTON, "hover:bg-rail-active")}>
+        {glyph}
+      </Link>
+    );
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+        {step(prev, "前の日", "‹")}
+        <h2 className="flex items-baseline gap-2 text-lg font-bold tracking-wide md:text-[1.375rem]">
+          {dayLabel(dayKey)}
+          {relative && (
+            <span
+              className={cn(
+                "rounded-full px-2 py-px text-xs font-bold tracking-normal",
+                offset === 0 ? "bg-accent-surface text-accent" : "bg-topic-surface text-topic",
+              )}
+            >
+              {relative}
+            </span>
+          )}
+        </h2>
+        {step(next, "次の日", "›")}
+        <span className="hidden items-center gap-1 sm:flex" aria-hidden="true">
+          {Array.from({ length: DAY_RANGE * 2 + 1 }, (_, index) => index - DAY_RANGE).map((dot) => (
+            <i
+              key={dot}
+              className={cn(
+                "block h-[5px] rounded-full",
+                dot === offset ? "w-3.5 bg-accent" : dot === 0 ? "w-[5px] bg-muted" : "w-[5px] bg-border",
+              )}
+            />
+          ))}
+        </span>
+        {offset !== 0 && (
+          <Link
+            href="/"
+            replace
+            scroll={false}
+            className="ml-auto rounded-full border border-accent px-3 py-0.5 text-xs font-bold text-accent hover:bg-accent-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            今日へ
+          </Link>
+        )}
+      </div>
+      <span className="text-xs text-muted">
+        {jstTimeLabel(now)} 時点・天気と予定は開いたときに取得<span className="hidden pointer-coarse:inline">・左右にスワイプで前後の日</span>
+      </span>
+    </div>
   );
 }
 
@@ -191,23 +301,40 @@ function PlaceChip({ name }: { name: string }) {
   );
 }
 
-async function WeatherCard({ userId, now }: { userId: string; now: Date }) {
-  const weather: WeatherView = await dashboardWeather(userId, now);
+async function WeatherCard({
+  userId,
+  now,
+  offset,
+  dayKey,
+}: {
+  userId: string;
+  now: Date;
+  offset: number;
+  dayKey: string;
+}) {
+  const [weather, tomorrow] = await Promise.all([
+    dashboardDayWeather(userId, now, dayKey),
+    // 今日の画面だけ、明日の1行を添える（めくった先の日では出さない）。
+    offset === 0 ? dashboardDayWeather(userId, now, addDays(dayKey, 1)) : null,
+  ]);
   const homeName = weather.status === "ok" ? (weather.location?.name ?? null) : null;
 
   return (
-    <Card title="今日の天気" aside={homeName && <PlaceChip name={homeName} />}>
+    <Card title={`${cardDayName(dayKey, offset)}の天気`} aside={homeName && <PlaceChip name={homeName} />}>
       <WeatherBody weather={weather} />
       <Suspense fallback={<p className="text-xs text-muted">時間と場所ごとの天気を取得しています…</p>}>
         <PlacesSection
           userId={userId}
           now={now}
-          dailyRainy={weather.status === "ok" && weather.today.pop !== null && weather.today.pop >= RAIN_POP}
-          tomorrow={weather.status === "ok" ? weather.tomorrow : null}
+          offset={offset}
+          dayKey={dayKey}
+          dailyRainy={weather.status === "ok" && weather.day.pop !== null && weather.day.pop >= RAIN_POP}
+          tomorrow={tomorrow?.status === "ok" ? tomorrow.day : null}
           homeName={homeName}
         />
       </Suspense>
-      <CurrentLocationWeather />
+      {/* 現在地は「いま」の天気なので今日だけ。 */}
+      {offset === 0 && <CurrentLocationWeather />}
       <p className="text-[0.625rem] text-muted">
         {weather.status === "ok" && weather.attribution ? weather.attribution : "Weather data by Open-Meteo.com (CC BY 4.0)"}
         ・地名: 国土地理院
@@ -216,7 +343,7 @@ async function WeatherCard({ userId, now }: { userId: string; now: Date }) {
   );
 }
 
-function WeatherBody({ weather }: { weather: WeatherView }) {
+function WeatherBody({ weather }: { weather: DayWeatherView }) {
   switch (weather.status) {
     case "unconnected":
       return <Unconnected />;
@@ -226,8 +353,11 @@ function WeatherBody({ weather }: { weather: WeatherView }) {
       return (
         <Empty>予報がまだ届いていません（AIDE側で取得できていません）。雨か晴れかは分かりません。</Empty>
       );
+    case "none":
+      // 今日・明日以外はAIDEの予報が無く、自宅の地点（AIDEの `location`）が届くまでは引けない（#606）。
+      return <Empty>この日の予報はありません（自宅の地点がまだAIDEから届いていません）。</Empty>;
     case "ok":
-      return <WeatherOk today={weather.today} stale={weather.stale} />;
+      return <WeatherOk today={weather.day} stale={weather.stale} />;
   }
 }
 
@@ -269,24 +399,29 @@ function WeatherOk({ today, stale }: { today: WeatherDay; stale: boolean }) {
 async function PlacesSection({
   userId,
   now,
+  offset,
+  dayKey,
   dailyRainy,
   tomorrow,
   homeName,
 }: {
   userId: string;
   now: Date;
+  offset: number;
+  dayKey: string;
   dailyRainy: boolean;
   tomorrow: WeatherDay | null;
   homeName: string | null;
 }) {
-  const places: PlacesView = await dashboardPlaces(userId, now);
+  const places: PlacesView = await dashboardPlaces(userId, now, offset);
   const tomorrowLine = tomorrow && (
     <div className="text-xs tabular-nums text-muted">
       明日{homeName && `（${homeName}）`} {tomorrow.summary}　{temp(tomorrow.max)} / {temp(tomorrow.min)}
       {tomorrow.pop !== null && `　降水 ${tomorrow.pop}%`}
     </div>
   );
-  const fallbackUmbrella = dailyRainy && <UmbrellaNote>傘が要りそうです</UmbrellaNote>;
+  // 過ぎた日に傘の注意は要らない。
+  const fallbackUmbrella = dailyRainy && offset >= 0 && <UmbrellaNote>傘が要りそうです</UmbrellaNote>;
 
   if (places.status !== "ok") {
     // 未接続・未設定は天気の側（AIDE）で案内が出るので、ここでは重ねない。
@@ -299,20 +434,22 @@ async function PlacesSection({
     );
   }
 
-  // 傘の注意は、まだ終わっていない区間だけから選ぶ。行き先を自宅より先に挙げる。
-  const nowLabel = jstTimeLabel(now);
-  const nowHour = Number(nowLabel.slice(0, 2));
+  // 傘の注意は、まだ終わっていない区間だけから選ぶ（先の日は全部、過ぎた日は無し）。行き先を自宅より先に挙げる。
+  // 今日以外の日は、帯をその日の0〜24時のまま出し、「◯時ごろから雨」を時刻で絞らない（`nowHour` を -1 にする）。
+  const nowLabel = offset === 0 ? jstTimeLabel(now) : offset > 0 ? "00:00" : "24:00";
+  const nowHour = offset === 0 ? Number(nowLabel.slice(0, 2)) : -1;
   const rainy = places.today
     .filter((segment) => segment.verdict === "rain" && segment.end > nowLabel)
     .sort((a, b) => Number(a.home) - Number(b.home));
   const later = places.later.filter((day) => day.segments.length > 0);
-  const hours = hoursFrom(places.hourly, jstDayKey(now), nowHour);
+  const hours = offset === 0 ? hoursFrom(places.hourly, jstDayKey(now), nowHour) : places.hourly;
+  const dayName = cardDayName(dayKey, offset);
 
   return (
     <>
       <div className="flex flex-col gap-1.5 border-t border-border pt-2.5">
         <h4 className="flex justify-between gap-2 text-xs font-bold tracking-[0.06em] text-muted">
-          時間と場所ごと <span className="font-normal tracking-normal">今日の予定から</span>
+          時間と場所ごと <span className="font-normal tracking-normal">{dayName}の予定から</span>
         </h4>
         {places.partial && <Failed>予定の一部を取得できませんでした。行き先が欠けている可能性があります。</Failed>}
         <SegmentList segments={places.today} />
@@ -321,9 +458,12 @@ async function PlacesSection({
       {hours.length > 0 && (
         <div className="flex flex-col gap-1.5 border-t border-border pt-2.5">
           <h4 className="flex justify-between gap-2 text-xs font-bold tracking-[0.06em] text-muted">
-            1時間ごと <span className="font-normal tracking-normal">居る場所の予報・24時間</span>
+            1時間ごと{" "}
+            <span className="font-normal tracking-normal">
+              {offset === 0 ? "居る場所の予報・24時間" : "居る場所の予報・0〜24時"}
+            </span>
           </h4>
-          <HourlyStrip cells={hours} />
+          <HourlyStrip cells={hours} fromNow={offset === 0} />
           {rainy.length > 0 && <UmbrellaNote>{umbrellaText(rainy[0], rainy.length > 1, nowHour)}</UmbrellaNote>}
           <p className="text-[0.6875rem] text-muted">青い地は降水確率{RAIN_POP}%以上。横にスクロールできます。</p>
         </div>
@@ -334,33 +474,35 @@ async function PlacesSection({
 
       {tomorrowLine}
 
-      {/* 明日以降は押したときだけ開く。JSが動く前でも開けるよう <details> にする。 */}
-      <details className="group border-t border-border pt-2.5">
-        <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-[0.8125rem] font-semibold hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
-          明日以降の雨を見る
-          <span className="text-xs text-muted group-open:rotate-180" aria-hidden="true">
-            ▾
-          </span>
-        </summary>
-        <div className="mt-2 flex flex-col">
-          {later.length === 0 ? (
-            <Empty>明日・明後日に時間の決まった予定はありません。</Empty>
-          ) : (
-            later.map((day) => (
-              <div key={day.date} className="flex flex-col">
-                <span className="pt-1.5 text-[0.6875rem] font-bold tracking-[0.06em] text-muted">
-                  {day.date === places.later[0]?.date ? "明日 " : ""}
-                  {dayLabel(day.date)}
-                </span>
-                <SegmentList segments={day.segments} />
-              </div>
-            ))
-          )}
-          <p className="pt-1 text-[0.6875rem] text-muted">
-            明後日まで。場所欄が空の予定は自宅に居るものとして出します。
-          </p>
-        </div>
-      </details>
+      {/* 明日以降は押したときだけ開く。JSが動く前でも開けるよう <details> にする。めくった先の日では出さない（#606）。 */}
+      {offset === 0 && (
+        <details className="group border-t border-border pt-2.5">
+          <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-[0.8125rem] font-semibold hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
+            明日以降の雨を見る
+            <span className="text-xs text-muted group-open:rotate-180" aria-hidden="true">
+              ▾
+            </span>
+          </summary>
+          <div className="mt-2 flex flex-col">
+            {later.length === 0 ? (
+              <Empty>明日・明後日に時間の決まった予定はありません。</Empty>
+            ) : (
+              later.map((day) => (
+                <div key={day.date} className="flex flex-col">
+                  <span className="pt-1.5 text-[0.6875rem] font-bold tracking-[0.06em] text-muted">
+                    {day.date === places.later[0]?.date ? "明日 " : ""}
+                    {dayLabel(day.date)}
+                  </span>
+                  <SegmentList segments={day.segments} />
+                </div>
+              ))
+            )}
+            <p className="pt-1 text-[0.6875rem] text-muted">
+              明後日まで。場所欄が空の予定は自宅に居るものとして出します。
+            </p>
+          </div>
+        </details>
+      )}
     </>
   );
 }
@@ -421,7 +563,7 @@ const BAND_CLASS: Record<HourCell["placeKind"], string> = {
  * 1時間ごとの帯（#594）。上段にその時間に居る場所（隣と同じなら1本）、下段に時刻・天気・気温・降水確率。
  * 列は固定幅で、カードの幅に収まらないぶんは帯の中だけ横にスクロールする（ページは横に動かさない）。
  */
-function HourlyStrip({ cells }: { cells: HourCell[] }) {
+function HourlyStrip({ cells, fromNow }: { cells: HourCell[]; fromNow: boolean }) {
   const bands: { start: number; span: number; cell: HourCell }[] = [];
   cells.forEach((cell, index) => {
     const last = bands.at(-1);
@@ -449,7 +591,7 @@ function HourlyStrip({ cells }: { cells: HourCell[] }) {
         {cells.map((cell, index) => {
           const wet = cell.pop !== null && cell.pop >= RAIN_POP;
           const nextDay = index > 0 && cell.date !== cells[0].date && cell.hour === 0;
-          const time = index === 0 ? "今" : nextDay ? "翌0時" : `${cell.hour}時`;
+          const time = index === 0 && fromNow ? "今" : nextDay ? "翌0時" : `${cell.hour}時`;
           const known = cell.code !== null || cell.temperature !== null || cell.pop !== null;
           return (
             <li
@@ -465,7 +607,7 @@ function HourlyStrip({ cells }: { cells: HourCell[] }) {
               <span
                 className={cn(
                   "text-[0.6875rem]",
-                  index === 0 ? "font-bold text-foreground" : nextDay ? "font-bold text-topic" : "text-muted",
+                  index === 0 && fromNow ? "font-bold text-foreground" : nextDay ? "font-bold text-topic" : "text-muted",
                 )}
               >
                 {time}
@@ -568,8 +710,8 @@ function SegmentList({ segments }: { segments: PlaceSegment[] }) {
 
 /* ---------------- 予定 ---------------- */
 
-async function ScheduleBody({ userId, now }: { userId: string; now: Date }) {
-  const schedule: ScheduleView = await dashboardSchedule(userId, now);
+async function ScheduleBody({ userId, now, offset }: { userId: string; now: Date; offset: number }) {
+  const schedule: ScheduleView = await dashboardSchedule(userId, now, offset);
 
   switch (schedule.status) {
     case "unconnected":
@@ -607,7 +749,7 @@ function ScheduleOk({ schedule }: { schedule: Extract<ScheduleView, { status: "o
 
       {items.length === 0 ? (
         // 一部が欠けている・未接続の回は「予定なし」と言い切らない。
-        !partial && !googleDisconnected && <Empty>今日の予定はありません。</Empty>
+        !partial && !googleDisconnected && <Empty>この日の予定はありません。</Empty>
       ) : (
         <ul className="grid grid-cols-[84px_minmax(0,1fr)] gap-x-3 md:grid-cols-[92px_minmax(0,1fr)]">
           {items.map((item, index) => {
@@ -673,11 +815,16 @@ function ScheduleOk({ schedule }: { schedule: Extract<ScheduleView, { status: "o
 
 /* ---------------- 今日届いた通知 ---------------- */
 
-function PushCard({ pushes }: { pushes: DeliveredPush[] }) {
+function PushCard({ pushes, day, isToday }: { pushes: DeliveredPush[]; day: string; isToday: boolean }) {
   // きのう以前の分は「届いた通知」（`/pushes`。#581）で読む。端末に残った古い通知を開いてもここへ着くため。
+  // 前の日へめくったときは、その日の分をここに出す（#606）。
   return (
-    <Card title="今日届いた通知" link={{ href: "/pushes", label: "これまでの通知" }}>
-      {pushes.length === 0 ? <Empty>今日はまだ通知を送っていません。</Empty> : <PushList pushes={pushes} />}
+    <Card title={`${day}${/\d日$/.test(day) ? "に" : ""}届いた通知`} link={{ href: "/pushes", label: "これまでの通知" }}>
+      {pushes.length === 0 ? (
+        <Empty>{isToday ? "今日はまだ通知を送っていません。" : "この日は通知を送っていません。"}</Empty>
+      ) : (
+        <PushList pushes={pushes} />
+      )}
     </Card>
   );
 }

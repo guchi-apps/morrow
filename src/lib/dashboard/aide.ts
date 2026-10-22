@@ -65,13 +65,18 @@ export type ScheduleSource =
   | { status: "failed"; detail: string }
   | { status: "ok"; json: ToolJson };
 
-export function scheduleSource(userId: string, now = new Date()): Promise<ScheduleSource> {
-  return cached(`schedule:${userId}:${jstDayKey(now)}`, async (): Promise<ScheduleSource> => {
+/**
+ * `offset` は表示する日の今日からのずれ（#606。0＝今日）。今日は従来どおり3日ぶん、それ以外の日は
+ * その日だけを `offsetDays` で引く（明日以降の雨・明日の帯は今日の画面にしか出さないため）。
+ */
+export function scheduleSource(userId: string, now = new Date(), offset = 0): Promise<ScheduleSource> {
+  return cached(`schedule:${userId}:${jstDayKey(now)}:${offset}`, async (): Promise<ScheduleSource> => {
     try {
       const server = await connectedServerFor(userId, "aide");
       if (!server) return { status: "unconnected" };
-      // `date` は渡さない（DaySpanの設定タイムゾーンでの今日。こちらで日付を作り直さない）。
-      return { status: "ok", json: await callToolJson(server, "aide_schedule", { days: SCHEDULE_DAYS }) };
+      // `date` は渡さない（DaySpanの設定タイムゾーンでの今日。こちらで日付を作り直さない）。前後の日は `offsetDays` でずらす。
+      const args = offset === 0 ? { days: SCHEDULE_DAYS } : { days: 1, offsetDays: offset };
+      return { status: "ok", json: await callToolJson(server, "aide_schedule", args) };
     } catch (error) {
       console.error("[aide-bot] ダッシュボードの予定を取得できなかった", error);
       return { status: "failed", detail: failureDetail(error) };
@@ -79,7 +84,7 @@ export function scheduleSource(userId: string, now = new Date()): Promise<Schedu
   });
 }
 
-export async function dashboardSchedule(userId: string, now = new Date()): Promise<ScheduleView> {
-  const source = await scheduleSource(userId, now);
+export async function dashboardSchedule(userId: string, now = new Date(), offset = 0): Promise<ScheduleView> {
+  const source = await scheduleSource(userId, now, offset);
   return source.status === "ok" ? parseSchedule(source.json) : source;
 }
