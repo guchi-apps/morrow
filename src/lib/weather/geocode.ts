@@ -1,10 +1,10 @@
 import {
+  addressQueryOf,
   municipalityFromReverse,
   parseGsiSearch,
   parseMuniTable,
   pickMunicipality,
   roundCoordinate,
-  searchTextOf,
   type Coordinates,
   type ResolvedPlace,
 } from "@/lib/weather/rain-check";
@@ -70,7 +70,8 @@ export async function municipalityAt(point: Coordinates): Promise<string | null>
  * 住所が書かれていた場合は、先頭の候補の地点から逆ジオコーダで市町村名を引く。
  */
 export async function resolvePlace(placeText: string, near: Coordinates | null): Promise<ResolvedPlace | null> {
-  const query = searchTextOf(placeText);
+  // 店名の付いた場所欄は丸ごとでは0件になるので、都道府県から後ろの住所で引く（#597）。
+  const query = addressQueryOf(placeText);
   if (!query) return null;
   const key = `${query}|${near ? `${roundCoordinate(near.latitude)},${roundCoordinate(near.longitude)}` : ""}`;
   const hit = places.get(key);

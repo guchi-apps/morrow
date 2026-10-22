@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  addressQueryOf,
   buildStays,
   municipalityFromReverse,
   nextHours,
@@ -82,9 +83,70 @@ describe("buildStays", () => {
     );
   });
 
-  it("場所欄が空で移動も無い予定は区間にしない（タイトルの括弧は読まない）", () => {
+  it("場所欄が空の予定は自宅の区間にする（タイトルの括弧は読まない。#597）", () => {
     const days = buildStays(SCHEDULE);
-    assert.deepEqual(days?.[2].stays, []);
+    assert.deepEqual(
+      days?.[2].stays.map((stay) => [stay.start, stay.end, stay.placeText, stay.home, stay.label]),
+      [["07:45", "17:15", "自宅", true, "出張（門真）"]],
+    );
+  });
+
+  it("場所欄が空の予定でも、移動中・他の区間と重なるものは足さない", () => {
+    const days = buildStays({
+      configured: true,
+      days: [
+        {
+          date: "2026-10-23",
+          events: [
+            { title: "睡眠", startTime: "00:10", endTime: "06:00", location: null },
+            { title: "電話", startTime: "06:40", endTime: "07:00", location: null },
+            { title: "散髪", startTime: "12:00", endTime: "14:00", location: "大阪府堺市北区百舌鳥梅町3丁11-1" },
+            { title: "買い物", startTime: "13:00", endTime: "15:00", location: null },
+            { title: "夕食", startTime: "18:00", endTime: "20:00", location: null },
+            { title: "夕食の片付け", startTime: "19:30", endTime: "20:30", location: null },
+          ],
+          travels: [{ title: "自宅 → 栗東", origin: HOME_ADDRESS, destination: "栗東", startTime: "06:30", endTime: "07:30" }],
+        },
+      ],
+    });
+    // 今日（自宅込み）: 移動前の自宅区間に重なる「睡眠」・移動中の「電話」・行き先に重なる予定は足さない
+    assert.deepEqual(
+      days?.[0].stays.map((stay) => [stay.start, stay.end, stay.home, stay.label]),
+      [
+        ["00:00", "06:30", true, null],
+        ["07:30", "22:00", false, "買い物"],
+        ["12:00", "14:00", false, "散髪"],
+      ],
+    );
+  });
+
+  it("明日以降は、移動から作った自宅の区間を出さずに、場所欄が空の予定を自宅として足す", () => {
+    const days = buildStays({
+      configured: true,
+      days: [
+        { date: "2026-10-22", events: [], travels: [] },
+        {
+          date: "2026-10-23",
+          events: [
+            { title: "睡眠", startTime: "00:10", endTime: "06:00", location: null },
+            { title: "夕食", startTime: "18:00", endTime: "20:00", location: null },
+            { title: "休み", allDay: true, location: null, outcome: "CANCELED" },
+          ],
+          travels: [
+            { title: "自宅 → 栗東", origin: HOME_ADDRESS, destination: "栗東", startTime: "06:30", endTime: "07:30" },
+            { title: "栗東 → 自宅", origin: "栗東", destination: HOME_ADDRESS, startTime: "16:30", endTime: "17:30" },
+          ],
+        },
+      ],
+    });
+    assert.deepEqual(
+      days?.[1].stays.map((stay) => [stay.start, stay.end, stay.placeText, stay.home, stay.label]),
+      [
+        ["00:10", "06:00", "自宅", true, "睡眠"],
+        ["07:30", "16:30", "栗東", false, null],
+        ["18:00", "20:00", "自宅", true, "夕食"],
+      ],
+    );
   });
 
   it("今日に移動も場所欄も無ければ、自宅の1区間（終日）だけ", () => {
@@ -153,6 +215,18 @@ describe("pickMunicipality", () => {
       latitude: 34.85,
       longitude: 135.61,
     });
+  });
+
+  it("店名の後に住所が書かれていれば、都道府県から後ろを検索する（#597）", () => {
+    assert.equal(
+      addressQueryOf("リラクゼーション ヘアサロン Bean's 大阪府堺市北区百舌鳥梅町3丁11-1 タツミマンション102"),
+      "大阪府堺市北区百舌鳥梅町3丁11-1 タツミマンション102",
+    );
+    assert.equal(addressQueryOf(HOME_ADDRESS), "大阪府高槻市出丸町3-36");
+    // 都道府県が無ければ丸ごと（「区役所前」のような語から切り出して見当違いの地点を拾わない）
+    assert.equal(addressQueryOf("カフェ 区役所前"), "カフェ 区役所前");
+    assert.equal(addressQueryOf("栗東"), "栗東");
+    assert.equal(addressQueryOf("自宅"), "");
   });
 
   it("形の違う候補は落とす", () => {

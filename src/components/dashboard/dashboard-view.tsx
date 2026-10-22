@@ -337,14 +337,14 @@ async function PlacesSection({
       {/* 明日以降は押したときだけ開く。JSが動く前でも開けるよう <details> にする。 */}
       <details className="group border-t border-border pt-2.5">
         <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-[0.8125rem] font-semibold hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
-          明日以降の行き先の雨を見る
+          明日以降の雨を見る
           <span className="text-xs text-muted group-open:rotate-180" aria-hidden="true">
             ▾
           </span>
         </summary>
         <div className="mt-2 flex flex-col">
           {later.length === 0 ? (
-            <Empty>明日・明後日に場所の分かる予定はありません。</Empty>
+            <Empty>明日・明後日に時間の決まった予定はありません。</Empty>
           ) : (
             later.map((day) => (
               <div key={day.date} className="flex flex-col">
@@ -357,7 +357,7 @@ async function PlacesSection({
             ))
           )}
           <p className="pt-1 text-[0.6875rem] text-muted">
-            明後日まで。場所欄が空で移動も無い予定は対象外です。
+            明後日まで。場所欄が空の予定は自宅に居るものとして出します。
           </p>
         </div>
       </details>
