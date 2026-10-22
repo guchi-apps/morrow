@@ -1,4 +1,15 @@
-import { CloudRain, CloudSun, MapPin, Umbrella } from "lucide-react";
+import {
+  Cloud,
+  CloudDrizzle,
+  CloudFog,
+  CloudLightning,
+  CloudRain,
+  CloudSnow,
+  CloudSun,
+  MapPin,
+  Sun,
+  Umbrella,
+} from "lucide-react";
 import Link from "next/link";
 import { Suspense } from "react";
 
@@ -6,10 +17,10 @@ import { CurrentLocationWeather } from "@/components/dashboard/current-location-
 import { LiveNoticeLine, NoticeLiveProvider } from "@/components/dashboard/live-notice-line";
 import { dashboardSchedule, dashboardWeather } from "@/lib/dashboard/aide";
 import type { ScheduleItem, ScheduleView, WeatherDay, WeatherView } from "@/lib/dashboard/parse";
-import { dashboardPlaces, type PlaceSegment, type PlacesView } from "@/lib/dashboard/places";
+import { dashboardPlaces, type HourCell, type PlaceSegment, type PlacesView } from "@/lib/dashboard/places";
 import type { DashboardNotices, DashboardTopic, DeliveredPush } from "@/lib/dashboard/today";
-import { dayLabel, jstTimeLabel } from "@/lib/day-key";
-import { RAIN_POP, type RainVerdict } from "@/lib/weather/rain-check";
+import { dayLabel, jstDayKey, jstTimeLabel } from "@/lib/day-key";
+import { describeWeatherCode, hoursFrom, RAIN_POP, type RainVerdict } from "@/lib/weather/rain-check";
 import { cn } from "@/lib/utils";
 
 /**
@@ -290,10 +301,12 @@ async function PlacesSection({
 
   // 傘の注意は、まだ終わっていない区間だけから選ぶ。行き先を自宅より先に挙げる。
   const nowLabel = jstTimeLabel(now);
+  const nowHour = Number(nowLabel.slice(0, 2));
   const rainy = places.today
     .filter((segment) => segment.verdict === "rain" && segment.end > nowLabel)
     .sort((a, b) => Number(a.home) - Number(b.home));
   const later = places.later.filter((day) => day.segments.length > 0);
+  const hours = hoursFrom(places.hourly, jstDayKey(now), nowHour);
 
   return (
     <>
@@ -303,12 +316,21 @@ async function PlacesSection({
         </h4>
         {places.partial && <Failed>予定の一部を取得できませんでした。行き先が欠けている可能性があります。</Failed>}
         <SegmentList segments={places.today} />
-        {rainy.length > 0 ? (
-          <UmbrellaNote>
-            {placeLabel(rainy[0])}（{segmentTime(rainy[0])}）{rainy.length > 1 && "ほか"}は傘が要りそうです
-          </UmbrellaNote>
-        ) : null}
       </div>
+
+      {hours.length > 0 && (
+        <div className="flex flex-col gap-1.5 border-t border-border pt-2.5">
+          <h4 className="flex justify-between gap-2 text-xs font-bold tracking-[0.06em] text-muted">
+            1時間ごと <span className="font-normal tracking-normal">居る場所の予報</span>
+          </h4>
+          <HourlyStrip cells={hours} />
+          {rainy.length > 0 && <UmbrellaNote>{umbrellaText(rainy[0], rainy.length > 1, nowHour)}</UmbrellaNote>}
+          <p className="text-[0.6875rem] text-muted">青い地は降水確率{RAIN_POP}%以上。横にスクロールできます。</p>
+        </div>
+      )}
+      {hours.length === 0 && rainy.length > 0 && (
+        <UmbrellaNote>{umbrellaText(rainy[0], rainy.length > 1, nowHour)}</UmbrellaNote>
+      )}
 
       {tomorrowLine}
 
@@ -352,6 +374,118 @@ function UmbrellaNote({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * 傘の注意（#594）。降り始めの時刻が分かり、まだ来ていなければ「◯◯で14時ごろから雨」。
+ * 過ぎている・分からない（自宅を日別予報で代用した区間）ときは従来どおり区間の時間帯で言う。
+ */
+function umbrellaText(segment: PlaceSegment, more: boolean, nowHour: number): string {
+  const weather = segment.weather;
+  const others = more ? "ほか" : "";
+  if (weather?.rainFrom != null && weather.rainFrom > nowHour) {
+    const max = weather.pop !== null ? `（最大${weather.pop}%）` : "";
+    return `${placeLabel(segment)}で${weather.rainFrom}時ごろから雨${max}${others}。傘が要りそうです`;
+  }
+  return `${placeLabel(segment)}（${segmentTime(segment)}）${others}は傘が要りそうです`;
+}
+
+/** 天気コード（WMO）→ アイコン。表の区切りは `describeWeatherCode()` と同じ。 */
+function WeatherIcon({ code, className }: { code: number | null; className?: string }) {
+  const Icon =
+    code === null
+      ? Cloud
+      : code <= 1
+        ? Sun
+        : code === 2
+          ? CloudSun
+          : code === 3
+            ? Cloud
+            : code <= 48
+              ? CloudFog
+              : code <= 57
+                ? CloudDrizzle
+                : code <= 67 || (code >= 80 && code <= 82)
+                  ? CloudRain
+                  : code <= 86
+                    ? CloudSnow
+                    : CloudLightning;
+  return <Icon className={className} aria-hidden="true" />;
+}
+
+const BAND_CLASS: Record<HourCell["placeKind"], string> = {
+  home: "border border-border bg-background text-muted",
+  away: "bg-accent-surface text-accent",
+  move: "border border-dashed border-border font-normal text-muted",
+};
+
+/**
+ * 1時間ごとの帯（#594）。上段にその時間に居る場所（隣と同じなら1本）、下段に時刻・天気・気温・降水確率。
+ * 列は固定幅で、カードの幅に収まらないぶんは帯の中だけ横にスクロールする（ページは横に動かさない）。
+ */
+function HourlyStrip({ cells }: { cells: HourCell[] }) {
+  const bands: { start: number; span: number; cell: HourCell }[] = [];
+  cells.forEach((cell, index) => {
+    const last = bands.at(-1);
+    if (last && last.cell.placeLabel === cell.placeLabel && last.cell.placeKind === cell.placeKind) last.span += 1;
+    else bands.push({ start: index, span: 1, cell });
+  });
+
+  return (
+    <div className="-mx-0.5 overflow-x-auto px-0.5 pb-1 [scrollbar-width:thin]">
+      <ol className="grid w-max auto-cols-[46px] grid-flow-col gap-y-1" aria-label="1時間ごとの天気">
+        {bands.map((band) => (
+          <li
+            key={`band-${band.start}`}
+            aria-hidden="true"
+            style={{ gridColumn: `${band.start + 1} / span ${band.span}`, gridRow: 1 }}
+            className={cn(
+              "mr-0.5 truncate rounded-md px-1.5 py-0.5 text-[0.65625rem] font-bold whitespace-nowrap",
+              BAND_CLASS[band.cell.placeKind],
+            )}
+            title={band.cell.placeLabel}
+          >
+            {band.cell.placeLabel}
+          </li>
+        ))}
+        {cells.map((cell, index) => {
+          const wet = cell.pop !== null && cell.pop >= RAIN_POP;
+          const time = index === 0 ? "今" : cell.date !== cells[0].date && cell.hour === 0 ? "翌0時" : `${cell.hour}時`;
+          const known = cell.code !== null || cell.temperature !== null || cell.pop !== null;
+          return (
+            <li
+              key={`${cell.date}-${cell.hour}`}
+              style={{ gridColumn: index + 1, gridRow: 2 }}
+              className={cn("flex flex-col items-center gap-[3px] rounded-lg pt-1 pb-0.5 tabular-nums", wet && "bg-topic-surface")}
+              aria-label={
+                known
+                  ? `${cell.hour}時 ${cell.placeLabel} ${describeWeatherCode(cell.code)} ${cell.temperature === null ? "—" : Math.round(cell.temperature)}度 降水確率${cell.pop ?? "—"}%`
+                  : `${cell.hour}時 ${cell.placeLabel} 予報なし`
+              }
+            >
+              <span className={cn("text-[0.6875rem]", index === 0 ? "font-bold text-foreground" : "text-muted")}>{time}</span>
+              {known ? (
+                <>
+                  <WeatherIcon code={cell.code} className="size-[18px] text-topic" />
+                  <span className="text-xs font-semibold">
+                    {cell.temperature === null ? "—" : `${Math.round(cell.temperature)}°`}
+                  </span>
+                  <span className="flex h-[30px] w-2 items-end overflow-hidden rounded bg-border">
+                    <span className="block w-full rounded bg-topic/70" style={{ height: `${cell.pop ?? 0}%` }} />
+                  </span>
+                  <span className={cn("text-[0.65625rem]", wet ? "font-bold text-topic" : "text-muted")}>
+                    {cell.pop === null ? "—" : `${cell.pop}%`}
+                  </span>
+                </>
+              ) : (
+                <span className="pt-6 text-xs text-muted">—</span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
 function segmentTime(segment: PlaceSegment): string {
   if (segment.allDay) return "終日";
   if (segment.start === "00:00" && segment.end === "24:00") return "終日";
@@ -383,6 +517,7 @@ function segmentNote(segment: PlaceSegment): string {
       ? `${Math.round(weather.min)}〜${Math.round(weather.max)}°`
       : null,
     segment.daily ? "1日の予報" : null,
+    weather?.rainFrom != null ? `${weather.rainFrom}時ごろから雨` : null,
   ];
   return parts.filter(Boolean).join("・");
 }

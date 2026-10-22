@@ -18,6 +18,10 @@ import {
   rainVerdict,
   searchTextOf,
   summarizeWindow,
+  hourlyPoint,
+  hoursFrom,
+  placeAtHour,
+  tomorrowStaysWithHome,
 } from "../src/lib/weather/rain-check.ts";
 
 const HOME_ADDRESS = "自宅 大阪府高槻市出丸町3-36";
@@ -206,7 +210,9 @@ describe("予報のまとめ", () => {
       min: 18.5,
       max: 23.5,
       pop: 80,
+      rainFrom: 10,
     });
+    assert.equal(summarizeWindow(forecast, "2026-10-20", "18:30", "24:00")?.rainFrom, null);
     // 終わりの時刻ちょうどの時間は含めない
     assert.equal(summarizeWindow(forecast, "2026-10-20", "00:00", "10:00")?.pop, 20);
     assert.equal(summarizeWindow(forecast, "2026-10-20", "18:30", "24:00")?.summary, "くもり");
@@ -226,5 +232,82 @@ describe("予報のまとめ", () => {
     assert.equal(rainVerdict(30), "maybe");
     assert.equal(rainVerdict(29), "dry");
     assert.equal(rainVerdict(null), "unknown");
+  });
+});
+
+describe("1時間ごとの場所（#594）", () => {
+  const today = buildStays(SCHEDULE)?.[0].stays ?? [];
+
+  it("各時間の30分の時点に居る区間。区間の間（移動中）は次の区間、日の終わりの後は自宅", () => {
+    // 〜06:30 自宅 / 07:30–17:30 栗東 / 18:30〜 自宅
+    assert.deepEqual(placeAtHour(today, 5), { kind: "stay", index: 0 });
+    assert.deepEqual(placeAtHour(today, 6), { kind: "move", index: 1 }); // 6:30 は自宅の終わりちょうど（含めない）
+    assert.deepEqual(placeAtHour(today, 7), { kind: "stay", index: 1 });
+    assert.deepEqual(placeAtHour(today, 16), { kind: "stay", index: 1 });
+    assert.deepEqual(placeAtHour(today, 17), { kind: "move", index: 2 });
+    assert.deepEqual(placeAtHour(today, 23), { kind: "stay", index: 2 });
+  });
+
+  it("最後の行き先が22:00で切れた後は、次の区間が無いので自宅で埋める", () => {
+    const days = buildStays({
+      configured: true,
+      days: [{ date: "2026-10-19", travels: [{ title: "高槻市 → 大日", startTime: "06:42", endTime: "07:09" }] }],
+    });
+    const stays = days?.[0].stays ?? [];
+    assert.deepEqual(placeAtHour(stays, 21), { kind: "stay", index: 1 });
+    assert.deepEqual(placeAtHour(stays, 22), { kind: "home" });
+  });
+
+  it("区間が重なる時間は、後に始まる区間（より具体的な予定）を優先する", () => {
+    const stays = buildStays({
+      configured: true,
+      days: [
+        {
+          date: "2026-10-20",
+          events: [{ title: "打合せ", allDay: false, startTime: "10:00", endTime: "11:00", location: "京都市", outcome: null }],
+          travels: [{ title: "自宅 → 栗東", origin: HOME_ADDRESS, destination: "栗東", startTime: "06:30", endTime: "07:30" }],
+        },
+      ],
+    })?.[0].stays ?? [];
+    const kyoto = stays.findIndex((stay) => stay.placeText === "京都市");
+    const rittou = stays.findIndex((stay) => stay.placeText === "栗東");
+    assert.deepEqual(placeAtHour(stays, 10), { kind: "stay", index: kyoto });
+    assert.deepEqual(placeAtHour(stays, 9), { kind: "stay", index: rittou });
+    assert.deepEqual(placeAtHour(stays, 11), { kind: "stay", index: rittou });
+  });
+
+  it("翌朝の区間は自宅込みで作る（行き先の無い日は終日自宅）", () => {
+    const stays = tomorrowStaysWithHome(SCHEDULE);
+    assert.deepEqual(
+      stays.map((stay) => [stay.start, stay.end, stay.home]),
+      [["08:00", "22:00", false]],
+    );
+    // 最初の区間より前（翌朝）は移動ではなく自宅
+    assert.deepEqual(placeAtHour(stays, 3), { kind: "home" });
+    const empty = tomorrowStaysWithHome({ configured: true, days: [SCHEDULE.days[0], { date: "2026-10-21", events: [], travels: [] }] });
+    assert.deepEqual(empty.map((stay) => [stay.start, stay.end, stay.home]), [["00:00", "24:00", true]]);
+    assert.deepEqual(tomorrowStaysWithHome({ configured: true, days: [SCHEDULE.days[0]] }), []);
+  });
+
+  it("いまから今日の終わりまで。残り6時間未満の夜は翌朝まで足す", () => {
+    const rows = [
+      ...Array.from({ length: 24 }, (_, hour) => ({ date: "2026-10-20", hour })),
+      ...Array.from({ length: 6 }, (_, hour) => ({ date: "2026-10-21", hour })),
+    ];
+    const morning = hoursFrom(rows, "2026-10-20", 7);
+    assert.equal(morning.length, 17);
+    assert.deepEqual([morning[0].hour, morning.at(-1)?.hour], [7, 23]);
+    const night = hoursFrom(rows, "2026-10-20", 21);
+    assert.deepEqual(night.map((row) => `${row.date.slice(8)}:${row.hour}`), ["20:21", "20:22", "20:23", "21:0", "21:1", "21:2"]);
+    assert.deepEqual(hoursFrom(rows, "2026-10-22", 0), []);
+  });
+
+  it("予報からある時の点を引く", () => {
+    const forecast = parseOpenMeteo({
+      hourly: { time: ["2026-10-20T09:00"], weather_code: [61], temperature_2m: [18], precipitation_probability: [60] },
+    });
+    assert.ok(forecast);
+    assert.equal(hourlyPoint(forecast, "2026-10-20", 9)?.pop, 60);
+    assert.equal(hourlyPoint(forecast, "2026-10-20", 10), null);
   });
 });

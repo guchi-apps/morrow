@@ -170,6 +170,76 @@ export function buildStays(json: unknown): StayDay[] | null {
   return days.map((day, index) => ({ date: str(day.date) ?? "", stays: staysForDay(day, index === 0) }));
 }
 
+/**
+ * 明日（2日目）の区間を**自宅込みで**作る（#594）。1時間ごとの帯で、夜に翌朝まで出す時間の場所を決めるためだけに使う
+ * （「明日以降の行き先の雨」は `buildStays()` の行き先だけのまま）。2日目が無ければ空。
+ */
+export function tomorrowStaysWithHome(json: unknown): Stay[] {
+  const day = list(record(json)?.days)[1];
+  return day ? staysForDay(day, true) : [];
+}
+
+/* ---------------- 1時間ごとの場所（#594） ---------------- */
+
+/**
+ * ある時間（`hour` 時台）に居る場所。
+ * - `stay`: 区間 `stays[index]` の中
+ * - `move`: どの区間にも当たらず、前後の区間に挟まれている（移動中。次の区間 `stays[index]` の予報を使う）
+ * - `home`: どの区間にも当たらず、最初の区間より前か最後の区間より後（日の終わり・翌朝）。自宅で埋める
+ */
+export type HourPlace = { kind: "stay" | "move"; index: number } | { kind: "home" };
+
+function hourLabel(hour: number, minute: string): string {
+  return `${String(hour).padStart(2, "0")}:${minute}`;
+}
+
+/**
+ * `hour` 時台の**30分の時点**に居る区間を選ぶ。区間が重なるときは後に始まる区間（より具体的な予定。
+ * 移動の行き先の中に足された場所欄のある予定など）を優先する。`stays` は1日ぶん。
+ */
+export function placeAtHour(stays: Stay[], hour: number): HourPlace {
+  const mid = hourLabel(hour, "30");
+  let found = -1;
+  stays.forEach((stay, index) => {
+    if (stay.start <= mid && mid < stay.end && (found < 0 || stay.start >= stays[found].start)) found = index;
+  });
+  if (found >= 0) return { kind: "stay", index: found };
+
+  // 区間と区間の間だけを移動とみなす。最初の区間より前・最後の区間より後は自宅に居るものとする。
+  const after = stays.some((stay) => stay.end <= mid);
+  let next = -1;
+  stays.forEach((stay, index) => {
+    if (stay.start > mid && (next < 0 || stay.start < stays[next].start)) next = index;
+  });
+  return after && next >= 0 ? { kind: "move", index: next } : { kind: "home" };
+}
+
+/** 帯に出す時間の範囲。いまの時間から今日の終わりまで。残りが `minimum` 時間に満たない夜は翌朝まで足す。 */
+export const HOURLY_MINIMUM = 6;
+
+/**
+ * 終日ぶん（今日0時〜翌朝）の行から、いま（`nowDate` の `nowHour` 時台）以降を切り出す。
+ * 行は日付・時の順に並んでいる前提。キャッシュした行を描画のたびに切り出すため、ここは `now` だけで決まる。
+ */
+export function hoursFrom<T extends { date: string; hour: number }>(
+  rows: T[],
+  nowDate: string,
+  nowHour: number,
+  minimum = HOURLY_MINIMUM,
+): T[] {
+  const start = rows.findIndex((row) => row.date > nowDate || (row.date === nowDate && row.hour >= nowHour));
+  if (start < 0) return [];
+  const rest = rows.slice(start);
+  const today = rest.filter((row) => row.date === nowDate).length;
+  return rest.slice(0, Math.max(today, minimum));
+}
+
+/** 予報の、ある日のある時（毎正時）の点。無ければnull。 */
+export function hourlyPoint(forecast: Forecast, date: string, hour: number): HourlyPoint | null {
+  const key = `${date}T${hourLabel(hour, "00")}`;
+  return forecast.hourly.find((point) => point.time === key) ?? null;
+}
+
 /* ---------------- 地名 ---------------- */
 
 export type Coordinates = { latitude: number; longitude: number };
@@ -345,7 +415,14 @@ export function describeWeatherCode(code: number | null): string {
   return WEATHER_CODE_TEXT.get(code) ?? `天気コード ${code}`;
 }
 
-export type WindowWeather = { summary: string; min: number | null; max: number | null; pop: number | null };
+export type WindowWeather = {
+  summary: string;
+  min: number | null;
+  max: number | null;
+  pop: number | null;
+  /** 区間の中で最初に雨（50%以上）になる時（0〜23）。無ければnull（#594）。 */
+  rainFrom: number | null;
+};
 
 function hourOf(hhmm: string): number {
   return Number(hhmm.slice(0, 2));
@@ -369,11 +446,13 @@ export function summarizeWindow(forecast: Forecast, date: string, start: string,
   const codes = hours.map((h) => h.code).filter((c): c is number => c !== null);
   const temps = hours.map((h) => h.temperature).filter((t): t is number => t !== null);
   const pops = hours.map((h) => h.pop).filter((p): p is number => p !== null);
+  const rainy = hours.find((h) => h.pop !== null && h.pop >= RAIN_POP);
   return {
     summary: describeWeatherCode(codes.length > 0 ? Math.max(...codes) : null),
     min: temps.length > 0 ? Math.min(...temps) : null,
     max: temps.length > 0 ? Math.max(...temps) : null,
     pop: pops.length > 0 ? Math.max(...pops) : null,
+    rainFrom: rainy ? Number(rainy.time.slice(11, 13)) : null,
   };
 }
 
