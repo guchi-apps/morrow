@@ -289,16 +289,22 @@ describe("1時間ごとの場所（#594）", () => {
     assert.deepEqual(tomorrowStaysWithHome({ configured: true, days: [SCHEDULE.days[0]] }), []);
   });
 
-  it("いまから今日の終わりまで。残り6時間未満の夜は翌朝まで足す", () => {
+  it("開いた時刻によらず、いまから24時間ぶんを切り出す（#599）", () => {
     const rows = [
       ...Array.from({ length: 24 }, (_, hour) => ({ date: "2026-10-20", hour })),
-      ...Array.from({ length: 6 }, (_, hour) => ({ date: "2026-10-21", hour })),
+      ...Array.from({ length: 24 }, (_, hour) => ({ date: "2026-10-21", hour })),
     ];
+    const label = (row: { date: string; hour: number }) => `${row.date.slice(8)}:${row.hour}`;
     const morning = hoursFrom(rows, "2026-10-20", 7);
-    assert.equal(morning.length, 17);
-    assert.deepEqual([morning[0].hour, morning.at(-1)?.hour], [7, 23]);
-    const night = hoursFrom(rows, "2026-10-20", 21);
-    assert.deepEqual(night.map((row) => `${row.date.slice(8)}:${row.hour}`), ["20:21", "20:22", "20:23", "21:0", "21:1", "21:2"]);
+    assert.equal(morning.length, 24);
+    assert.deepEqual([label(morning[0]), label(morning.at(-1)!)], ["20:7", "21:6"]);
+    // 23時台に開いても翌4時で切れず、翌22時まで出る（#599の再現）
+    const night = hoursFrom(rows, "2026-10-20", 23);
+    assert.equal(night.length, 24);
+    assert.deepEqual([label(night[0]), label(night[1]), label(night.at(-1)!)], ["20:23", "21:0", "21:22"]);
+    assert.equal(hoursFrom(rows, "2026-10-20", 0).length, 24);
+    // 材料が尽きる端（キャッシュが日付をまたいだ直後など）は、ある分だけ
+    assert.deepEqual(hoursFrom(rows, "2026-10-21", 20).map(label), ["21:20", "21:21", "21:22", "21:23"]);
     assert.deepEqual(hoursFrom(rows, "2026-10-22", 0), []);
   });
 

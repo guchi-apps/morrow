@@ -171,7 +171,7 @@ export function buildStays(json: unknown): StayDay[] | null {
 }
 
 /**
- * 明日（2日目）の区間を**自宅込みで**作る（#594）。1時間ごとの帯で、夜に翌朝まで出す時間の場所を決めるためだけに使う
+ * 明日（2日目）の区間を**自宅込みで**作る（#594）。1時間ごとの帯で、明日にかかる時間の場所を決めるためだけに使う
  * （「明日以降の行き先の雨」は `buildStays()` の行き先だけのまま）。2日目が無ければ空。
  */
 export function tomorrowStaysWithHome(json: unknown): Stay[] {
@@ -214,24 +214,22 @@ export function placeAtHour(stays: Stay[], hour: number): HourPlace {
   return after && next >= 0 ? { kind: "move", index: next } : { kind: "home" };
 }
 
-/** 帯に出す時間の範囲。いまの時間から今日の終わりまで。残りが `minimum` 時間に満たない夜は翌朝まで足す。 */
-export const HOURLY_MINIMUM = 6;
+/** 帯に出す時間の数。開いた時刻によらず、いまの時間から24時間ぶん（23時に開けば翌22時まで。#599）。 */
+export const HOURLY_SPAN = 24;
 
 /**
- * 終日ぶん（今日0時〜翌朝）の行から、いま（`nowDate` の `nowHour` 時台）以降を切り出す。
+ * 今日・明日の0〜24時の行から、いま（`nowDate` の `nowHour` 時台）以降の `span` 時間を切り出す。
  * 行は日付・時の順に並んでいる前提。キャッシュした行を描画のたびに切り出すため、ここは `now` だけで決まる。
  */
 export function hoursFrom<T extends { date: string; hour: number }>(
   rows: T[],
   nowDate: string,
   nowHour: number,
-  minimum = HOURLY_MINIMUM,
+  span = HOURLY_SPAN,
 ): T[] {
   const start = rows.findIndex((row) => row.date > nowDate || (row.date === nowDate && row.hour >= nowHour));
   if (start < 0) return [];
-  const rest = rows.slice(start);
-  const today = rest.filter((row) => row.date === nowDate).length;
-  return rest.slice(0, Math.max(today, minimum));
+  return rows.slice(start, start + span);
 }
 
 /** 予報の、ある日のある時（毎正時）の点。無ければnull。 */
