@@ -204,6 +204,29 @@ export function tomorrowStaysWithHome(json: unknown): Stay[] {
   return day ? staysForDay(day, true) : [];
 }
 
+/**
+ * 同じ場所（`home` と `placeText` が同じ）で、時間が重なる・接する区間を1つにまとめる（#608）。時間帯は和集合。
+ * 予定のタイトル（`label`）は捨て、`allDay` は全員が終日のときだけ立てる（短い予定が「終日」に化けない）。
+ * 場所が違う区間は、重なっていてもまとめない。カードの行だけに使う（1時間ごとの帯は元の区間のまま）。
+ */
+export function mergeOverlappingStays(stays: Stay[]): Stay[] {
+  const merged: Stay[] = [];
+  for (const stay of [...stays].sort((a, b) => a.start.localeCompare(b.start))) {
+    const same = merged.find(
+      (item) => item.home === stay.home && item.placeText === stay.placeText && stay.start <= item.end && item.start <= stay.end,
+    );
+    if (!same) {
+      merged.push({ ...stay });
+      continue;
+    }
+    same.start = same.start < stay.start ? same.start : stay.start;
+    same.end = same.end > stay.end ? same.end : stay.end;
+    same.allDay = same.allDay && stay.allDay;
+    same.label = null;
+  }
+  return merged;
+}
+
 /* ---------------- 1時間ごとの場所（#594） ---------------- */
 
 /**
@@ -461,8 +484,16 @@ export function describeWeatherCode(code: number | null): string {
   return WEATHER_CODE_TEXT.get(code) ?? `天気コード ${code}`;
 }
 
+/** 天気の文字（`describeWeatherCode()` の出力）から天気コードを引く。AIDEの日別予報はコードを持たないため。 */
+export function weatherCodeOfText(text: string): number | null {
+  for (const [code, label] of WEATHER_CODE_TEXT) if (label === text) return code;
+  return null;
+}
+
 export type WindowWeather = {
   summary: string;
+  /** 天気コード（アイコン用）。日別予報の代用など、文字しか無いときは文字から引き直す（見つからなければnull）。 */
+  code: number | null;
   min: number | null;
   max: number | null;
   pop: number | null;
@@ -493,8 +524,10 @@ export function summarizeWindow(forecast: Forecast, date: string, start: string,
   const temps = hours.map((h) => h.temperature).filter((t): t is number => t !== null);
   const pops = hours.map((h) => h.pop).filter((p): p is number => p !== null);
   const rainy = hours.find((h) => h.pop !== null && h.pop >= RAIN_POP);
+  const code = codes.length > 0 ? Math.max(...codes) : null;
   return {
-    summary: describeWeatherCode(codes.length > 0 ? Math.max(...codes) : null),
+    summary: describeWeatherCode(code),
+    code,
     min: temps.length > 0 ? Math.min(...temps) : null,
     max: temps.length > 0 ? Math.max(...temps) : null,
     pop: pops.length > 0 ? Math.max(...pops) : null,
