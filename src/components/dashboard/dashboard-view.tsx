@@ -15,6 +15,7 @@ import { Suspense } from "react";
 
 import { CurrentLocationWeather } from "@/components/dashboard/current-location-weather";
 import { DaySwipe } from "@/components/dashboard/day-swipe";
+import { ScrollToNow } from "@/components/dashboard/scroll-to-now";
 import { LiveNoticeLine, NoticeLiveProvider } from "@/components/dashboard/live-notice-line";
 import { dashboardSchedule } from "@/lib/dashboard/aide";
 import { addDays, cardDayName, DAY_RANGE, dayHref, relativeDayName } from "@/lib/dashboard/day-offset";
@@ -29,7 +30,7 @@ import {
 } from "@/lib/dashboard/places";
 import type { DashboardNotices, DashboardTopic, DeliveredPush } from "@/lib/dashboard/today";
 import { dayLabel, jstDayKey, jstTimeLabel } from "@/lib/day-key";
-import { describeWeatherCode, hoursFrom, RAIN_POP, type RainVerdict } from "@/lib/weather/rain-check";
+import { describeWeatherCode, hoursSinceMidnight, RAIN_POP, type RainVerdict } from "@/lib/weather/rain-check";
 import { cn } from "@/lib/utils";
 
 /**
@@ -442,7 +443,9 @@ async function PlacesSection({
     .filter((segment) => segment.verdict === "rain" && segment.end > nowLabel)
     .sort((a, b) => Number(a.home) - Number(b.home));
   const later = places.later.filter((day) => day.segments.length > 0);
-  const hours = offset === 0 ? hoursFrom(places.hourly, jstDayKey(now), nowHour) : places.hourly;
+  // 今日は0時から「いまの24時間先」まで（過ぎた時間は灰色。#609）。ほかの日は0〜24時のまま。
+  const hours = offset === 0 ? hoursSinceMidnight(places.hourly, jstDayKey(now), nowHour) : places.hourly;
+  const nowIndex = offset === 0 ? hours.findIndex((cell) => cell.date === jstDayKey(now) && cell.hour === nowHour) : -1;
   const dayName = cardDayName(dayKey, offset);
 
   return (
@@ -460,12 +463,12 @@ async function PlacesSection({
           <h4 className="flex justify-between gap-2 text-xs font-bold tracking-[0.06em] text-muted">
             1時間ごと{" "}
             <span className="font-normal tracking-normal">
-              {offset === 0 ? "居る場所の予報・24時間" : "居る場所の予報・0〜24時"}
+              {offset === 0 ? "居る場所の予報・今日0時から" : "居る場所の予報・0〜24時"}
             </span>
           </h4>
-          <HourlyStrip cells={hours} fromNow={offset === 0} />
+          <HourlyStrip cells={hours} nowIndex={nowIndex} resetKey={`${dayKey}:${offset}`} />
           {rainy.length > 0 && <UmbrellaNote>{umbrellaText(rainy[0], rainy.length > 1, nowHour)}</UmbrellaNote>}
-          <p className="text-[0.6875rem] text-muted">青い地は降水確率{RAIN_POP}%以上。横にスクロールできます。</p>
+          <p className="text-[0.6875rem] text-muted">青い地は降水確率{RAIN_POP}%以上。灰色は過ぎた時間。横にスクロールできます。</p>
         </div>
       )}
       {hours.length === 0 && rainy.length > 0 && (
@@ -559,21 +562,73 @@ const BAND_CLASS: Record<HourCell["placeKind"], string> = {
   move: "border border-dashed border-border font-normal text-muted",
 };
 
+const CELL_W = 46;
+const CHART_H = 64;
+const CHART_PAD_TOP = 18;
+const CHART_PAD_BOTTOM = 8;
+
+/** 気温の折れ線（#609）。全列にまたがる1枚のSVGで、各点の上に値を出す。過ぎた時間（`nowIndex` より前）は灰色。 */
+function TemperatureChart({ cells, nowIndex }: { cells: HourCell[]; nowIndex: number }) {
+  const temps = cells.flatMap((cell) => (cell.temperature === null ? [] : [cell.temperature]));
+  if (temps.length === 0) return null;
+  const min = Math.min(...temps);
+  const max = Math.max(...temps);
+  const span = max - min;
+  const y = (t: number) =>
+    span === 0 ? CHART_H / 2 : CHART_PAD_TOP + ((max - t) / span) * (CHART_H - CHART_PAD_TOP - CHART_PAD_BOTTOM);
+  const points = cells.map((cell, index) =>
+    cell.temperature === null ? null : { index, x: index * CELL_W + CELL_W / 2, y: y(cell.temperature), t: cell.temperature },
+  );
+  // 欠けた時間で線を切る。過去と未来は「今」の点で繋ぎ、色だけ分ける。
+  const pathOf = (from: number, to: number) => {
+    let d = "";
+    let pen = false;
+    for (const point of points.slice(from, to + 1)) {
+      if (!point) {
+        pen = false;
+        continue;
+      }
+      d += `${pen ? "L" : "M"}${point.x} ${point.y}`;
+      pen = true;
+    }
+    return d;
+  };
+  const split = nowIndex >= 0 ? nowIndex : 0;
+  return (
+    <svg width={cells.length * CELL_W} height={CHART_H} className="block overflow-visible" aria-hidden="true">
+      {nowIndex > 0 && <path d={pathOf(0, split)} fill="none" strokeWidth={2} strokeLinejoin="round" className="stroke-muted/50" />}
+      <path d={pathOf(split, cells.length - 1)} fill="none" strokeWidth={2} strokeLinejoin="round" className="stroke-topic" />
+      {points.map((point) =>
+        point ? (
+          <g key={point.index} className={point.index < nowIndex ? "text-muted/60" : "text-foreground"}>
+            <circle cx={point.x} cy={point.y} r={point.index === nowIndex ? 4 : 2.5} className={point.index < nowIndex ? "fill-muted/60" : "fill-topic"} />
+            <text x={point.x} y={point.y - 7} textAnchor="middle" fontSize="11" fontWeight="700" fill="currentColor">
+              {Math.round(point.t)}°
+            </text>
+          </g>
+        ) : null,
+      )}
+    </svg>
+  );
+}
+
 /**
- * 1時間ごとの帯（#594）。上段にその時間に居る場所（隣と同じなら1本）、下段に時刻・天気・気温・降水確率。
+ * 1時間ごとの帯（#594・#609）。上から、その時間に居る場所（隣と同じなら1本）・時刻と天気・気温の折れ線・
+ * 降水確率（棒と%）・1時間雨量（mm）。`nowIndex` より前は過ぎた時間で、灰色に薄くする（-1は全部が先の時間）。
  * 列は固定幅で、カードの幅に収まらないぶんは帯の中だけ横にスクロールする（ページは横に動かさない）。
  */
-function HourlyStrip({ cells, fromNow }: { cells: HourCell[]; fromNow: boolean }) {
+function HourlyStrip({ cells, nowIndex, resetKey }: { cells: HourCell[]; nowIndex: number; resetKey: string }) {
   const bands: { start: number; span: number; cell: HourCell }[] = [];
   cells.forEach((cell, index) => {
     const last = bands.at(-1);
     if (last && last.cell.placeLabel === cell.placeLabel && last.cell.placeKind === cell.placeKind) last.span += 1;
     else bands.push({ start: index, span: 1, cell });
   });
+  const total = cells.length;
 
   return (
-    <div className="-mx-0.5 overflow-x-auto px-0.5 pb-1 [scrollbar-width:thin]">
-      <ol className="grid w-max auto-cols-[46px] grid-flow-col gap-y-1" aria-label="1時間ごとの天気">
+    <ScrollToNow className="-mx-0.5 overflow-x-auto px-0.5 pb-1 [scrollbar-width:thin]" resetKey={resetKey}>
+      <ol className="relative grid w-max auto-cols-[46px] grid-flow-col gap-y-1" aria-label="1時間ごとの天気">
         {bands.map((band) => (
           <li
             key={`band-${band.start}`}
@@ -582,6 +637,7 @@ function HourlyStrip({ cells, fromNow }: { cells: HourCell[]; fromNow: boolean }
             className={cn(
               "mr-0.5 truncate rounded-md px-1.5 py-0.5 text-[0.65625rem] font-bold whitespace-nowrap",
               BAND_CLASS[band.cell.placeKind],
+              band.start + band.span <= nowIndex && "opacity-50 grayscale",
             )}
             title={band.cell.placeLabel}
           >
@@ -589,50 +645,78 @@ function HourlyStrip({ cells, fromNow }: { cells: HourCell[]; fromNow: boolean }
           </li>
         ))}
         {cells.map((cell, index) => {
-          const wet = cell.pop !== null && cell.pop >= RAIN_POP;
+          const isNow = index === nowIndex;
+          const isPast = index < nowIndex;
           const nextDay = index > 0 && cell.date !== cells[0].date && cell.hour === 0;
-          const time = index === 0 && fromNow ? "今" : nextDay ? "翌0時" : `${cell.hour}時`;
+          const time = isNow ? "今" : nextDay ? "翌0時" : `${cell.hour}時`;
           const known = cell.code !== null || cell.temperature !== null || cell.pop !== null;
           return (
             <li
               key={`${cell.date}-${cell.hour}`}
+              data-now={isNow ? "" : undefined}
               style={{ gridColumn: index + 1, gridRow: 2 }}
-              className={cn("flex flex-col items-center gap-[3px] rounded-lg pt-1 pb-0.5 tabular-nums", wet && "bg-topic-surface")}
+              className={cn("flex flex-col items-center gap-[3px] rounded-lg pt-1 tabular-nums", isNow && "bg-topic-surface", isPast && "opacity-50 grayscale")}
               aria-label={
                 known
-                  ? `${cell.hour}時 ${cell.placeLabel} ${describeWeatherCode(cell.code)} ${cell.temperature === null ? "—" : Math.round(cell.temperature)}度 降水確率${cell.pop ?? "—"}%`
+                  ? `${cell.hour}時${isPast ? "（過ぎた時間）" : ""} ${cell.placeLabel} ${describeWeatherCode(cell.code)} ${cell.temperature === null ? "—" : Math.round(cell.temperature)}度 降水確率${cell.pop ?? "—"}% 雨量${cell.precipitation === null ? "—" : `${cell.precipitation}ミリ`}`
                   : `${cell.hour}時 ${cell.placeLabel} 予報なし`
               }
             >
-              <span
-                className={cn(
-                  "text-[0.6875rem]",
-                  index === 0 && fromNow ? "font-bold text-foreground" : nextDay ? "font-bold text-topic" : "text-muted",
-                )}
-              >
+              <span className={cn("text-[0.6875rem]", isNow ? "font-bold text-foreground" : nextDay ? "font-bold text-topic" : "text-muted")}>
                 {time}
               </span>
-              {known ? (
-                <>
-                  <WeatherIcon code={cell.code} className="size-[18px] text-topic" />
-                  <span className="text-xs font-semibold">
-                    {cell.temperature === null ? "—" : `${Math.round(cell.temperature)}°`}
-                  </span>
-                  <span className="flex h-[30px] w-2 items-end overflow-hidden rounded bg-border">
-                    <span className="block w-full rounded bg-topic/70" style={{ height: `${cell.pop ?? 0}%` }} />
-                  </span>
-                  <span className={cn("text-[0.65625rem]", wet ? "font-bold text-topic" : "text-muted")}>
-                    {cell.pop === null ? "—" : `${cell.pop}%`}
-                  </span>
-                </>
-              ) : (
-                <span className="pt-6 text-xs text-muted">—</span>
-              )}
+              {known ? <WeatherIcon code={cell.code} className="size-[18px] text-topic" /> : <span className="h-[18px] text-xs text-muted">—</span>}
             </li>
           );
         })}
+        <li aria-hidden="true" style={{ gridColumn: `1 / span ${total}`, gridRow: 3 }}>
+          <TemperatureChart cells={cells} nowIndex={nowIndex} />
+        </li>
+        {cells.map((cell, index) => {
+          const wet = cell.pop !== null && cell.pop >= RAIN_POP;
+          const isPast = index < nowIndex;
+          return (
+            <li
+              key={`pop-${cell.date}-${cell.hour}`}
+              aria-hidden="true"
+              style={{ gridColumn: index + 1, gridRow: 4 }}
+              className={cn(
+                "flex flex-col items-center gap-[3px] rounded-lg py-0.5 tabular-nums",
+                wet && "bg-topic-surface",
+                index === nowIndex && !wet && "bg-topic-surface",
+                isPast && "opacity-50 grayscale",
+              )}
+            >
+              <span className="flex h-[30px] w-2 items-end overflow-hidden rounded bg-border">
+                <span className="block w-full rounded bg-topic/70" style={{ height: `${cell.pop ?? 0}%` }} />
+              </span>
+              <span className={cn("text-[0.65625rem]", wet ? "font-bold text-topic" : "text-muted")}>
+                {cell.pop === null ? "—" : `${cell.pop}%`}
+              </span>
+            </li>
+          );
+        })}
+        {cells.map((cell, index) => (
+          <li
+            key={`mm-${cell.date}-${cell.hour}`}
+            aria-hidden="true"
+            style={{ gridColumn: index + 1, gridRow: 5 }}
+            className={cn(
+              "text-center text-[0.65625rem] tabular-nums",
+              cell.precipitation !== null && cell.precipitation > 0 ? "font-bold text-topic" : "text-muted",
+              index < nowIndex && "opacity-50 grayscale",
+            )}
+          >
+            {cell.precipitation === null ? "—" : cell.precipitation === 0 ? "0" : cell.precipitation.toFixed(1)}
+          </li>
+        ))}
       </ol>
-    </div>
+      <div className="flex gap-3 pt-0.5 text-[0.625rem] text-muted">
+        <span>上: 気温（℃）</span>
+        <span>中: 降水確率</span>
+        <span>下: 雨量（mm/時）</span>
+      </div>
+    </ScrollToNow>
   );
 }
 

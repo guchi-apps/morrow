@@ -257,6 +257,22 @@ export function hoursFrom<T extends { date: string; hour: number }>(
   return rows.slice(start, start + span);
 }
 
+/**
+ * 今日の0時から、いま（`nowDate` の `nowHour` 時台）の `span` 時間先までを切り出す（#609。過ぎた時間も含む）。
+ * 行は日付・時の順に並び、先頭が今日の0時である前提。いまが行に無ければ空。
+ */
+export function hoursSinceMidnight<T extends { date: string; hour: number }>(
+  rows: T[],
+  nowDate: string,
+  nowHour: number,
+  span = HOURLY_SPAN,
+): T[] {
+  const now = rows.findIndex((row) => row.date === nowDate && row.hour === nowHour);
+  if (now < 0) return [];
+  const first = rows.findIndex((row) => row.date === nowDate);
+  return rows.slice(first, now + span);
+}
+
 /** 予報の、ある日のある時（毎正時）の点。無ければnull。 */
 export function hourlyPoint(forecast: Forecast, date: string, hour: number): HourlyPoint | null {
   const key = `${date}T${hourLabel(hour, "00")}`;
@@ -389,7 +405,14 @@ export function municipalityFromReverse(json: unknown, table: Map<string, string
 
 /* ---------------- 予報 ---------------- */
 
-export type HourlyPoint = { time: string; code: number | null; temperature: number | null; pop: number | null };
+export type HourlyPoint = {
+  time: string;
+  code: number | null;
+  temperature: number | null;
+  pop: number | null;
+  /** 1時間の降水量（mm）。 */
+  precipitation: number | null;
+};
 export type DailyPoint = { date: string; code: number | null; max: number | null; min: number | null; pop: number | null };
 export type Forecast = { hourly: HourlyPoint[]; daily: DailyPoint[] };
 
@@ -412,6 +435,7 @@ export function parseOpenMeteo(json: unknown): Forecast | null {
   const codes = numbers(hourly?.weather_code);
   const temps = numbers(hourly?.temperature_2m);
   const pops = numbers(hourly?.precipitation_probability);
+  const rains = numbers(hourly?.precipitation);
   const dayTimes = strings(daily?.time);
   const dayCodes = numbers(daily?.weather_code);
   const maxes = numbers(daily?.temperature_2m_max);
@@ -419,7 +443,7 @@ export function parseOpenMeteo(json: unknown): Forecast | null {
   const dayPops = numbers(daily?.precipitation_probability_max);
 
   return {
-    hourly: hourTimes.map((time, i) => ({ time, code: codes[i] ?? null, temperature: temps[i] ?? null, pop: pops[i] ?? null })),
+    hourly: hourTimes.map((time, i) => ({ time, code: codes[i] ?? null, temperature: temps[i] ?? null, pop: pops[i] ?? null, precipitation: rains[i] ?? null })),
     daily: dayTimes.map((date, i) => ({ date, code: dayCodes[i] ?? null, max: maxes[i] ?? null, min: mins[i] ?? null, pop: dayPops[i] ?? null })),
   };
 }
