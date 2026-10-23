@@ -57,6 +57,8 @@ export type HourCell = {
   code: number | null;
   temperature: number | null;
   pop: number | null;
+  /** 1時間の降水量（mm）。 */
+  precipitation: number | null;
 };
 
 export type PlacesView =
@@ -147,11 +149,11 @@ async function cellsFor(
       const placeLabel =
         at.kind === "move" ? "移動" : target ? segmentName(target.segment) : homeName ? `${homeName}・自宅` : "自宅";
       const placeKind = at.kind === "move" ? "move" : target && !target.segment.home ? "away" : "home";
-      const empty = { date, hour, placeLabel, placeKind, code: null, temperature: null, pop: null } as const;
+      const empty = { date, hour, placeLabel, placeKind, code: null, temperature: null, pop: null, precipitation: null } as const;
       if (!point) return empty;
       try {
         const found = hourlyPoint(await forecastAt(point), date, hour);
-        return found ? { ...empty, code: found.code, temperature: found.temperature, pop: found.pop } : empty;
+        return found ? { ...empty, code: found.code, temperature: found.temperature, pop: found.pop, precipitation: found.precipitation } : empty;
       } catch {
         // 区間側で失敗は記録済み。帯ではその時間を「—」にするだけ。
         return empty;
