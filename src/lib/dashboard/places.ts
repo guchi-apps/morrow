@@ -7,9 +7,11 @@ import {
   buildStays,
   describeWeatherCode,
   hourlyPoint,
+  mergeOverlappingStays,
   placeAtHour,
   rainVerdict,
   summarizeWindow,
+  weatherCodeOfText,
   tomorrowStaysWithHome,
   type Coordinates,
   type RainVerdict,
@@ -103,7 +105,7 @@ async function segmentFor(stay: Stay, weather: WeatherView, home: Coordinates | 
           : null;
       // AIDEの日別予報は今日・明日だけ。それ以外の日（#606）は取れなかったのではなく、分からない。
       if (!day) return { segment: { ...base, placeName: name, status: weather.status === "ok" ? "unresolved" : "failed" }, point: null };
-      const summary = { summary: day.summary, min: day.min, max: day.max, pop: day.pop, rainFrom: null };
+      const summary = { summary: day.summary, code: weatherCodeOfText(day.summary), min: day.min, max: day.max, pop: day.pop, rainFrom: null };
       return {
         segment: { ...base, placeName: name, status: "ok", weather: summary, verdict: rainVerdict(day.pop), daily: true },
         point: null,
@@ -187,10 +189,16 @@ export function dashboardPlaces(userId: string, now = new Date(), offset = 0): P
     const tomorrowStays = offset === 0 ? tomorrowStaysWithHome(source.json) : [];
     const [[today, ...rest], tomorrowResolved] = await Promise.all([
       Promise.all(
-        days.map(async (day) => ({
-          date: day.date,
-          resolved: await Promise.all(day.stays.map((stay) => segmentFor(stay, weather, home))),
-        })),
+        days.map(async (day) => {
+          const resolved = await Promise.all(day.stays.map((stay) => segmentFor(stay, weather, home)));
+          // カードの行は、同じ場所で重なる区間を1つにまとめて天気を取り直す（#608）。帯は元の区間（resolved）のまま。
+          const merged = mergeOverlappingStays(day.stays);
+          const cards =
+            merged.length === day.stays.length
+              ? resolved.map((item) => item.segment)
+              : (await Promise.all(merged.map((stay) => segmentFor(stay, weather, home)))).map((item) => item.segment);
+          return { date: day.date, resolved, cards };
+        }),
       ),
       Promise.all(tomorrowStays.map((stay) => segmentFor(stay, weather, home))),
     ]);
@@ -207,8 +215,8 @@ export function dashboardPlaces(userId: string, now = new Date(), offset = 0): P
 
     return {
       status: "ok",
-      today: today?.resolved.map((item) => item.segment) ?? [],
-      later: offset === 0 ? rest.map((day) => ({ date: day.date, segments: day.resolved.map((item) => item.segment) })) : [],
+      today: today?.cards ?? [],
+      later: offset === 0 ? rest.map((day) => ({ date: day.date, segments: day.cards })) : [],
       hourly,
       partial: source.json.complete === false,
     };

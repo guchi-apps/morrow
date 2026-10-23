@@ -436,7 +436,7 @@ async function PlacesSection({
   }
 
   // 傘の注意は、まだ終わっていない区間だけから選ぶ（先の日は全部、過ぎた日は無し）。行き先を自宅より先に挙げる。
-  // 今日以外の日は、帯をその日の0〜24時のまま出し、「◯時ごろから雨」を時刻で絞らない（`nowHour` を -1 にする）。
+  // 今日以外の日は、帯をその日の0〜24時のまま出す（`nowHour` を -1 にする）。
   const nowLabel = offset === 0 ? jstTimeLabel(now) : offset > 0 ? "00:00" : "24:00";
   const nowHour = offset === 0 ? Number(nowLabel.slice(0, 2)) : -1;
   const rainy = places.today
@@ -467,12 +467,12 @@ async function PlacesSection({
             </span>
           </h4>
           <HourlyStrip cells={hours} nowIndex={nowIndex} resetKey={`${dayKey}:${offset}`} />
-          {rainy.length > 0 && <UmbrellaNote>{umbrellaText(rainy[0], rainy.length > 1, nowHour)}</UmbrellaNote>}
+          {rainy.length > 0 && <UmbrellaNote>{umbrellaText(rainy[0], rainy.length > 1)}</UmbrellaNote>}
           <p className="text-[0.6875rem] text-muted">青い地は降水確率{RAIN_POP}%以上。灰色は過ぎた時間。横にスクロールできます。</p>
         </div>
       )}
       {hours.length === 0 && rainy.length > 0 && (
-        <UmbrellaNote>{umbrellaText(rainy[0], rainy.length > 1, nowHour)}</UmbrellaNote>
+        <UmbrellaNote>{umbrellaText(rainy[0], rainy.length > 1)}</UmbrellaNote>
       )}
 
       {tomorrowLine}
@@ -519,17 +519,9 @@ function UmbrellaNote({ children }: { children: React.ReactNode }) {
   );
 }
 
-/**
- * 傘の注意（#594）。降り始めの時刻が分かり、まだ来ていなければ「◯◯で14時ごろから雨」。
- * 過ぎている・分からない（自宅を日別予報で代用した区間）ときは従来どおり区間の時間帯で言う。
- */
-function umbrellaText(segment: PlaceSegment, more: boolean, nowHour: number): string {
-  const weather = segment.weather;
+/** 傘の注意。降り始めの時刻は言わず、区間の時間帯で言う（#608。区間は雨が続く前提で、「◯時ごろから」は誤読を招く）。 */
+function umbrellaText(segment: PlaceSegment, more: boolean): string {
   const others = more ? "ほか" : "";
-  if (weather?.rainFrom != null && weather.rainFrom > nowHour) {
-    const max = weather.pop !== null ? `（最大${weather.pop}%）` : "";
-    return `${placeLabel(segment)}で${weather.rainFrom}時ごろから雨${max}${others}。傘が要りそうです`;
-  }
   return `${placeLabel(segment)}（${segmentTime(segment)}）${others}は傘が要りそうです`;
 }
 
@@ -740,20 +732,18 @@ const VERDICT_PILL: Record<RainVerdict, { label: string; className: string }> = 
   unknown: { label: "—", className: "bg-background text-muted" },
 };
 
-function segmentNote(segment: PlaceSegment): string {
+function segmentNote(segment: PlaceSegment): React.ReactNode {
   if (segment.status === "unresolved") return `「${segment.placeText}」の天気は分かりません`;
   if (segment.status === "failed") return "天気を取得できませんでした";
   const weather = segment.weather;
-  const parts = [
-    segment.label,
-    weather?.summary,
-    weather && weather.min !== null && weather.max !== null
-      ? `${Math.round(weather.min)}〜${Math.round(weather.max)}°`
-      : null,
-    segment.daily ? "1日の予報" : null,
-    weather?.rainFrom != null ? `${weather.rainFrom}時ごろから雨` : null,
-  ];
-  return parts.filter(Boolean).join("・");
+  if (!weather) return null;
+  return (
+    <span className="flex items-center gap-1.5">
+      <WeatherIcon code={weather.code} className="size-3.5 text-topic" />
+      <span>{weather.summary}</span>
+      {segment.daily && <span>・1日の予報</span>}
+    </span>
+  );
 }
 
 function SegmentList({ segments }: { segments: PlaceSegment[] }) {
@@ -777,9 +767,7 @@ function SegmentList({ segments }: { segments: PlaceSegment[] }) {
                 {placeLabel(segment)}
                 {segment.home && segment.placeName && <span className="font-normal text-muted">・自宅</span>}
               </b>
-              <span className="block text-[0.6875rem] tabular-nums text-muted [overflow-wrap:anywhere]">
-                {segmentNote(segment)}
-              </span>
+              <span className="block text-xs text-muted [overflow-wrap:anywhere]">{segmentNote(segment)}</span>
             </span>
             <span className={cn("rounded-full px-2 py-0.5 text-[0.6875rem] font-bold whitespace-nowrap tabular-nums", pill.className)}>
               {pill.label}

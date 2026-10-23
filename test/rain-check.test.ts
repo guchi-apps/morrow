@@ -21,6 +21,7 @@ import {
   summarizeWindow,
   hourlyPoint,
   hoursFrom,
+  mergeOverlappingStays,
   hoursSinceMidnight,
   placeAtHour,
   tomorrowStaysWithHome,
@@ -282,6 +283,7 @@ describe("予報のまとめ", () => {
     assert.ok(forecast);
     assert.deepEqual(summarizeWindow(forecast, "2026-10-20", "07:30", "17:30"), {
       summary: "雨",
+      code: 63,
       min: 18.5,
       max: 23.5,
       pop: 80,
@@ -411,5 +413,38 @@ describe("1時間ごとの場所（#594）", () => {
     assert.ok(forecast);
     assert.equal(hourlyPoint(forecast, "2026-10-20", 9)?.pop, 60);
     assert.equal(hourlyPoint(forecast, "2026-10-20", 10), null);
+  });
+});
+
+describe("mergeOverlappingStays（#608）", () => {
+  const stay = (start: string, end: string, placeText: string, label: string | null, extra = {}) => ({
+    date: "2026-10-24",
+    start,
+    end,
+    placeText,
+    home: false,
+    label,
+    allDay: false,
+    ...extra,
+  });
+
+  it("同じ場所で重なる区間を1つにまとめ、時間帯は和集合・予定名は捨てる", () => {
+    const merged = mergeOverlappingStays([stay("10:45", "14:00", "堺市北区", "お礼参り"), stay("12:00", "14:00", "堺市北区", "散髪")]);
+    assert.deepEqual(merged, [stay("10:45", "14:00", "堺市北区", null)]);
+  });
+
+  it("接する区間もまとめる", () => {
+    assert.equal(mergeOverlappingStays([stay("10:00", "11:00", "堺", null), stay("11:00", "12:00", "堺", null)]).length, 1);
+  });
+
+  it("場所が違う・離れた区間はまとめない", () => {
+    assert.equal(mergeOverlappingStays([stay("10:00", "12:00", "堺", null), stay("11:00", "13:00", "京都", null)]).length, 2);
+    assert.equal(mergeOverlappingStays([stay("10:00", "11:00", "堺", null), stay("12:00", "13:00", "堺", null)]).length, 2);
+    assert.equal(mergeOverlappingStays([stay("10:00", "12:00", "自宅", null, { home: true }), stay("11:00", "13:00", "自宅", null)]).length, 2);
+  });
+
+  it("終日は全員が終日のときだけ残る", () => {
+    const merged = mergeOverlappingStays([stay("08:00", "22:00", "堺", null, { allDay: true }), stay("10:00", "12:00", "堺", null)]);
+    assert.equal(merged[0].allDay, false);
   });
 });
