@@ -204,6 +204,29 @@ export function tomorrowStaysWithHome(json: unknown): Stay[] {
   return day ? staysForDay(day, true) : [];
 }
 
+/**
+ * 同じ場所（`home` と `placeText` が同じ）で、時間が重なる・接する区間を1つにまとめる（#608）。時間帯は和集合。
+ * 予定のタイトル（`label`）は捨て、`allDay` は全員が終日のときだけ立てる（短い予定が「終日」に化けない）。
+ * 場所が違う区間は、重なっていてもまとめない。カードの行だけに使う（1時間ごとの帯は元の区間のまま）。
+ */
+export function mergeOverlappingStays(stays: Stay[]): Stay[] {
+  const merged: Stay[] = [];
+  for (const stay of [...stays].sort((a, b) => a.start.localeCompare(b.start))) {
+    const same = merged.find(
+      (item) => item.home === stay.home && item.placeText === stay.placeText && stay.start <= item.end && item.start <= stay.end,
+    );
+    if (!same) {
+      merged.push({ ...stay });
+      continue;
+    }
+    same.start = same.start < stay.start ? same.start : stay.start;
+    same.end = same.end > stay.end ? same.end : stay.end;
+    same.allDay = same.allDay && stay.allDay;
+    same.label = null;
+  }
+  return merged;
+}
+
 /* ---------------- 1時間ごとの場所（#594） ---------------- */
 
 /**
@@ -255,6 +278,22 @@ export function hoursFrom<T extends { date: string; hour: number }>(
   const start = rows.findIndex((row) => row.date > nowDate || (row.date === nowDate && row.hour >= nowHour));
   if (start < 0) return [];
   return rows.slice(start, start + span);
+}
+
+/**
+ * 今日の0時から、いま（`nowDate` の `nowHour` 時台）の `span` 時間先までを切り出す（#609。過ぎた時間も含む）。
+ * 行は日付・時の順に並び、先頭が今日の0時である前提。いまが行に無ければ空。
+ */
+export function hoursSinceMidnight<T extends { date: string; hour: number }>(
+  rows: T[],
+  nowDate: string,
+  nowHour: number,
+  span = HOURLY_SPAN,
+): T[] {
+  const now = rows.findIndex((row) => row.date === nowDate && row.hour === nowHour);
+  if (now < 0) return [];
+  const first = rows.findIndex((row) => row.date === nowDate);
+  return rows.slice(first, now + span);
 }
 
 /** 予報の、ある日のある時（毎正時）の点。無ければnull。 */
@@ -389,7 +428,14 @@ export function municipalityFromReverse(json: unknown, table: Map<string, string
 
 /* ---------------- 予報 ---------------- */
 
-export type HourlyPoint = { time: string; code: number | null; temperature: number | null; pop: number | null };
+export type HourlyPoint = {
+  time: string;
+  code: number | null;
+  temperature: number | null;
+  pop: number | null;
+  /** 1時間の降水量（mm）。 */
+  precipitation: number | null;
+};
 export type DailyPoint = { date: string; code: number | null; max: number | null; min: number | null; pop: number | null };
 export type Forecast = { hourly: HourlyPoint[]; daily: DailyPoint[] };
 
@@ -412,6 +458,7 @@ export function parseOpenMeteo(json: unknown): Forecast | null {
   const codes = numbers(hourly?.weather_code);
   const temps = numbers(hourly?.temperature_2m);
   const pops = numbers(hourly?.precipitation_probability);
+  const rains = numbers(hourly?.precipitation);
   const dayTimes = strings(daily?.time);
   const dayCodes = numbers(daily?.weather_code);
   const maxes = numbers(daily?.temperature_2m_max);
@@ -419,7 +466,7 @@ export function parseOpenMeteo(json: unknown): Forecast | null {
   const dayPops = numbers(daily?.precipitation_probability_max);
 
   return {
-    hourly: hourTimes.map((time, i) => ({ time, code: codes[i] ?? null, temperature: temps[i] ?? null, pop: pops[i] ?? null })),
+    hourly: hourTimes.map((time, i) => ({ time, code: codes[i] ?? null, temperature: temps[i] ?? null, pop: pops[i] ?? null, precipitation: rains[i] ?? null })),
     daily: dayTimes.map((date, i) => ({ date, code: dayCodes[i] ?? null, max: maxes[i] ?? null, min: mins[i] ?? null, pop: dayPops[i] ?? null })),
   };
 }
@@ -461,8 +508,16 @@ export function describeWeatherCode(code: number | null): string {
   return WEATHER_CODE_TEXT.get(code) ?? `天気コード ${code}`;
 }
 
+/** 天気の文字（`describeWeatherCode()` の出力）から天気コードを引く。AIDEの日別予報はコードを持たないため。 */
+export function weatherCodeOfText(text: string): number | null {
+  for (const [code, label] of WEATHER_CODE_TEXT) if (label === text) return code;
+  return null;
+}
+
 export type WindowWeather = {
   summary: string;
+  /** 天気コード（アイコン用）。日別予報の代用など、文字しか無いときは文字から引き直す（見つからなければnull）。 */
+  code: number | null;
   min: number | null;
   max: number | null;
   pop: number | null;
@@ -493,8 +548,10 @@ export function summarizeWindow(forecast: Forecast, date: string, start: string,
   const temps = hours.map((h) => h.temperature).filter((t): t is number => t !== null);
   const pops = hours.map((h) => h.pop).filter((p): p is number => p !== null);
   const rainy = hours.find((h) => h.pop !== null && h.pop >= RAIN_POP);
+  const code = codes.length > 0 ? Math.max(...codes) : null;
   return {
-    summary: describeWeatherCode(codes.length > 0 ? Math.max(...codes) : null),
+    summary: describeWeatherCode(code),
+    code,
     min: temps.length > 0 ? Math.min(...temps) : null,
     max: temps.length > 0 ? Math.max(...temps) : null,
     pop: pops.length > 0 ? Math.max(...pops) : null,

@@ -1,7 +1,9 @@
+import { DAY_RANGE } from "@/lib/dashboard/day-offset";
 import { parseOpenMeteo, roundCoordinate, type Coordinates, type Forecast } from "@/lib/weather/rain-check";
 
 /**
- * Open-Meteo（キー不要。AIDEの天気と同じ出典）から、時間別・日別の予報を3日ぶん取る（#586）。
+ * Open-Meteo（キー不要。AIDEの天気と同じ出典）から、時間別・日別の予報を取る（#586）。
+ * 範囲はダッシュボードでめくれる前後の日（#606。`DAY_RANGE`）ぶんで、過去の日は `past_days` の値になる。1地点1回の取得のまま。
  *
  * 座標は小数2桁（≒1km）に丸めてから送る——現在地をそのまま外へ出さないためと、キャッシュの鍵を揃えるため。
  * 成功は30分持つ（AIDEの同期は毎時）。失敗は持たずに投げる。出典の表示（`OPEN_METEO_ATTRIBUTION`）を画面に添えること。
@@ -28,10 +30,11 @@ export function forecastAt(point: Coordinates): Promise<Forecast> {
   const params = new URLSearchParams({
     latitude: String(latitude),
     longitude: String(longitude),
-    hourly: "weather_code,temperature_2m,precipitation_probability",
+    hourly: "weather_code,temperature_2m,precipitation_probability,precipitation",
     daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
     timezone: "Asia/Tokyo",
-    forecast_days: "3",
+    past_days: String(DAY_RANGE),
+    forecast_days: String(DAY_RANGE + 1),
   });
   const promise = (async () => {
     const response = await fetch(`${FORECAST_URL}?${params}`, { signal: AbortSignal.timeout(TIMEOUT_MS) });

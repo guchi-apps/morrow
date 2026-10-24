@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { dayStart, jstDayKey } from "@/lib/day-key";
+import { addDays } from "@/lib/dashboard/day-offset";
 import { PUSH_HISTORY_LIMIT } from "@/lib/dashboard/push-history";
 import { noticeBoard } from "@/lib/notice-list";
 import { PUSH_KIND_INFO, isPushKind } from "@/lib/push/kinds";
@@ -32,12 +33,17 @@ export type DeliveredPush = {
  * 本文が空の行（朝の見通しが黙った日の記録）は出さない。届いた端末が0件の回も出す——
  * 端末の購読が落ちていただけで、用件そのものは今日あったため。
  */
-export async function todaysPushes(userId: string, now = new Date()): Promise<DeliveredPush[]> {
+export function todaysPushes(userId: string, now = new Date()): Promise<DeliveredPush[]> {
+  return pushesOn(userId, jstDayKey(now));
+}
+
+/** ある日（日本時間の `dayKey`）に送った通知の本文。ダッシュボードで前後の日へめくったとき（#606）にも使う。 */
+export async function pushesOn(userId: string, dayKey: string): Promise<DeliveredPush[]> {
   const rows = await db.notificationLog.findMany({
     where: {
       userId,
       kind: { in: DASHBOARD_PUSH_KINDS },
-      createdAt: { gte: dayStart(jstDayKey(now)) },
+      createdAt: { gte: dayStart(dayKey), lt: dayStart(addDays(dayKey, 1)) },
       NOT: { body: "" },
     },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],

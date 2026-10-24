@@ -1,14 +1,17 @@
 import { jstDayKey } from "@/lib/day-key";
 import { cached, dashboardWeather, scheduleSource } from "@/lib/dashboard/aide";
-import type { WeatherView } from "@/lib/dashboard/parse";
+import type { WeatherDay, WeatherLocation, WeatherView } from "@/lib/dashboard/parse";
 import { resolvePlace } from "@/lib/weather/geocode";
 import { forecastAt } from "@/lib/weather/open-meteo";
 import {
   buildStays,
+  describeWeatherCode,
   hourlyPoint,
+  mergeOverlappingStays,
   placeAtHour,
   rainVerdict,
   summarizeWindow,
+  weatherCodeOfText,
   tomorrowStaysWithHome,
   type Coordinates,
   type RainVerdict,
@@ -28,6 +31,9 @@ import {
  *   時間は予報なし（日別予報で代用しない）。今日・明日の0〜24時を持ち、「いまから24時間」の切り出しは描画側
  *
  * 結果は天気・予定と同じく利用者・日付ごとに5分持つ（`cached()`。失敗の全体は1分）。
+ *
+ * 今日以外の日（#606。`offset` ≠ 0）は、その日の区間（自宅込み）と、その日の0〜24時の帯だけを作る。
+ * 明日以降の雨（`later`）は今日の画面にしか出さないので空。
  */
 
 export type PlaceSegment = Stay & {
@@ -53,6 +59,8 @@ export type HourCell = {
   code: number | null;
   temperature: number | null;
   pop: number | null;
+  /** 1時間の降水量（mm）。 */
+  precipitation: number | null;
 };
 
 export type PlacesView =
@@ -95,8 +103,9 @@ async function segmentFor(stay: Stay, weather: WeatherView, home: Coordinates | 
         weather.status === "ok"
           ? [weather.today, weather.tomorrow].find((item) => item?.date === stay.date) ?? null
           : null;
-      if (!day) return { segment: { ...base, placeName: name, status: "failed" }, point: null };
-      const summary = { summary: day.summary, min: day.min, max: day.max, pop: day.pop, rainFrom: null };
+      // AIDEの日別予報は今日・明日だけ。それ以外の日（#606）は取れなかったのではなく、分からない。
+      if (!day) return { segment: { ...base, placeName: name, status: weather.status === "ok" ? "unresolved" : "failed" }, point: null };
+      const summary = { summary: day.summary, code: weatherCodeOfText(day.summary), min: day.min, max: day.max, pop: day.pop, rainFrom: null };
       return {
         segment: { ...base, placeName: name, status: "ok", weather: summary, verdict: rainVerdict(day.pop), daily: true },
         point: null,
@@ -142,11 +151,11 @@ async function cellsFor(
       const placeLabel =
         at.kind === "move" ? "移動" : target ? segmentName(target.segment) : homeName ? `${homeName}・自宅` : "自宅";
       const placeKind = at.kind === "move" ? "move" : target && !target.segment.home ? "away" : "home";
-      const empty = { date, hour, placeLabel, placeKind, code: null, temperature: null, pop: null } as const;
+      const empty = { date, hour, placeLabel, placeKind, code: null, temperature: null, pop: null, precipitation: null } as const;
       if (!point) return empty;
       try {
         const found = hourlyPoint(await forecastAt(point), date, hour);
-        return found ? { ...empty, code: found.code, temperature: found.temperature, pop: found.pop } : empty;
+        return found ? { ...empty, code: found.code, temperature: found.temperature, pop: found.pop, precipitation: found.precipitation } : empty;
       } catch {
         // 区間側で失敗は記録済み。帯ではその時間を「—」にするだけ。
         return empty;
@@ -165,9 +174,9 @@ function nextDayKey(date: string): string {
 
 const range = (from: number, to: number) => Array.from({ length: to - from }, (_, index) => from + index);
 
-export function dashboardPlaces(userId: string, now = new Date()): Promise<PlacesView> {
-  return cached(`places:${userId}:${jstDayKey(now)}`, async (): Promise<PlacesView> => {
-    const [weather, source] = await Promise.all([dashboardWeather(userId, now), scheduleSource(userId, now)]);
+export function dashboardPlaces(userId: string, now = new Date(), offset = 0): Promise<PlacesView> {
+  return cached(`places:${userId}:${jstDayKey(now)}:${offset}`, async (): Promise<PlacesView> => {
+    const [weather, source] = await Promise.all([dashboardWeather(userId, now), scheduleSource(userId, now, offset)]);
     if (source.status !== "ok") return source;
     if (source.json.configured === false) return { status: "not_configured" };
 
@@ -176,31 +185,76 @@ export function dashboardPlaces(userId: string, now = new Date()): Promise<Place
 
     const home = homePoint(weather);
     const homeName = weather.status === "ok" ? (weather.location?.name ?? null) : null;
-    const tomorrowStays = tomorrowStaysWithHome(source.json);
+    // 今日以外の日は、その日だけを引いてある（`buildStays()` の1日目＝自宅込み）。明日の帯は今日の画面だけ。
+    const tomorrowStays = offset === 0 ? tomorrowStaysWithHome(source.json) : [];
     const [[today, ...rest], tomorrowResolved] = await Promise.all([
       Promise.all(
-        days.map(async (day) => ({
-          date: day.date,
-          resolved: await Promise.all(day.stays.map((stay) => segmentFor(stay, weather, home))),
-        })),
+        days.map(async (day) => {
+          const resolved = await Promise.all(day.stays.map((stay) => segmentFor(stay, weather, home)));
+          // カードの行は、同じ場所で重なる区間を1つにまとめて天気を取り直す（#608）。帯は元の区間（resolved）のまま。
+          const merged = mergeOverlappingStays(day.stays);
+          const cards =
+            merged.length === day.stays.length
+              ? resolved.map((item) => item.segment)
+              : (await Promise.all(merged.map((stay) => segmentFor(stay, weather, home)))).map((item) => item.segment);
+          return { date: day.date, resolved, cards };
+        }),
       ),
       Promise.all(tomorrowStays.map((stay) => segmentFor(stay, weather, home))),
     ]);
 
-    const hourly = today
-      ? [
-          ...(await cellsFor(today.date, range(0, 24), today.resolved, home, homeName)),
-          // 予定の2日目が無い応答でも、明日の列は自宅で埋めて24時間ぶんを揃える（`tomorrowResolved` は空になる）。
-          ...(await cellsFor(rest[0]?.date ?? nextDayKey(today.date), range(0, 24), tomorrowResolved, home, homeName)),
-        ]
-      : [];
+    const hourly = !today
+      ? []
+      : offset !== 0
+        ? await cellsFor(today.date, range(0, 24), today.resolved, home, homeName)
+        : [
+            ...(await cellsFor(today.date, range(0, 24), today.resolved, home, homeName)),
+            // 予定の2日目が無い応答でも、明日の列は自宅で埋めて24時間ぶんを揃える（`tomorrowResolved` は空になる）。
+            ...(await cellsFor(rest[0]?.date ?? nextDayKey(today.date), range(0, 24), tomorrowResolved, home, homeName)),
+          ];
 
     return {
       status: "ok",
-      today: today?.resolved.map((item) => item.segment) ?? [],
-      later: rest.map((day) => ({ date: day.date, segments: day.resolved.map((item) => item.segment) })),
+      today: today?.cards ?? [],
+      later: offset === 0 ? rest.map((day) => ({ date: day.date, segments: day.cards })) : [],
       hourly,
       partial: source.json.complete === false,
     };
   });
+}
+
+/**
+ * 表示する日の自宅の1日の予報（#606）。今日・明日はAIDEの日別予報、それ以外の日（と、深夜でAIDEの明日がまだ無いとき）は
+ * 自宅の地点のOpen-Meteoの日別。地点がAIDEから届いていなければ `none`（その日の予報は分からない）。
+ */
+export type DayWeatherView =
+  | { status: "unconnected" }
+  | { status: "failed"; detail: string }
+  | { status: "unavailable"; reason: string | null }
+  | { status: "none" }
+  | { status: "ok"; day: WeatherDay; stale: boolean; attribution: string | null; location: WeatherLocation | null };
+
+export async function dashboardDayWeather(userId: string, now: Date, date: string): Promise<DayWeatherView> {
+  const weather = await dashboardWeather(userId, now);
+  if (weather.status !== "ok") return weather;
+  const { stale, attribution, location } = weather;
+  const aide = [weather.today, weather.tomorrow].find((day) => day?.date === date);
+  if (aide) return { status: "ok", day: aide, stale, attribution, location };
+
+  const home = homePoint(weather);
+  if (!home) return { status: "none" };
+  try {
+    const point = (await forecastAt(home)).daily.find((day) => day.date === date);
+    if (!point) return { status: "none" };
+    return {
+      status: "ok",
+      day: { date, summary: describeWeatherCode(point.code), max: point.max, min: point.min, pop: point.pop },
+      stale: false,
+      attribution: null,
+      location,
+    };
+  } catch (error) {
+    console.error(`[aide-bot] ${date} の自宅の予報を取得できなかった`, error);
+    return { status: "failed", detail: error instanceof Error ? error.message : "不明なエラー" };
+  }
 }
