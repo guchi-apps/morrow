@@ -10,8 +10,6 @@ import { ConversationRail } from "./conversation-rail";
 import { useVisualViewportFit } from "./use-visual-viewport";
 
 type Props = {
-  /** 今月の概算費用（`$1.23` の形）。一覧の下に出す（#51）。 */
-  monthlyUsageLabel: string;
   /** まだ秘書が出していないお知らせの件数（#114）。一覧の下のバッジに出す。 */
   pendingNoticeCount: number;
   /** 溜まっている話題の件数（#144）。一覧の下に出す。 */
@@ -41,7 +39,6 @@ type Props = {
  * （#379。iOSでキーボードを閉じた後にページが持ち上がったまま残るのを防ぐ）。
  */
 export function ChatShell({
-  monthlyUsageLabel,
   pendingNoticeCount,
   topicCount,
   userLabel,
@@ -60,7 +57,6 @@ export function ChatShell({
 
   // トップ（`/`）は今日のダッシュボード（#573）。
   const isDashboard = pathname === "/";
-  const isUsage = pathname === "/usage";
   const isSettings = pathname === "/settings";
   const isNotices = pathname === "/notices";
   const isPushes = pathname === "/pushes";
@@ -68,19 +64,17 @@ export function ChatShell({
   const isModels = pathname === "/models";
   const heading = isDashboard
     ? "今日"
-    : isUsage
-      ? "使用量"
-      : isSettings
-        ? "設定"
-        : isNotices
-          ? "お知らせ"
-          : isPushes
-            ? "届いた通知"
-            : isTopics
-              ? "話題"
-              : isModels
-                ? "モデル"
-                : "Morrow";
+    : isSettings
+      ? "設定"
+      : isNotices
+        ? "お知らせ"
+        : isPushes
+          ? "届いた通知"
+          : isTopics
+            ? "話題"
+            : isModels
+              ? "モデル"
+              : "Morrow";
 
   // 開いたドロワーは、閉じるボタン・スクリム・中のリンク（onNavigate）で閉じる。
   // pathnameの変化をuseEffectで見て閉じる形にはしない——描画のたびにsetStateが走る。
@@ -121,7 +115,6 @@ export function ChatShell({
       <aside className="hidden w-[276px] shrink-0 border-r border-border lg:block" inert={drawerOpen}>
         <ConversationRail
           isDashboardActive={isDashboard}
-          isUsageActive={isUsage}
           isSettingsActive={isSettings}
           isNoticesActive={isNotices}
           isPushesActive={isPushes}
@@ -129,7 +122,6 @@ export function ChatShell({
           isModelsActive={isModels}
           pendingNoticeCount={pendingNoticeCount}
           topicCount={topicCount}
-          monthlyUsageLabel={monthlyUsageLabel}
           userLabel={userLabel}
           userEmail={userEmail}
           appVersion={appVersion}
@@ -161,7 +153,6 @@ export function ChatShell({
           >
             <ConversationRail
               isDashboardActive={isDashboard}
-              isUsageActive={isUsage}
               isSettingsActive={isSettings}
               isNoticesActive={isNotices}
               isPushesActive={isPushes}
@@ -169,7 +160,6 @@ export function ChatShell({
               isModelsActive={isModels}
               pendingNoticeCount={pendingNoticeCount}
               topicCount={topicCount}
-              monthlyUsageLabel={monthlyUsageLabel}
               userLabel={userLabel}
               userEmail={userEmail}
               appVersion={appVersion}

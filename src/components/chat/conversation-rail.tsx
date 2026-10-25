@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, Bell, Cpu, History, LayoutDashboard, Newspaper, Settings } from "lucide-react";
+import { Bell, Cpu, History, LayoutDashboard, Newspaper, Settings } from "lucide-react";
 import Link from "next/link";
 
 import { AppLogo } from "@/components/brand/app-icon";
@@ -9,8 +9,6 @@ import { cn } from "@/lib/utils";
 type Props = {
   /** 今日のダッシュボード（`/`。#573）を開いているか。 */
   isDashboardActive: boolean;
-  /** 使用量の画面を開いているか。 */
-  isUsageActive: boolean;
   /** 設定の画面を開いているか（#46）。 */
   isSettingsActive: boolean;
   /** お知らせの画面を開いているか（#114）。 */
@@ -25,8 +23,6 @@ type Props = {
   isModelsActive: boolean;
   /** 溜まっている話題の件数（#144）。0のときは数字を出さない。 */
   topicCount: number;
-  /** 今月の概算費用（`$1.23` の形）。集計はサーバー側で済ませて文字列で受け取る。 */
-  monthlyUsageLabel: string;
   userLabel: string;
   userEmail: string | null;
   appVersion: string;
@@ -40,7 +36,6 @@ type Props = {
  */
 export function ConversationRail({
   isDashboardActive,
-  isUsageActive,
   isSettingsActive,
   isNoticesActive,
   isPushesActive,
@@ -48,7 +43,6 @@ export function ConversationRail({
   isTopicsActive,
   isModelsActive,
   topicCount,
-  monthlyUsageLabel,
   userLabel,
   userEmail,
   appVersion,
@@ -151,24 +145,6 @@ export function ConversationRail({
         >
           <Settings className="size-3.5 text-muted" aria-hidden="true" />
           設定
-        </Link>
-
-        {/* APIの消費量（#51）。1つの数字だけを一覧に出し、内訳は専用の画面で見る。
-            出るのは従量課金ぶんの金額か、それが0のときは定額ぶんの回数（#133）。 */}
-        <Link
-          href="/usage"
-          onClick={onNavigate}
-          aria-current={isUsageActive ? "page" : undefined}
-          className={cn(
-            "mx-2.5 mt-2 flex items-center justify-between gap-2 rounded-[9px] px-2.5 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-            isUsageActive && "bg-rail-active shadow-[inset_2px_0_0_var(--accent)]",
-          )}
-        >
-          <span className="flex items-center gap-1.5">
-            <BarChart3 className="size-3.5 text-muted" aria-hidden="true" />
-            使用量
-          </span>
-          <span className="tabular-nums font-bold text-accent">今月 {monthlyUsageLabel}</span>
         </Link>
 
         <div className="flex items-center justify-between gap-2.5 px-4 pb-2 pt-3">
