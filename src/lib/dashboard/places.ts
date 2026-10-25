@@ -32,7 +32,7 @@ import {
  * 結果は天気・予定と同じく利用者・日付ごとに5分持つ（`cached()`。失敗の全体は1分）。
  *
  * 今日以外の日（#606。`offset` ≠ 0）は、その日の区間（自宅込み）と、その日の0〜24時の帯だけを作る。
- * 明日以降の雨（`later`）は今日の画面にしか出さないので空。
+ * 明日以降の行き先は引かない（#625。「明日以降の雨を見る」を外したので、地名解決・予報取得の呼び出しも要らない）。
  */
 
 export type PlaceSegment = Stay & {
@@ -69,7 +69,6 @@ export type PlacesView =
   | {
       status: "ok";
       today: PlaceSegment[];
-      later: { date: string; segments: PlaceSegment[] }[];
       /** 表示する日の0〜23時の1時間ごと（#620）。「今」の位置は描画側で決める（キャッシュに時刻を焼き込まない）。 */
       hourly: HourCell[];
       /** 予定の一部を取得できなかった（行き先が欠けているかもしれない）。 */
@@ -176,8 +175,8 @@ export function dashboardPlaces(userId: string, now = new Date(), offset = 0): P
 
     const home = homePoint(weather);
     const homeName = weather.status === "ok" ? (weather.location?.name ?? null) : null;
-    const [today, ...rest] = await Promise.all(
-      days.map(async (day) => {
+    const [today] = await Promise.all(
+      days.slice(0, 1).map(async (day) => {
         const resolved = await Promise.all(day.stays.map((stay) => segmentFor(stay, weather, home)));
         // カードの行は、同じ場所で重なる区間を1つにまとめて天気を取り直す（#608）。帯は元の区間（resolved）のまま。
         const merged = mergeOverlappingStays(day.stays);
@@ -195,7 +194,6 @@ export function dashboardPlaces(userId: string, now = new Date(), offset = 0): P
     return {
       status: "ok",
       today: today?.cards ?? [],
-      later: offset === 0 ? rest.map((day) => ({ date: day.date, segments: day.cards })) : [],
       hourly,
       partial: source.json.complete === false,
     };
