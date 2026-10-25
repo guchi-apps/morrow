@@ -72,6 +72,11 @@ describe("schedulePhase", () => {
     );
   });
 
+  it("日をまたぐ予定（終了が開始より前）は今日のうちは終わった扱いにしない", () => {
+    assert.equal(schedulePhase(event("22:00", "01:00"), "23:30", 0), "upcoming");
+    assert.equal(schedulePhase(event("22:00", "01:00"), "00:30", 0), "upcoming");
+  });
+
   it("移動も予定と同じに扱う", () => {
     assert.equal(
       schedulePhase(

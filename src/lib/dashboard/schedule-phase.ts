@@ -30,5 +30,7 @@ export function schedulePhase(
   if (item.start === null) return "upcoming";
   if (offset < 0) return "done";
   if (offset > 0) return "upcoming";
+  // 終了が開始より前なら日をまたぐ予定。終わるのは翌日なので、今日のうちは終わった扱いにしない。
+  if (item.end !== null && item.end < item.start) return "upcoming";
   return (item.end ?? item.start) < nowTime ? "done" : "upcoming";
 }
