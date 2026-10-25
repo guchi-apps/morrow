@@ -85,6 +85,24 @@ export const CHAT_MODELS: ChatModelOption[] = [
   { id: "gpt-6-luna", label: "Luna", hint: "高速" },
 ];
 
+const MODEL_ID_PATTERN = /^gpt-(\d+(?:\.\d+)*)-([a-z0-9-]+)$/;
+
+/**
+ * モデルIDから画面に出す版を作る（`gpt-6-astra` → `GPT-6`）。表示用の版を別に持たず、実際に保存・
+ * `codex exec -m` へ渡すIDから導くので、IDを変えれば表示も同時に変わる（#633）。形が合わなければ空。
+ */
+export function modelVersionOf(id: string): string {
+  const match = MODEL_ID_PATTERN.exec(id);
+  return match ? `GPT-${match[1]}` : "";
+}
+
+/** 版と愛称を合わせた名前（`GPT-6 Astra`）。版が読めないIDは愛称（無ければID）だけ。 */
+export function modelDisplayName(id: string): string {
+  const version = modelVersionOf(id);
+  const label = CHAT_MODELS.find((model) => model.id === id)?.label ?? id;
+  return version ? `${version} ${label}` : label;
+}
+
 /**
  * モデルを選べる用途（#349）。**正はここ**——画面・保存・各呼び出しが同じ表を引く。
  *
