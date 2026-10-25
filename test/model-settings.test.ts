@@ -7,6 +7,8 @@ import {
   MODEL_USES,
   MODEL_USE_META,
   mergeModelSettings,
+  modelDisplayName,
+  modelVersionOf,
   resolveModelSettings,
 } from "@/lib/chat-model";
 
@@ -36,4 +38,18 @@ test("既定と同じ値は保存に残さない", () => {
   const next = mergeModelSettings({ briefing: "gpt-6-luna", memory: "gpt-6-luna" }, { notice: "gpt-6-astra", topic: DEFAULT_MODELS.topic });
   assert.deepEqual(next, { briefing: "gpt-6-luna", notice: "gpt-6-astra" });
   assert.deepEqual(mergeModelSettings(next, { briefing: DEFAULT_MODELS.briefing, notice: DEFAULT_MODELS.notice }), {});
+});
+
+test("表示の版・愛称はモデルIDから導かれ、IDと一致する（#633）", () => {
+  for (const model of CHAT_MODELS) {
+    const version = modelVersionOf(model.id);
+    assert.match(version, /^GPT-\d+(\.\d+)*$/, model.id);
+    assert.equal(modelDisplayName(model.id), `${version} ${model.label}`);
+    // 表示名から作ったスラッグが、実際に渡すIDと一致する
+    assert.equal(modelDisplayName(model.id).toLowerCase().replace(/^gpt-/, "gpt-").replace(" ", "-"), model.id);
+  }
+  assert.equal(modelDisplayName("gpt-6-astra"), "GPT-6 Astra");
+  assert.equal(modelVersionOf("gpt-6.1-sol"), "GPT-6.1");
+  assert.equal(modelVersionOf("unknown"), "");
+  assert.equal(modelDisplayName("unknown"), "unknown");
 });

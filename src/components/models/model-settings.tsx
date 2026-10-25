@@ -8,6 +8,8 @@ import {
   MODEL_USES,
   MODEL_USE_GROUP_LABELS,
   MODEL_USE_META,
+  modelDisplayName,
+  modelVersionOf,
   type ChatModelId,
   type ModelUse,
   type ModelUseGroup,
@@ -101,6 +103,9 @@ export function ModelSettings({ initial }: Props) {
 
                 <div className="min-w-0" aria-hidden="true">
                   <b className="text-[0.84rem] font-semibold">{meta.label}</b>
+                  <span className="ml-1.5 rounded-full bg-accent-surface px-1.5 py-px align-[1px] text-[0.625rem] font-semibold text-accent">
+                    {modelDisplayName(selected[use])}
+                  </span>
                   <span className="block text-[0.72rem] leading-snug text-muted">{meta.hint}</span>
                 </div>
 
@@ -112,7 +117,7 @@ export function ModelSettings({ initial }: Props) {
                       <label
                         key={model.id}
                         className={cn(
-                          "flex flex-1 cursor-pointer flex-col items-center whitespace-nowrap rounded-[9px] border border-border bg-background px-3 py-1.5 text-xs transition-colors hover:bg-rail-active sm:flex-none",
+                          "flex flex-1 cursor-pointer flex-col items-center gap-px rounded-[9px] border border-border bg-background px-1 py-1.5 text-center text-xs transition-colors hover:bg-rail-active sm:flex-none sm:whitespace-nowrap sm:px-3",
                           "focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent",
                           checked && "border-accent bg-accent-surface font-bold shadow-[0_0_0_1px_var(--accent)]",
                         )}
@@ -123,8 +128,14 @@ export function ModelSettings({ initial }: Props) {
                           value={model.id}
                           checked={checked}
                           onChange={() => void choose(use, model.id)}
+                          aria-label={`${modelDisplayName(model.id)}、${model.hint}`}
                           className="sr-only"
                         />
+                        {modelVersionOf(model.id) && (
+                          <span className={cn("text-[0.625rem] font-medium text-muted", checked && "text-accent")}>
+                            {modelVersionOf(model.id)}
+                          </span>
+                        )}
                         {model.label}
                         <small className="text-[0.625rem] font-normal text-muted">{model.hint}</small>
                       </label>
