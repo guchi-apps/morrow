@@ -280,22 +280,6 @@ export function hoursFrom<T extends { date: string; hour: number }>(
   return rows.slice(start, start + span);
 }
 
-/**
- * 今日の0時から、いま（`nowDate` の `nowHour` 時台）の `span` 時間先までを切り出す（#609。過ぎた時間も含む）。
- * 行は日付・時の順に並び、先頭が今日の0時である前提。いまが行に無ければ空。
- */
-export function hoursSinceMidnight<T extends { date: string; hour: number }>(
-  rows: T[],
-  nowDate: string,
-  nowHour: number,
-  span = HOURLY_SPAN,
-): T[] {
-  const now = rows.findIndex((row) => row.date === nowDate && row.hour === nowHour);
-  if (now < 0) return [];
-  const first = rows.findIndex((row) => row.date === nowDate);
-  return rows.slice(first, now + span);
-}
-
 /** 予報の、ある日のある時（毎正時）の点。無ければnull。 */
 export function hourlyPoint(forecast: Forecast, date: string, hour: number): HourlyPoint | null {
   const key = `${date}T${hourLabel(hour, "00")}`;
