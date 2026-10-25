@@ -170,8 +170,8 @@ function DayNav({
     );
 
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+    <div className="flex flex-col items-center gap-1.5">
+      <div className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1.5">
         {step(prev, "前の日", "‹")}
         <h2 className="flex items-baseline gap-2 text-lg font-bold tracking-wide md:text-[1.375rem]">
           {dayLabel(dayKey)}
@@ -187,6 +187,10 @@ function DayNav({
           )}
         </h2>
         {step(next, "次の日", "›")}
+      </div>
+      {/* データを取得した時刻。日付の中心を保つため、ドットと「今日へ」はこの行に置く */}
+      <div className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-xs text-muted">
+        <span>{jstTimeLabel(now)} 時点</span>
         <span className="hidden items-center gap-1 sm:flex" aria-hidden="true">
           {Array.from({ length: DAY_RANGE * 2 + 1 }, (_, index) => index - DAY_RANGE).map((dot) => (
             <i
@@ -203,15 +207,12 @@ function DayNav({
             href="/"
             replace
             scroll={false}
-            className="ml-auto rounded-full border border-accent px-3 py-0.5 text-xs font-bold text-accent hover:bg-accent-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            className="rounded-full border border-accent px-3 py-0.5 text-xs font-bold text-accent hover:bg-accent-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             今日へ
           </Link>
         )}
       </div>
-      <span className="text-xs text-muted">
-        {jstTimeLabel(now)} 時点・天気と予定は開いたときに取得<span className="hidden pointer-coarse:inline">・左右にスワイプで前後の日</span>
-      </span>
     </div>
   );
 }
