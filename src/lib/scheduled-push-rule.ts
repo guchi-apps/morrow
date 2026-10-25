@@ -58,6 +58,13 @@ export function jstMinuteOfDayAt(at: Date): number {
   return value("hour") * 60 + value("minute");
 }
 
+/** 設定の一覧を時刻（00:00→23:30）の昇順に並べる。同時刻はIDの順。元の配列は変えない。 */
+export function sortSchedules<T extends { id: string; hour: number; minute: number }>(rows: readonly T[]): T[] {
+  return [...rows].sort(
+    (a, b) => a.hour - b.hour || a.minute - b.minute || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
+}
+
 export type ScheduleLike = { daysMask: number; hour: number; minute: number; createdAt: Date };
 
 /**
