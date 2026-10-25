@@ -15,6 +15,8 @@ final class WebViewModel: NSObject, ObservableObject {
     private let pathMonitor = NWPathMonitor()
     private var isNetworkAvailable = true
     private var hasStarted = false
+    /// 起動前に届いたUniversal Linkの行き先（`startIfNeeded()` が最初に開く）
+    private var pendingLink: URL?
     /// 最後に開こうとしたメインフレームのURL。読み込みに失敗すると `webView.url` は
     /// 直前に表示できていた画面のままなので、再試行はこちらを開き直す
     private var lastRequestedURL: URL?
@@ -53,13 +55,20 @@ final class WebViewModel: NSObject, ObservableObject {
             DispatchQueue.main.async { self?.networkChanged(available: available) }
         }
         pathMonitor.start(queue: .main)
-        load(AppConfig.baseURL)
+        load(pendingLink ?? AppConfig.baseURL)
+        pendingLink = nil
 
         let push = PushRegistration.shared
         push.openHandler = { [weak self] target in self?.openNotificationTarget(target) }
         push.tokenHandler = { [weak self] in
             Task { @MainActor in await self?.uploadPushTokenIfNeeded() }
         }
+    }
+
+    /// Universal Links（#619）で渡されたURLを開く。アプリのオリジンのURLだけで、制御文字を含む値は捨てる
+    func openUniversalLink(_ url: URL) {
+        guard AppConfig.isAppURL(url), AppConfig.notificationTarget(url.absoluteString) != nil else { return }
+        if hasStarted { load(url) } else { pendingLink = url }
     }
 
     func retry() {

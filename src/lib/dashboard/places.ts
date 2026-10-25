@@ -12,7 +12,6 @@ import {
   rainVerdict,
   summarizeWindow,
   weatherCodeOfText,
-  tomorrowStaysWithHome,
   type Coordinates,
   type RainVerdict,
   type Stay,
@@ -71,7 +70,7 @@ export type PlacesView =
       status: "ok";
       today: PlaceSegment[];
       later: { date: string; segments: PlaceSegment[] }[];
-      /** 今日・明日の0〜24時の1時間ごと。「いまから」の切り出しは描画側（`hoursFrom()`）で行う（キャッシュに時刻を焼き込まない）。 */
+      /** 表示する日の0〜23時の1時間ごと（#620）。「今」の位置は描画側で決める（キャッシュに時刻を焼き込まない）。 */
       hourly: HourCell[];
       /** 予定の一部を取得できなかった（行き先が欠けているかもしれない）。 */
       partial: boolean;
@@ -164,14 +163,6 @@ async function cellsFor(
   );
 }
 
-/** `YYYY-MM-DD` の翌日。暦の計算だけなのでUTCで足す（タイムゾーンに依らない）。読めない日付なら空文字。 */
-function nextDayKey(date: string): string {
-  const next = new Date(`${date}T00:00:00Z`);
-  if (Number.isNaN(next.getTime())) return "";
-  next.setUTCDate(next.getUTCDate() + 1);
-  return next.toISOString().slice(0, 10);
-}
-
 const range = (from: number, to: number) => Array.from({ length: to - from }, (_, index) => from + index);
 
 export function dashboardPlaces(userId: string, now = new Date(), offset = 0): Promise<PlacesView> {
@@ -185,33 +176,21 @@ export function dashboardPlaces(userId: string, now = new Date(), offset = 0): P
 
     const home = homePoint(weather);
     const homeName = weather.status === "ok" ? (weather.location?.name ?? null) : null;
-    // 今日以外の日は、その日だけを引いてある（`buildStays()` の1日目＝自宅込み）。明日の帯は今日の画面だけ。
-    const tomorrowStays = offset === 0 ? tomorrowStaysWithHome(source.json) : [];
-    const [[today, ...rest], tomorrowResolved] = await Promise.all([
-      Promise.all(
-        days.map(async (day) => {
-          const resolved = await Promise.all(day.stays.map((stay) => segmentFor(stay, weather, home)));
-          // カードの行は、同じ場所で重なる区間を1つにまとめて天気を取り直す（#608）。帯は元の区間（resolved）のまま。
-          const merged = mergeOverlappingStays(day.stays);
-          const cards =
-            merged.length === day.stays.length
-              ? resolved.map((item) => item.segment)
-              : (await Promise.all(merged.map((stay) => segmentFor(stay, weather, home)))).map((item) => item.segment);
-          return { date: day.date, resolved, cards };
-        }),
-      ),
-      Promise.all(tomorrowStays.map((stay) => segmentFor(stay, weather, home))),
-    ]);
+    const [today, ...rest] = await Promise.all(
+      days.map(async (day) => {
+        const resolved = await Promise.all(day.stays.map((stay) => segmentFor(stay, weather, home)));
+        // カードの行は、同じ場所で重なる区間を1つにまとめて天気を取り直す（#608）。帯は元の区間（resolved）のまま。
+        const merged = mergeOverlappingStays(day.stays);
+        const cards =
+          merged.length === day.stays.length
+            ? resolved.map((item) => item.segment)
+            : (await Promise.all(merged.map((stay) => segmentFor(stay, weather, home)))).map((item) => item.segment);
+        return { date: day.date, resolved, cards };
+      }),
+    );
 
-    const hourly = !today
-      ? []
-      : offset !== 0
-        ? await cellsFor(today.date, range(0, 24), today.resolved, home, homeName)
-        : [
-            ...(await cellsFor(today.date, range(0, 24), today.resolved, home, homeName)),
-            // 予定の2日目が無い応答でも、明日の列は自宅で埋めて24時間ぶんを揃える（`tomorrowResolved` は空になる）。
-            ...(await cellsFor(rest[0]?.date ?? nextDayKey(today.date), range(0, 24), tomorrowResolved, home, homeName)),
-          ];
+    // 帯は表示する日の0〜23時だけ（#620。翌0時は出さない）。
+    const hourly = today ? await cellsFor(today.date, range(0, 24), today.resolved, home, homeName) : [];
 
     return {
       status: "ok",

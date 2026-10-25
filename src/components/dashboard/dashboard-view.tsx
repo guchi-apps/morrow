@@ -30,7 +30,7 @@ import {
 } from "@/lib/dashboard/places";
 import type { DashboardNotices, DashboardTopic, DeliveredPush } from "@/lib/dashboard/today";
 import { dayLabel, jstDayKey, jstTimeLabel } from "@/lib/day-key";
-import { describeWeatherCode, hoursSinceMidnight, RAIN_POP, type RainVerdict } from "@/lib/weather/rain-check";
+import { describeWeatherCode, RAIN_POP, type RainVerdict } from "@/lib/weather/rain-check";
 import { cn } from "@/lib/utils";
 
 /**
@@ -437,15 +437,15 @@ async function PlacesSection({
   }
 
   // 傘の注意は、まだ終わっていない区間だけから選ぶ（先の日は全部、過ぎた日は無し）。行き先を自宅より先に挙げる。
-  // 今日以外の日は、帯をその日の0〜24時のまま出す（`nowHour` を -1 にする）。
+  // 今日以外の日は、帯をその日の0〜23時のまま出す（`nowHour` を -1 にする）。
   const nowLabel = offset === 0 ? jstTimeLabel(now) : offset > 0 ? "00:00" : "24:00";
   const nowHour = offset === 0 ? Number(nowLabel.slice(0, 2)) : -1;
   const rainy = places.today
     .filter((segment) => segment.verdict === "rain" && segment.end > nowLabel)
     .sort((a, b) => Number(a.home) - Number(b.home));
   const later = places.later.filter((day) => day.segments.length > 0);
-  // 今日は0時から「いまの24時間先」まで（過ぎた時間は灰色。#609）。ほかの日は0〜24時のまま。
-  const hours = offset === 0 ? hoursSinceMidnight(places.hourly, jstDayKey(now), nowHour) : places.hourly;
+  // 帯は表示する日の0〜23時だけ（#620。取得の側で1日ぶんに絞ってある）。今日は過ぎた時間が灰色（#609）。
+  const hours = places.hourly;
   const nowIndex = offset === 0 ? hours.findIndex((cell) => cell.date === jstDayKey(now) && cell.hour === nowHour) : -1;
   const dayName = cardDayName(dayKey, offset);
 
@@ -464,12 +464,12 @@ async function PlacesSection({
           <h4 className="flex justify-between gap-2 text-xs font-bold tracking-[0.06em] text-muted">
             1時間ごと{" "}
             <span className="font-normal tracking-normal">
-              {offset === 0 ? "居る場所の予報・今日0時から" : "居る場所の予報・0〜24時"}
+              居る場所の予報・0〜23時
             </span>
           </h4>
           <HourlyStrip cells={hours} nowIndex={nowIndex} resetKey={`${dayKey}:${offset}`} />
           {rainy.length > 0 && <UmbrellaNote>{umbrellaText(rainy[0], rainy.length > 1)}</UmbrellaNote>}
-          <p className="text-[0.6875rem] text-muted">青い地は降水確率{RAIN_POP}%以上。灰色は過ぎた時間。横にスクロールできます。</p>
+          <p className="text-[0.6875rem] text-muted">青い地は降水確率{RAIN_POP}%以上。灰色は過ぎた時間。横にスクロールできます。端でさらに引くと前後の日へ移ります。</p>
         </div>
       )}
       {hours.length === 0 && rainy.length > 0 && (
@@ -620,7 +620,7 @@ function HourlyStrip({ cells, nowIndex, resetKey }: { cells: HourCell[]; nowInde
   const total = cells.length;
 
   return (
-    <ScrollToNow className="-mx-0.5 overflow-x-auto px-0.5 pb-1 [scrollbar-width:thin]" resetKey={resetKey}>
+    <ScrollToNow className="-mx-0.5 overflow-x-auto overscroll-x-contain px-0.5 pb-1 [scrollbar-width:thin]" resetKey={resetKey}>
       <ol className="relative grid w-max auto-cols-[46px] grid-flow-col gap-y-1" aria-label="1時間ごとの天気">
         {bands.map((band) => (
           <li
@@ -640,8 +640,7 @@ function HourlyStrip({ cells, nowIndex, resetKey }: { cells: HourCell[]; nowInde
         {cells.map((cell, index) => {
           const isNow = index === nowIndex;
           const isPast = index < nowIndex;
-          const nextDay = index > 0 && cell.date !== cells[0].date && cell.hour === 0;
-          const time = isNow ? "今" : nextDay ? "翌0時" : `${cell.hour}時`;
+          const time = isNow ? "今" : `${cell.hour}時`;
           const known = cell.code !== null || cell.temperature !== null || cell.pop !== null;
           return (
             <li
@@ -655,7 +654,7 @@ function HourlyStrip({ cells, nowIndex, resetKey }: { cells: HourCell[]; nowInde
                   : `${cell.hour}時 ${cell.placeLabel} 予報なし`
               }
             >
-              <span className={cn("text-[0.6875rem]", isNow ? "font-bold text-foreground" : nextDay ? "font-bold text-topic" : "text-muted")}>
+              <span className={cn("text-[0.6875rem]", isNow ? "font-bold text-foreground" : "text-muted")}>
                 {time}
               </span>
               {known ? <WeatherIcon code={cell.code} className="size-[18px] text-topic" /> : <span className="h-[18px] text-xs text-muted">—</span>}

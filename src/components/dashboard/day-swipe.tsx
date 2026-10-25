@@ -3,13 +3,15 @@
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
 
+import { pullFromEdge, scrollEdge } from "@/components/dashboard/day-swipe-edge";
 import { cn } from "@/lib/utils";
 
 /**
  * ダッシュボードを左右にめくって前後の日へ移る（#606）。右→左で翌日（`nextHref`）、左→右で前日（`prevHref`）。
  *
  * - **縦のスクロールを邪魔しない。** 最初の動きで向きを決め、横が勝ったときだけめくる（縦なら何もしない）
- * - **横にスクロールできる要素（1時間ごとの帯など）の上から始めた操作は無視する**——帯を動かしたいだけで日が変わる
+ * - **横にスクロールできる要素（1時間ごとの帯など）の上では、帯が端に着いたあとの引きだけをめくりに使う**（#620）——
+ *   帯を動かしている間は日が変わらず、0時／23時の端でさらに引くと画面が付いてきて、離すと前後の日へ移る（`day-swipe-edge.ts`）
  * - **画面の左右の端から始めた操作も無視する。** iOSの殻（WKWebView）は端からのスワイプを戻る・進むに使う
  *   （`allowsBackForwardNavigationGestures`）。移るときも `router.replace` で履歴を積まず、戻る操作と食い合わせない
  * - 指に合わせて中身が付いてきて、一定の距離（`THRESHOLD`）を超えて離すと移る。端の日（行き先なし）は少しだけ動いて戻る
@@ -25,16 +27,28 @@ const EDGE_PX = 24;
 /** 向きを決めるまでの動き。 */
 const LOCK_PX = 10;
 
-type Gesture = { x: number; y: number; dir: "h" | "v" | null };
+type Gesture = {
+  x: number;
+  y: number;
+  dir: "h" | "v" | null;
+  /** 横にスクロールできる枠の上で始めた操作なら、その枠。 */
+  scroller: HTMLElement | null;
+  /** 枠の端でさらに引き始めたときの指のx（端から離れている間はnull）。 */
+  origin: number | null;
+};
 
-function startsOnHorizontalScroller(target: EventTarget | null, root: HTMLElement): boolean {
+function horizontalScrollerAt(target: EventTarget | null, root: HTMLElement): HTMLElement | null {
   for (let node = target instanceof Element ? target : null; node && node !== root; node = node.parentElement) {
     if (node instanceof HTMLElement && node.scrollWidth > node.clientWidth) {
       const overflow = getComputedStyle(node).overflowX;
-      if (overflow === "auto" || overflow === "scroll") return true;
+      if (overflow === "auto" || overflow === "scroll") return node;
     }
   }
-  return false;
+  return null;
+}
+
+function edgeOf(scroller: HTMLElement) {
+  return scrollEdge(scroller.scrollLeft, scroller.clientWidth, scroller.scrollWidth);
 }
 
 export function DaySwipe({
@@ -69,8 +83,9 @@ export function DaySwipe({
     if (!root || event.touches.length !== 1) return reset();
     const touch = event.touches[0];
     if (touch.clientX < EDGE_PX || touch.clientX > window.innerWidth - EDGE_PX) return;
-    if (startsOnHorizontalScroller(event.target, root)) return;
-    gesture.current = { x: touch.clientX, y: touch.clientY, dir: null };
+    const scroller = horizontalScrollerAt(event.target, root);
+    const origin = scroller ? pullFromEdge(edgeOf(scroller), touch.clientX, null).origin : null;
+    gesture.current = { x: touch.clientX, y: touch.clientY, dir: null, scroller, origin };
   };
 
   const onTouchMove = (event: React.TouchEvent) => {
@@ -85,9 +100,16 @@ export function DaySwipe({
       if (current.dir === "h") setDragging(true);
     }
     if (current.dir !== "h") return;
+    // 枠の上で始めた操作は、枠が端に着いたあとの引きだけを移動量にする（枠が動く間は0）。
+    let pull = moveX;
+    if (current.scroller) {
+      const result = pullFromEdge(edgeOf(current.scroller), touch.clientX, current.origin);
+      current.origin = result.origin;
+      pull = result.dx;
+    }
     // 行き先の無い向き（範囲の端）は、少しだけ動かして「これ以上めくれない」を伝える。
-    const target = moveX < 0 ? nextHref : prevHref;
-    setDx(target ? moveX : moveX * 0.15);
+    const target = pull < 0 ? nextHref : prevHref;
+    setDx(target ? pull : pull * 0.15);
   };
 
   const onTouchEnd = () => {
