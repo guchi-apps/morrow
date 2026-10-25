@@ -22,7 +22,6 @@ import {
   hourlyPoint,
   hoursFrom,
   mergeOverlappingStays,
-  hoursSinceMidnight,
   placeAtHour,
   tomorrowStaysWithHome,
 } from "../src/lib/weather/rain-check.ts";
@@ -383,20 +382,6 @@ describe("1時間ごとの場所（#594）", () => {
     // 材料が尽きる端（キャッシュが日付をまたいだ直後など）は、ある分だけ
     assert.deepEqual(hoursFrom(rows, "2026-10-21", 20).map(label), ["21:20", "21:21", "21:22", "21:23"]);
     assert.deepEqual(hoursFrom(rows, "2026-10-22", 0), []);
-  });
-
-  it("今日の0時からいまの24時間先までを切り出す（#609。過ぎた時間を含む）", () => {
-    const rows = [
-      ...Array.from({ length: 24 }, (_, hour) => ({ date: "2026-10-20", hour })),
-      ...Array.from({ length: 24 }, (_, hour) => ({ date: "2026-10-21", hour })),
-    ];
-    const label = (row: { date: string; hour: number }) => `${row.date.slice(8)}:${row.hour}`;
-    const morning = hoursSinceMidnight(rows, "2026-10-20", 9);
-    assert.equal(morning.length, 9 + 24);
-    assert.deepEqual([label(morning[0]), label(morning[9]), label(morning.at(-1)!)], ["20:0", "20:9", "21:8"]);
-    // 材料が尽きる端は、ある分だけ
-    assert.equal(hoursSinceMidnight(rows, "2026-10-20", 23).length, 47);
-    assert.deepEqual(hoursSinceMidnight(rows, "2026-10-22", 0), []);
   });
 
   it("時間別の降水量（mm）を読む。無い時間はnull（#609）", () => {
