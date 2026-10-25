@@ -7,7 +7,7 @@ import { municipalityAt } from "@/lib/weather/geocode";
 import { OPEN_METEO_ATTRIBUTION, forecastAt } from "@/lib/weather/open-meteo";
 import {
   describeWeatherCode,
-  hourAt,
+  hourlyPoint,
   isValidCoordinates,
   nextHours,
   roundCoordinate,
@@ -60,7 +60,7 @@ export async function POST(request: Request) {
 
   const at = new Date(now);
   const hourKey = jstHourKey(at);
-  const hour = hourAt(forecast.value, hourKey);
+  const hour = hourlyPoint(forecast.value, jstDayKey(at), Number(hourKey.slice(11, 13)));
   const today = forecast.value.daily.find((day) => day.date === jstDayKey(at)) ?? null;
 
   return NextResponse.json({

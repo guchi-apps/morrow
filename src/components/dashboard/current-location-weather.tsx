@@ -92,7 +92,9 @@ export function CurrentLocationWeather() {
       });
       const json = (await response.json().catch(() => null)) as (Result & { error?: string }) | null;
       if (!response.ok || !json) {
-        setState({ kind: "failed", message: json?.error ?? "天気を取得できませんでした。少し待ってもう一度押してください。" });
+        // 取り直しの失敗（10秒制限の429など）では、取得済みの結果を消さない
+        const message = json?.error ?? "天気を取得できませんでした。少し待ってもう一度押してください。";
+        setState((prev) => (prev.kind === "ok" ? prev : { kind: "failed", message }));
         return;
       }
       setState({ kind: "ok", result: json, at: new Date() });

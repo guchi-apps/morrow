@@ -11,7 +11,6 @@ import {
   addressQueryOf,
   buildStays,
   municipalityFromReverse,
-  hourAt,
   nextHours,
   parseGsiSearch,
   parseMuniTable,
@@ -432,21 +431,5 @@ describe("mergeOverlappingStays（#608）", () => {
   it("終日は全員が終日のときだけ残る", () => {
     const merged = mergeOverlappingStays([stay("08:00", "22:00", "堺", null, { allDay: true }), stay("10:00", "12:00", "堺", null)]);
     assert.equal(merged[0].allDay, false);
-  });
-});
-
-describe("hourAt（#631）", () => {
-  const forecast = {
-    hourly: [
-      { time: "2026-10-20T09:00", code: 3, temperature: 18.5, pop: 30, precipitation: 0 },
-      { time: "2026-10-20T10:00", code: 61, temperature: 19, pop: 70, precipitation: 1 },
-    ],
-    daily: [],
-  };
-  it("指定した時の1時間分を返す", () => {
-    assert.equal(hourAt(forecast, "2026-10-20T10:00")?.pop, 70);
-  });
-  it("無い時はnull", () => {
-    assert.equal(hourAt(forecast, "2026-10-21T10:00"), null);
   });
 });

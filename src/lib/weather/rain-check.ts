@@ -570,11 +570,6 @@ export function nextHours(forecast: Forecast, nowHour: string, hours = 3): NextH
   return { pop: pops.length > 0 ? Math.max(...pops) : null, rainFrom: rainy ? rainy.time.slice(11, 16) : null };
 }
 
-/** 指定した時（`YYYY-MM-DDTHH:00`）ちょうどの1時間分の予報。無ければnull（#631）。 */
-export function hourAt(forecast: Forecast, hourKey: string): HourlyPoint | null {
-  return forecast.hourly.find((point) => point.time === hourKey) ?? null;
-}
-
 /** 位置を丸める（小数2桁≒1km）。外部サービスへ送る値・キャッシュの鍵に使う。 */
 export function roundCoordinate(value: number): number {
   return Math.round(value * 100) / 100;
