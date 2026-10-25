@@ -17,7 +17,7 @@ import { PrismaClient } from "@prisma/client";
 
 const CI_BYPASS_SUPABASE_USER_ID = "ci-screenshot-bot";
 
-// 従量課金の節（`/usage`）に入るダミー。**#183で朝の見通しもCodexへ移ったので、これは
+// 移行前の従量課金の記録（`/api/ai-usage`）に入るダミー。**#183で朝の見通しもCodexへ移ったので、これは
 // 「移行前に残った記録」を再現するためだけの行**（BRIEFING_MODEL とは揃えない。揃えると
 // 従量課金の節が常に空になり、その節の表示が壊れていても画面から気付けない）。
 const BRIEFING_USAGE_MODEL = "claude-haiku-4-5";
