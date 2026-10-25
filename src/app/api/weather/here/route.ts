@@ -7,6 +7,7 @@ import { municipalityAt } from "@/lib/weather/geocode";
 import { OPEN_METEO_ATTRIBUTION, forecastAt } from "@/lib/weather/open-meteo";
 import {
   describeWeatherCode,
+  hourAt,
   isValidCoordinates,
   nextHours,
   roundCoordinate,
@@ -58,6 +59,8 @@ export async function POST(request: Request) {
   if (place.status === "rejected") console.error("[aide-bot] 現在地の市町村名を取得できなかった", place.reason);
 
   const at = new Date(now);
+  const hourKey = jstHourKey(at);
+  const hour = hourAt(forecast.value, hourKey);
   const today = forecast.value.daily.find((day) => day.date === jstDayKey(at)) ?? null;
 
   return NextResponse.json({
@@ -65,7 +68,11 @@ export async function POST(request: Request) {
     today: today
       ? { summary: describeWeatherCode(today.code), max: today.max, min: today.min, pop: today.pop }
       : null,
-    next: nextHours(forecast.value, jstHourKey(at)),
+    // いまの時間の予報（#631）。「今日の最高/最低」「この先3時間」とは別枠で、予報時刻を添える
+    now: hour
+      ? { time: hourKey.slice(11, 16), summary: describeWeatherCode(hour.code), temperature: hour.temperature, pop: hour.pop }
+      : null,
+    next: nextHours(forecast.value, hourKey),
     attribution: OPEN_METEO_ATTRIBUTION,
   });
 }
