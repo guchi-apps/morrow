@@ -101,6 +101,15 @@ describe("parseSchedule", () => {
     assert.equal(view.items.find((item) => item.title === "飲み会")?.outcome, "CANCELED");
   });
 
+  it("カレンダー名が「活動記録」の行だけ記録（#626）", () => {
+    const view = parseSchedule(SCHEDULE_OK);
+    if (view.status !== "ok") return assert.fail();
+    assert.deepEqual(
+      view.items.filter((item) => item.record).map((item) => item.title),
+      ["風呂"],
+    );
+  });
+
   it("リンクは http(s) だけ通す", () => {
     const view = parseSchedule(SCHEDULE_OK);
     if (view.status !== "ok") return assert.fail();
