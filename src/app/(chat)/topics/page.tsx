@@ -29,7 +29,7 @@ export default async function TopicsPage() {
     topicBoard(user.id, now),
     db.scheduledPush.findMany({
       where: { userId: user.id },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      orderBy: [{ hour: "asc" }, { minute: "asc" }, { id: "asc" }],
       select: { id: true, daysMask: true, hour: true, minute: true, category: true, enabled: true },
     }),
     countSubscriptions(user.id),

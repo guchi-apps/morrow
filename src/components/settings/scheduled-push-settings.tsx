@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, CircleAlert, Plus, Trash2 } from "lucide-react";
+import { CalendarClock, CircleAlert, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -9,6 +9,7 @@ import {
   maskToDays,
   daysToMask,
   SCHEDULED_PUSH_ALL,
+  sortSchedules,
 } from "@/lib/scheduled-push-rule";
 import type { TopicCategory } from "@/lib/topic-categories";
 import { cn } from "@/lib/utils";
@@ -48,8 +49,9 @@ const selectClass = "rounded-lg border border-border bg-background px-3 py-2 tex
 type Props = { initial: ScheduleRow[]; hasDevice: boolean; categories: TopicCategory[] };
 
 export function ScheduledPushSettingsCard({ initial, hasDevice, categories }: Props) {
-  const [rows, setRows] = useState(initial);
+  const [rows, setRows] = useState(() => sortSchedules(initial));
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   async function call(method: string, body: unknown): Promise<Response | null> {
@@ -80,7 +82,25 @@ export function ScheduledPushSettingsCard({ initial, hasDevice, categories }: Pr
     const response = await call("POST", { days: [1, 2, 3, 4, 5], hour: 7, minute: 0, category: SCHEDULED_PUSH_ALL });
     if (!response) return;
     const { schedule } = (await response.json()) as { schedule: ScheduleRow };
-    setRows((current) => [...current, schedule]);
+    setRows((current) => sortSchedules([...current, schedule]));
+  }
+
+  /** 設定の一覧だけをサーバーから読み直す。曜日・時刻は再保存しない（仕入れ・送信も動かさない）。 */
+  async function refresh() {
+    setBusy(true);
+    setRefreshing(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/settings/scheduled-push", { cache: "no-store" });
+      if (!response.ok) throw new Error(String(response.status));
+      const { schedules } = (await response.json()) as { schedules: ScheduleRow[] };
+      setRows(sortSchedules(schedules));
+    } catch {
+      setMessage("読み込めませんでした。表示は更新前のままです。");
+    } finally {
+      setRefreshing(false);
+      setBusy(false);
+    }
   }
 
   async function patch(id: string, change: Partial<Omit<ScheduleRow, "id">> & { days?: number[] }) {
@@ -88,7 +108,9 @@ export function ScheduledPushSettingsCard({ initial, hasDevice, categories }: Pr
     const response = await call("PATCH", { id, ...rest, ...(days ? { days } : {}) });
     if (!response) return;
     setRows((current) =>
-      current.map((row) => (row.id === id ? { ...row, ...rest, ...(days ? { daysMask: daysToMask(days) } : {}) } : row)),
+      sortSchedules(
+        current.map((row) => (row.id === id ? { ...row, ...rest, ...(days ? { daysMask: daysToMask(days) } : {}) } : row)),
+      ),
     );
   }
 
@@ -115,6 +137,21 @@ export function ScheduledPushSettingsCard({ initial, hasDevice, categories }: Pr
           <p className="text-xs leading-relaxed text-muted">
             時刻は30分刻みです。設定した時刻を過ぎた最初の確認（30分ごと）で届きます。
           </p>
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs text-muted" aria-live="polite">
+            {refreshing ? "読み込んでいます…" : "時刻の早い順に並びます。"}
+          </p>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void refresh()}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+          >
+            <RefreshCw className={cn("size-4", refreshing && "animate-spin")} aria-hidden="true" />
+            {refreshing ? "更新中…" : "更新"}
+          </button>
         </div>
 
         {rows.length === 0 && <p className="text-xs text-muted">まだ登録がありません。</p>}

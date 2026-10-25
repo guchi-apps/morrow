@@ -63,6 +63,19 @@ async function parseFields(userId: string, body: Record<string, unknown>) {
   return { data };
 }
 
+/** 設定一覧の読み直し。読むだけで、登録時刻も仕入れも送信も動かさない。 */
+export async function GET() {
+  const user = await getCurrentUser();
+  if (!user) return unauthorized();
+
+  const schedules = await db.scheduledPush.findMany({
+    where: { userId: user.id },
+    orderBy: [{ hour: "asc" }, { minute: "asc" }, { id: "asc" }],
+    select: SELECT,
+  });
+  return NextResponse.json({ schedules });
+}
+
 export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) return unauthorized();
