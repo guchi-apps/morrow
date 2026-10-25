@@ -5,5 +5,10 @@
 	<!-- APNs（#475）。TestFlight・App Store向けの書き出しではXcodeが production へ置き換える -->
 	<key>aps-environment</key>
 	<string>development</string>
+	<!-- Universal Links（#619）。サーバー側は src/lib/universal-links.ts -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:aide-bot.gucchii.com</string>
+	</array>
 </dict>
 </plist>

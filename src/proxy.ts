@@ -6,6 +6,8 @@ export default async function proxy(request: NextRequest) {
   return updateSession(request);
 }
 
+// `/.well-known/apple-app-site-association` はAppleのCDNが認証なしで取りに来る（#619）。
+// ログインへのリダイレクトが返るとUniversal Linksが効かない。
 // 静的アセットとPWAのmanifest・Service Workerは認証の対象外にする。ここを通すと未ログイン時に
 // /login へのリダイレクトがHTMLで返り、MIMEタイプ違いで読み込みに失敗する。
 //
@@ -15,6 +17,6 @@ export default async function proxy(request: NextRequest) {
 // `supabase.auth.getUser()` の往復が入る。manifest.webmanifest とまったく同じ理由。
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|apple-icon|icon|.*\\.(?:svg|png|jpg|jpeg|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|\\.well-known/apple-app-site-association|apple-icon|icon|.*\\.(?:svg|png|jpg|jpeg|webp)$).*)",
   ],
 };
