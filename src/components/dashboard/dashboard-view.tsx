@@ -19,6 +19,7 @@ import { LiveNoticeLine, NoticeLiveProvider } from "@/components/dashboard/live-
 import { dashboardSchedule } from "@/lib/dashboard/aide";
 import { addDays, cardDayName, DAY_RANGE, dayHref, relativeDayName } from "@/lib/dashboard/day-offset";
 import type { ScheduleItem, ScheduleView, WeatherDay } from "@/lib/dashboard/parse";
+import { schedulePhase, type SchedulePhase } from "@/lib/dashboard/schedule-phase";
 import {
   dashboardDayWeather,
   dashboardPlaces,
@@ -77,7 +78,7 @@ export function DashboardView({ userId, now, todayKey, offset, pushes, notices, 
     </Suspense>
   );
   const schedule = (
-    <Card title={`${dayName}の予定`}>
+    <Card title={`${dayName}の予定・記録`}>
       <Suspense key={`schedule-${dayKey}`} fallback={<Loading />}>
         <ScheduleBody userId={userId} now={now} offset={offset} />
       </Suspense>
@@ -748,7 +749,7 @@ async function ScheduleBody({ userId, now, offset }: { userId: string; now: Date
     case "not_configured":
       return <Empty>AIDEで予定（DaySpan）の接続が未設定です。予定が無いという意味ではありません。</Empty>;
     case "ok":
-      return <ScheduleOk schedule={schedule} />;
+      return <ScheduleOk schedule={schedule} now={now} offset={offset} />;
   }
 }
 
@@ -764,8 +765,25 @@ function timeRange(item: ScheduleItem): string {
   return item.end ? `${item.start}–${item.end}` : item.start;
 }
 
-function ScheduleOk({ schedule }: { schedule: Extract<ScheduleView, { status: "ok" }> }) {
+/** 終わった予定は少し、記録は大きく薄くする（#626）。これからの予定は従来の色のまま。 */
+const PHASE_FADE: Record<SchedulePhase, string | null> = {
+  upcoming: null,
+  done: "opacity-75",
+  record: "opacity-50",
+};
+
+const PHASE_LEGEND: { phase: SchedulePhase; label: string }[] = [
+  { phase: "upcoming", label: "これから" },
+  { phase: "done", label: "終わった予定" },
+  { phase: "record", label: "記録" },
+];
+
+function ScheduleOk({ schedule, now, offset }: { schedule: Extract<ScheduleView, { status: "ok" }>; now: Date; offset: number }) {
   const { items, free, partial, googleDisconnected } = schedule;
+  const nowTime = jstTimeLabel(now);
+  const phases = items.map((item) => schedulePhase(item, nowTime, offset));
+  // 薄い行が無い日は凡例を出さない（全部これからなら、区別するものが無い）。
+  const legend = phases.some((phase) => phase !== "upcoming") ? PHASE_LEGEND.filter((entry) => phases.includes(entry.phase)) : [];
 
   return (
     <>
@@ -778,14 +796,29 @@ function ScheduleOk({ schedule }: { schedule: Extract<ScheduleView, { status: "o
         // 一部が欠けている・未接続の回は「予定なし」と言い切らない。
         !partial && !googleDisconnected && <Empty>この日の予定はありません。</Empty>
       ) : (
+        <>
+        {legend.length > 0 && (
+          <p className="flex flex-wrap gap-x-3.5 text-[0.6875rem] text-muted">
+            {legend.map((entry) => (
+              <span key={entry.phase}>
+                <span
+                  className={cn("mr-1.5 inline-block size-2 rounded-full bg-foreground align-baseline", PHASE_FADE[entry.phase])}
+                  aria-hidden="true"
+                />
+                {entry.label}
+              </span>
+            ))}
+          </p>
+        )}
         <ul className="grid grid-cols-[84px_minmax(0,1fr)] gap-x-3 md:grid-cols-[92px_minmax(0,1fr)]">
           {items.map((item, index) => {
+            const fade = PHASE_FADE[phases[index]];
             const chip = item.kind === "reminder" ? item.note : KIND_CHIP[item.kind];
             const cancelled = item.outcome !== null;
             return (
               <li key={`${item.kind}-${index}`} className="contents">
-                <span className="py-1.5 text-[0.8125rem] tabular-nums text-muted">{timeRange(item)}</span>
-                <span className="min-w-0 border-b border-border py-1.5 text-sm">
+                <span className={cn("py-1.5 text-[0.8125rem] tabular-nums text-muted", fade)}>{timeRange(item)}</span>
+                <span className={cn("min-w-0 border-b border-border py-1.5 text-sm", fade)}>
                   {chip && (
                     <span
                       className={cn(
@@ -821,6 +854,7 @@ function ScheduleOk({ schedule }: { schedule: Extract<ScheduleView, { status: "o
             );
           })}
         </ul>
+        </>
       )}
 
       {free.length > 0 && (
