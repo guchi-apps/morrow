@@ -6,7 +6,6 @@ import {
   CloudRain,
   CloudSnow,
   CloudSun,
-  MapPin,
   Sun,
   Umbrella,
 } from "lucide-react";
@@ -44,7 +43,7 @@ import { cn } from "@/lib/utils";
  * （lg以上）は左に天気・お知らせ・話題、右に予定・届いた通知の2列。
  *
  * 左右のスワイプ（`DaySwipe`）・見出しの ‹ › で前後の日へめくる（#606。`?d=`）。今日以外の日は、天気・予定・
- * その日届いた通知（未来の日は出さない）だけを出す。お知らせ・話題・現在地の天気・明日以降の雨は「いま」の
+ * その日届いた通知（未来の日は出さない）だけを出す。お知らせ・話題・現在地の天気は「いま」の
  * 状態なので今日だけ。お知らせの問い合わせ（`NoticeLiveProvider`）はどの日でも外さない（仕入れの起点）。
  */
 
@@ -293,17 +292,6 @@ function Unconnected() {
 
 /* ---------------- 天気 ---------------- */
 
-/** 見出しの右の地点（#586）。AIDEが `location` を返すまでは出さない。 */
-function PlaceChip({ name }: { name: string }) {
-  return (
-    <span className="inline-flex items-center gap-0.5 rounded-full border border-border bg-background py-px pr-2 pl-1.5 text-xs font-semibold tracking-normal text-foreground">
-      <MapPin className="size-3 text-accent" aria-hidden="true" />
-      {name}
-      <span className="font-normal text-muted">・自宅</span>
-    </span>
-  );
-}
-
 async function WeatherCard({
   userId,
   now,
@@ -323,7 +311,7 @@ async function WeatherCard({
   const homeName = weather.status === "ok" ? (weather.location?.name ?? null) : null;
 
   return (
-    <Card title={`${cardDayName(dayKey, offset)}の天気`} aside={homeName && <PlaceChip name={homeName} />}>
+    <Card title={`${cardDayName(dayKey, offset)}の天気`} aside={offset === 0 && <CurrentLocationWeather />}>
       <WeatherBody weather={weather} />
       <Suspense fallback={<p className="text-xs text-muted">時間と場所ごとの天気を取得しています…</p>}>
         <PlacesSection
@@ -336,8 +324,6 @@ async function WeatherCard({
           homeName={homeName}
         />
       </Suspense>
-      {/* 現在地は「いま」の天気なので今日だけ。 */}
-      {offset === 0 && <CurrentLocationWeather />}
       <p className="text-[0.625rem] text-muted">
         {weather.status === "ok" && weather.attribution ? weather.attribution : "Weather data by Open-Meteo.com (CC BY 4.0)"}
         ・地名: 国土地理院
@@ -444,7 +430,6 @@ async function PlacesSection({
   const rainy = places.today
     .filter((segment) => segment.verdict === "rain" && segment.end > nowLabel)
     .sort((a, b) => Number(a.home) - Number(b.home));
-  const later = places.later.filter((day) => day.segments.length > 0);
   // 帯は表示する日の0〜23時だけ（#620。取得の側で1日ぶんに絞ってある）。今日は過ぎた時間が灰色（#609）。
   const hours = places.hourly;
   const nowIndex = offset === 0 ? hours.findIndex((cell) => cell.date === jstDayKey(now) && cell.hour === nowHour) : -1;
@@ -478,36 +463,6 @@ async function PlacesSection({
       )}
 
       {tomorrowLine}
-
-      {/* 明日以降は押したときだけ開く。JSが動く前でも開けるよう <details> にする。めくった先の日では出さない（#606）。 */}
-      {offset === 0 && (
-        <details className="group border-t border-border pt-2.5">
-          <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-[0.8125rem] font-semibold hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
-            明日以降の雨を見る
-            <span className="text-xs text-muted group-open:rotate-180" aria-hidden="true">
-              ▾
-            </span>
-          </summary>
-          <div className="mt-2 flex flex-col">
-            {later.length === 0 ? (
-              <Empty>明日・明後日に時間の決まった予定はありません。</Empty>
-            ) : (
-              later.map((day) => (
-                <div key={day.date} className="flex flex-col">
-                  <span className="pt-1.5 text-[0.6875rem] font-bold tracking-[0.06em] text-muted">
-                    {day.date === places.later[0]?.date ? "明日 " : ""}
-                    {dayLabel(day.date)}
-                  </span>
-                  <SegmentList segments={day.segments} />
-                </div>
-              ))
-            )}
-            <p className="pt-1 text-[0.6875rem] text-muted">
-              明後日まで。場所欄が空の予定は自宅に居るものとして出します。
-            </p>
-          </div>
-        </details>
-      )}
     </>
   );
 }
