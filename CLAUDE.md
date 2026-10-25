@@ -340,6 +340,7 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
   （`pushHistory()`・`groupPushesByDay()`。後者は純粋で `test/push-history.test.ts`）。`NotificationLog` は消していないので期間では切らない。
   `/c/<ID>` は `/pushes` へ転送し、ダッシュボードのカードと左メニューから入れる
 - 天気・予定は `Suspense` で後から流し、DBだけで出せる部分を先に描く
+- **予定カードは「予定・記録」で、行を濃さで3つに分ける**（#626。判定は純粋な `src/lib/dashboard/schedule-phase.ts`・`test/schedule-phase.test.ts`）。記録＝AIDEの `calendarName` が「活動記録」（専用の項目は無いので名前で見る）を最も薄く、終わった予定（今日は終了時刻が現在より前・前の日は全部。予定と移動だけ。タスク・リマインド・時刻なしは対象外）を少し薄く、これからは従来の色。凡例は薄い行がある日だけ出す。「終わった」は描画時の日本時間との比較で、開いたままでは更新されない
 
 ### 前後の日へめくる（#606）
 

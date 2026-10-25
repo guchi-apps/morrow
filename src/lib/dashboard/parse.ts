@@ -8,6 +8,8 @@
  * （`test/dashboard-parse.test.ts`）。クライアントからは型だけをimportする。
  */
 
+import { RECORD_CALENDAR_NAME } from "@/lib/dashboard/schedule-phase";
+
 export type WeatherDay = {
   date: string;
   summary: string;
@@ -49,6 +51,8 @@ export type ScheduleItem = {
   /** 中止（CANCELED）・不参加（ABSENT）。通常はnull。 */
   outcome: "CANCELED" | "ABSENT" | null;
   url: string | null;
+  /** 活動記録（実績。睡眠・風呂など）。予定とは薄さで区別して出す（#626）。 */
+  record: boolean;
 };
 
 export type ScheduleView =
@@ -181,6 +185,7 @@ export function parseSchedule(json: unknown): ScheduleView {
       note: str(event.calendarName),
       outcome,
       url: httpUrl(event.url),
+      record: str(event.calendarName) === RECORD_CALENDAR_NAME,
     });
   }
 
@@ -195,6 +200,7 @@ export function parseSchedule(json: unknown): ScheduleView {
       note: null,
       outcome: null,
       url: null,
+      record: false,
     });
   }
 
@@ -209,6 +215,7 @@ export function parseSchedule(json: unknown): ScheduleView {
       note: str(reminder.category),
       outcome: null,
       url: null,
+      record: false,
     });
   }
 
@@ -223,6 +230,7 @@ export function parseSchedule(json: unknown): ScheduleView {
       note: null,
       outcome: null,
       url: httpUrl(task.url),
+      record: false,
     });
   }
 
