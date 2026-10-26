@@ -311,7 +311,8 @@ async function WeatherCard({
   const homeName = weather.status === "ok" ? (weather.location?.name ?? null) : null;
 
   return (
-    <Card title={`${cardDayName(dayKey, offset)}の天気`} aside={offset === 0 && <CurrentLocationWeather />}>
+    <Card title={`${cardDayName(dayKey, offset)}の天気`}>
+      {offset === 0 && <CurrentLocationWeather />}
       <WeatherBody weather={weather} />
       <Suspense fallback={<p className="text-xs text-muted">時間と場所ごとの天気を取得しています…</p>}>
         <PlacesSection
