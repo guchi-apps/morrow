@@ -364,6 +364,21 @@ extension WebViewModel: WKUIDelegate {
         return .grant
     }
 
+    /// 位置情報の要求（現在地の天気。#641）。Morrow自身のオリジンにだけ許可し、他は拒否する。
+    /// 許可してもOSの位置許可（「Appを使用中は許可」）は別に効く。このデリゲートはiOS 27以降なので、
+    /// それより前のOSでは従来どおりWebKitの既定の確認になる
+    @available(iOS 27.0, *)
+    func webView(
+        _ webView: WKWebView,
+        requestGeolocationPermissionFor origin: WKSecurityOrigin,
+        initiatedBy frame: WKFrameInfo
+    ) async -> WKPermissionDecision {
+        guard origin.protocol == AppConfig.baseURL.scheme,
+              origin.host == AppConfig.baseURL.host
+        else { return .deny }
+        return .grant
+    }
+
     /// `window.confirm()`（削除の確認など）。UIDelegateで実装しないと常に false が返り、実行できない
     func webView(
         _ webView: WKWebView,
