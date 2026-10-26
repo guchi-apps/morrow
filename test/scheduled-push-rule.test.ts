@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { composeScheduledBody, daysToMask, isDue, maskToDays, scheduledDedupeKey } from "../src/lib/scheduled-push-rule.ts";
+import { composeScheduledBody, daysToMask, isDue, maskToDays, scheduledDedupeKey, sortSchedules } from "../src/lib/scheduled-push-rule.ts";
 
 // 2026-09-25は金曜。日本時間で指定する。
 const at = (time: string) => new Date(`2026-09-25T${time}:00+09:00`);
@@ -30,4 +30,16 @@ test("曜日のビット変換と鍵と本文", () => {
   assert.deepEqual(maskToDays(daysToMask([6, 0, 3, 3, 9])), [0, 3, 6]);
   assert.equal(scheduledDedupeKey("abc", at("07:30")), "2026-09-25:abc");
   assert.equal(composeScheduledBody(["a", "b", "c", "d"]), "・a\n・b\n・c");
+});
+
+test("設定の一覧は時刻の昇順で、同時刻はIDの順", () => {
+  const rows = [
+    { id: "c", hour: 21, minute: 30 },
+    { id: "b", hour: 7, minute: 30 },
+    { id: "z", hour: 7, minute: 0 },
+    { id: "a", hour: 7, minute: 30 },
+    { id: "d", hour: 0, minute: 0 },
+  ];
+  assert.deepEqual(sortSchedules(rows).map((row) => row.id), ["d", "z", "a", "b", "c"]);
+  assert.equal(rows[0].id, "c", "元の配列は変えない");
 });

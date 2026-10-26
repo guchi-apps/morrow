@@ -260,7 +260,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Morrow;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "ダッシュボードで現在地の天気を表示するために、ボタンを押したときだけ位置情報を使います。";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "ダッシュボードに現在地の天気を表示するために、アプリを使っている間だけ位置情報を使います。バックグラウンドでは使いません。";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "音声バーで秘書に話しかけるためにマイクを使います。";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "話した内容を文字にして秘書へ送るために音声認識を使います。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -272,7 +272,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.6.0;
+				MARKETING_VERSION = 4.7.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.gucchii.morrow;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -300,7 +300,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Morrow;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "ダッシュボードで現在地の天気を表示するために、ボタンを押したときだけ位置情報を使います。";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "ダッシュボードに現在地の天気を表示するために、アプリを使っている間だけ位置情報を使います。バックグラウンドでは使いません。";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "音声バーで秘書に話しかけるためにマイクを使います。";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "話した内容を文字にして秘書へ送るために音声認識を使います。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -312,7 +312,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.6.0;
+				MARKETING_VERSION = 4.7.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.gucchii.morrow;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;

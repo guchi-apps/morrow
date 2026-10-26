@@ -11,57 +11,6 @@
  */
 
 /**
- * `/usage` 画面の単価表。**Anthropic（Claude）の単価だけを載せる。**
- *
- * **#183で、いま新しく積まれる記録はすべてCodex（サブスク定額）になった。** この表が効くのは
- * **移行前に残った記録**（朝の見通しがClaudeで動いていた日ぶん）を引き直すときだけなので、
- * 使わなくなった行も消さない——呼び出した時点のモデル名で引くため、消すとその日の費用が
- * 概算に化ける。
- *
- * **この表へCodexの行を足してはいけない**——足すと定額のはずの経路に費用が付く。課金の形の
- * 判定は `billingKind()` が持つ。
- *
- * 出典: https://claude.com/pricing#api（2026-08-25 時点）
- */
-export type ModelPricing = {
-  input: number;
-  output: number;
-  /** プロンプトキャッシュへの書き込み（TTL 5分）。 */
-  cacheWrite: number;
-  /** プロンプトキャッシュからの読み出し。 */
-  cacheRead: number;
-};
-
-export const MODEL_PRICING: Record<string, ModelPricing> = {
-  "claude-opus-5": { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
-  "claude-sonnet-5": { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2 },
-  "claude-haiku-4-5": { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 },
-};
-
-/**
- * 課金の形（#133）。`/usage` はこれで節を割る。
- *
- * - `subscription`：Codex（ChatGPTのサブスク枠）。**トークン単価が存在しない。**
- *   使った量は分かるが費用は0円で、代わりに利用枠（5時間ローリング＋週次）を消費する
- * - `metered`：Anthropic（Claude）。トークン数×単価で概算費用を出す。**#183で新しく積まれる
- *   ことは無くなった**（移行前に残った記録だけがここに入る）
- */
-export type BillingKind = "subscription" | "metered";
-
-/**
- * モデル名から課金の形を決める。
- *
- * **単価表に載っているかどうかでは判定しない。** 表に無いClaudeのモデル（新しい版・
- * 使うのをやめた版）まで「定額」に倒れてしまい、費用が黙って0円になる。Codexが提供するのは
- * GPT系だけなので、そちらを名指しする向きにしてある——知らない名前は従量課金として扱い、
- * 単価が引けなければ既定の単価で概算する（`estimateCostUsd()`。0円にして「使っていない」と
- * 読ませない方針は#51から変えていない）。
- */
-export function billingKind(model: string | null | undefined): BillingKind {
-  return (model ?? "").startsWith("gpt-") ? "subscription" : "metered";
-}
-
-/**
  * 選べるモデル（Codex CLIが提供するGPT-6系。#349）。賢い順に並べる（画面の並びもこの順）。
  *
  * Astra＝最高性能、Sol＝バランス、Luna＝いちばん速く安い（`~/.codex/models_cache.json` の
@@ -84,6 +33,24 @@ export const CHAT_MODELS: ChatModelOption[] = [
   { id: "gpt-6-sol", label: "Sol", hint: "バランス" },
   { id: "gpt-6-luna", label: "Luna", hint: "高速" },
 ];
+
+const MODEL_ID_PATTERN = /^gpt-(\d+(?:\.\d+)*)-([a-z0-9-]+)$/;
+
+/**
+ * モデルIDから画面に出す版を作る（`gpt-6-astra` → `GPT-6`）。表示用の版を別に持たず、実際に保存・
+ * `codex exec -m` へ渡すIDから導くので、IDを変えれば表示も同時に変わる（#633）。形が合わなければ空。
+ */
+export function modelVersionOf(id: string): string {
+  const match = MODEL_ID_PATTERN.exec(id);
+  return match ? `GPT-${match[1]}` : "";
+}
+
+/** 版と愛称を合わせた名前（`GPT-6 Astra`）。版が読めないIDは愛称（無ければID）だけ。 */
+export function modelDisplayName(id: string): string {
+  const version = modelVersionOf(id);
+  const label = CHAT_MODELS.find((model) => model.id === id)?.label ?? id;
+  return version ? `${version} ${label}` : label;
+}
 
 /**
  * モデルを選べる用途（#349）。**正はここ**——画面・保存・各呼び出しが同じ表を引く。
