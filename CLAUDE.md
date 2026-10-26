@@ -153,6 +153,14 @@ curl -s -b /tmp/cookies.txt -o /dev/null -w '%{http_code}\n' http://localhost:<�
   `ios/ExportOptions.plist`（upload）と別**——uploadのまま使うと二重アップロード防止が効かない。ASCのAPIキーは
   `apps/AppStoreConnect`（マニフェストの `ASC_*`）。**subpcにXcodeは無い**ので、手動ビルド・実機確認はMacで本人が行う
 
+### iOSアプリのオフライン・低速時の表示（#643）
+
+殻が「最後に見た画面」を端末に持ち、圏外・5xx・読み込み4秒超のときに出す（`PageCache.swift`・`CachedPageView.swift`。詳細は `ios/README.md`）。Web・サーバーは変えていない。
+
+- **保存はスクリプトを除いた読み取り専用のDOM。** 画面は都度サーバーから取る方針（`sw.js` は何もキャッシュしない）のままで、キャッシュは殻の中だけ
+- **認可の迂回を作らない。** 保存はサーバーが答えた画面だけ。メインフレームが `/login` へ着いた・`/auth/signout` へ向かった時点で**全削除**する（許可の取り消し〔#246〕・ログアウト・別アカウントはどれも `/login` を経由する）。失効は3日。圏外のあいだに許可が取り消されていても、通信できた最初の読み込みで `/login?error=not_allowed` へ着いて消える。**削除の契機を足し忘れる変更（新しいログアウト経路など）を入れるときは `WebViewModel.decidePolicyFor` を見ること**
+- `/login`・`/auth`・`/api` は保存しない（`PageCache.key(for:)`）
+
 ### iOSアプリへのAPNs通知（#475）
 
 WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取って `POST /api/push/apns` へ登録し、`sendPushToUser()`
