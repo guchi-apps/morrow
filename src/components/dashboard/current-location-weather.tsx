@@ -1,15 +1,15 @@
 "use client";
 
-import { LocateFixed, X } from "lucide-react";
+import { ChevronDown, LocateFixed } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { jstTimeLabel } from "@/lib/day-key";
 
 /**
- * 右上の「現在地」バッジ（#586・#625・#631）。位置を取り、`POST /api/weather/here` へ渡す。
+ * 天気カード先頭の「現在地」折りたたみ行（#586・#625・#631・#641）。位置を取り、`POST /api/weather/here` へ渡す。
  * 取るのは「押したとき」と、**許可済みで画面が前面に来たとき1回**（5分以内は取り直さない）。
  * 常時の追跡（watchPosition）はしない。位置はサーバーでも保存しない（小数2桁に丸めて送る）。
- * 取得済みなら、バッジには市町村名を出し、押すと予報のパネルを開く。
+ * 取得済みなら、行には市町村名と「いま」の予報を出し、押すと詳細を開く（既定は畳む）。
  *
  * - iOSアプリ（殻。UAに `MorrowIOS/`）でも出す（#587）。殻のInfo.plistに位置の利用目的があり、WKWebViewが
  *   OSの許可ダイアログを経由して位置を渡す。利用目的を持たない古い殻では拒否として返るので、案内の文を分ける
@@ -131,21 +131,27 @@ export function CurrentLocationWeather() {
   if (!supported) return null;
 
   const loading = state.kind === "loading";
-  const showPanel = open && state.kind !== "idle" && state.kind !== "loading";
+  const expanded = open && state.kind !== "idle" && state.kind !== "loading";
   const label =
-    state.kind === "loading"
-      ? "取得しています…"
-      : state.kind === "ok"
-        ? (state.result.place ?? "現在地")
+    state.kind === "ok"
+      ? `現在地${state.result.place ? `・${state.result.place}` : ""}`
+      : state.kind === "loading"
+        ? "現在地・取得しています…"
         : state.kind === "denied"
-          ? "位置が許可されていません"
+          ? "現在地・位置が許可されていません"
           : state.kind === "failed"
-            ? "位置不明"
+            ? "現在地・位置不明"
             : "現在地";
+  // 畳んだ行の右側。取得済みなら「いま」の気温・天気・降水確率だけ出す
+  const summary =
+    state.kind === "ok" && state.result.now
+      ? `${temp(state.result.now.temperature)} ${state.result.now.summary}${state.result.now.pop !== null ? ` ${state.result.now.pop}%` : ""}`
+      : null;
   const warn = state.kind === "denied" || state.kind === "failed";
+  const panelId = "current-location-panel";
 
   return (
-    <span className="relative inline-flex tracking-normal">
+    <div className="rounded-xl border border-border bg-background text-[0.8125rem] tracking-normal">
       <button
         type="button"
         onClick={() => {
@@ -157,77 +163,71 @@ export function CurrentLocationWeather() {
           void load();
         }}
         disabled={loading}
-        aria-label="現在地の天気を見る（アプリを使っている間だけ位置を取ります。保存しません）"
-        className="inline-flex items-center gap-1 rounded-full border border-border bg-background py-px pr-2.5 pl-1.5 text-xs font-semibold text-foreground hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-60"
+        aria-expanded={expanded}
+        aria-controls={panelId}
+        title="アプリを使っている間だけ位置を取ります。保存しません"
+        className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left font-semibold text-foreground hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent disabled:opacity-60"
       >
-        <LocateFixed className={warn ? "size-3 text-danger" : "size-3 text-accent"} aria-hidden="true" />
-        {label}
+        <LocateFixed className={warn ? "size-3.5 shrink-0 text-danger" : "size-3.5 shrink-0 text-accent"} aria-hidden="true" />
+        <span className="min-w-0 truncate">{label}</span>
+        {summary && <span className="ml-auto shrink-0 font-normal tabular-nums text-muted">{summary}</span>}
+        <ChevronDown
+          className={`size-3.5 shrink-0 text-muted transition-transform ${summary ? "" : "ml-auto"} ${expanded ? "rotate-180" : ""}`}
+          aria-hidden="true"
+        />
       </button>
-      {showPanel && (
-        <div className="absolute top-full right-0 z-20 mt-1.5 flex w-[min(18rem,calc(100vw-3rem))] flex-col gap-1 rounded-xl border border-border bg-surface px-3 py-2.5 text-[0.8125rem] font-normal shadow-lg">
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            aria-label="閉じる"
-            className="absolute top-1.5 right-1.5 rounded-full p-0.5 text-muted hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-accent"
-          >
-            <X className="size-3.5" aria-hidden="true" />
-          </button>
-          {state.kind === "ok" && (
-            <>
-              <div className="flex flex-col pr-5">
-                <b>現在地{state.result.place ? `・${state.result.place}` : ""}</b>
-                <span className="text-[0.6875rem] tabular-nums text-muted">{jstTimeLabel(state.at)} 取得・保存しません</span>
-              </div>
-              {state.result.now ? (
-                <div className="flex flex-col">
-                  <span className="text-[0.6875rem] text-muted">{state.result.now.time}の予報</span>
-                  <span className="tabular-nums">
-                    <b className="text-lg">{temp(state.result.now.temperature)}</b>　{state.result.now.summary}
-                    {state.result.now.pop !== null && `　降水確率 ${state.result.now.pop}%`}
-                  </span>
-                </div>
-              ) : (
-                <span className="text-muted">この時間の予報がありません</span>
-              )}
-              {state.result.today && (
+      <div id={panelId} hidden={!expanded} className="flex flex-col gap-1 px-3 pb-3 font-normal">
+        {state.kind === "ok" && (
+          <>
+            <span className="text-[0.6875rem] tabular-nums text-muted">{jstTimeLabel(state.at)} 取得・保存しません</span>
+            {state.result.now ? (
+              <div className="flex flex-col">
+                <span className="text-[0.6875rem] text-muted">{state.result.now.time}の予報</span>
                 <span className="tabular-nums">
-                  今日: {state.result.today.summary}　最高 {temp(state.result.today.max)} ／ 最低 {temp(state.result.today.min)}
-                  {state.result.today.pop !== null && `　降水 ${state.result.today.pop}%`}
+                  <b className="text-lg">{temp(state.result.now.temperature)}</b>　{state.result.now.summary}
+                  {state.result.now.pop !== null && `　降水確率 ${state.result.now.pop}%`}
                 </span>
-              )}
-              <span
-                className={
-                  state.result.next.pop !== null && state.result.next.pop >= RAIN_POP
-                    ? "font-semibold tabular-nums text-topic"
-                    : "tabular-nums text-muted"
-                }
-              >
-                {nextLabel(state.result.next)}
+              </div>
+            ) : (
+              <span className="text-muted">この時間の予報がありません</span>
+            )}
+            {state.result.today && (
+              <span className="tabular-nums">
+                今日: {state.result.today.summary}　最高 {temp(state.result.today.max)} ／ 最低 {temp(state.result.today.min)}
+                {state.result.today.pop !== null && `　降水 ${state.result.today.pop}%`}
               </span>
-              <button
-                type="button"
-                onClick={() => void load()}
-                className="self-start text-[0.6875rem] text-muted underline focus-visible:outline-2 focus-visible:outline-accent"
-              >
-                取り直す
-              </button>
-            </>
-          )}
-          {state.kind === "denied" && (
-            <p className="pr-5 leading-relaxed text-muted">
-              {state.inApp
-                ? "位置情報を使えませんでした。設定アプリの「Morrow」で位置情報を許可すると見られます。許可の項目が無いときは、アプリを最新版に更新してください。"
-                : "位置情報を使えませんでした。ブラウザの設定で、このサイトの位置情報を許可すると見られます。"}
-            </p>
-          )}
-          {state.kind === "failed" && (
-            <p role="status" className="pr-5 leading-relaxed text-danger">
-              {state.message}
-            </p>
-          )}
-        </div>
-      )}
-    </span>
+            )}
+            <span
+              className={
+                state.result.next.pop !== null && state.result.next.pop >= RAIN_POP
+                  ? "font-semibold tabular-nums text-topic"
+                  : "tabular-nums text-muted"
+              }
+            >
+              {nextLabel(state.result.next)}
+            </span>
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="self-start text-[0.6875rem] text-muted underline focus-visible:outline-2 focus-visible:outline-accent"
+            >
+              取り直す
+            </button>
+          </>
+        )}
+        {state.kind === "denied" && (
+          <p className="leading-relaxed text-muted">
+            {state.inApp
+              ? "位置情報を使えませんでした。設定アプリの「Morrow」で位置情報を許可すると見られます。許可の項目が無いときは、アプリを最新版に更新してください。"
+              : "位置情報を使えませんでした。ブラウザの設定で、このサイトの位置情報を許可すると見られます。"}
+          </p>
+        )}
+        {state.kind === "failed" && (
+          <p role="status" className="leading-relaxed text-danger">
+            {state.message}
+          </p>
+        )}
+      </div>
+    </div>
   );
 }

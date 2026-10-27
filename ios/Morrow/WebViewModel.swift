@@ -8,6 +8,8 @@ import WebKit
 final class WebViewModel: NSObject, ObservableObject {
     @Published private(set) var failure: LoadFailure?
     @Published private(set) var isRetrying = false
+    /// 接続できない・読み込みが遅いときに出す、保存済みの画面（#643）
+    @Published private(set) var cachedPage: CachedPage?
 
     let webView: WKWebView
 
@@ -23,6 +25,14 @@ final class WebViewModel: NSObject, ObservableObject {
     /// サーバーへ送り終えたデバイストークン（APNs。#475）。起動ごとに1回送れば足りる
     private var uploadedPushToken: String?
     private var isUploadingPushToken = false
+    /// 読み込みが遅いときに保存済みを先出しするための待ち（#643）
+    private var slowTask: Task<Void, Never>?
+
+    /// 読み込みがこの秒数で終わらなければ、保存済みの画面を先に出す
+    private static let slowThreshold: Duration = .seconds(4)
+
+    /// 再読み込みが要る状態か（接続できない画面か、保存済みを代わりに出している）
+    var needsRetry: Bool { failure != nil || cachedPage?.mode == .unreachable }
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -93,7 +103,7 @@ final class WebViewModel: NSObject, ObservableObject {
     private func networkChanged(available: Bool) {
         let recovered = available && !isNetworkAvailable
         isNetworkAvailable = available
-        if recovered, failure == .offline { retry() }
+        if recovered, failure == .offline || cachedPage?.mode == .unreachable { retry() }
     }
 
     private func fail(with error: Error) {
@@ -103,6 +113,9 @@ final class WebViewModel: NSObject, ObservableObject {
         if nsError.domain == "WebKitErrorDomain", nsError.code == 102 { return }
 
         isRetrying = false
+        slowTask?.cancel()
+        if showCachedPage(for: lastRequestedURL, mode: .unreachable) { return }
+        cachedPage = nil
         let offlineCodes: Set<Int> = [
             NSURLErrorNotConnectedToInternet,
             NSURLErrorNetworkConnectionLost,
@@ -115,6 +128,65 @@ final class WebViewModel: NSObject, ObservableObject {
             failure = .server(status: nil)
         }
     }
+
+    /// 保存済みの画面を出す。保存が無い（期限切れ・対象外）なら false
+    @discardableResult
+    private func showCachedPage(for url: URL?, mode: CachedPage.Mode) -> Bool {
+        guard let url, let key = PageCache.key(for: url), let entry = PageCache.load(for: url) else { return false }
+        failure = nil
+        cachedPage = CachedPage(key: key, html: entry.html, savedAt: entry.savedAt, mode: mode)
+        return true
+    }
+
+    /// 本読み込みが終わらないまま一定時間が過ぎたら、保存済みを先に出す
+    private func scheduleSlowFallback(for url: URL) {
+        slowTask?.cancel()
+        guard PageCache.key(for: url) != nil else { return }
+        slowTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.slowThreshold)
+            guard !Task.isCancelled, let self, self.webView.isLoading, self.lastRequestedURL == url else { return }
+            self.showCachedPage(for: url, mode: .slow)
+        }
+    }
+
+    /// 保存済みの画面内のリンク。アプリの画面なら通常どおり読み込む（繋がらなければ、その画面の保存済みへ移る）
+    func openFromCache(_ url: URL) {
+        if AppConfig.isAppURL(url) {
+            load(url)
+        } else {
+            openExternally(url)
+        }
+    }
+
+    /// 開いている画面を保存する。アプリが裏へ回るとき（クライアント側の遷移で開いた画面も拾う）と、読み込み完了時
+    func saveSnapshotIfPossible() {
+        guard cachedPage == nil, failure == nil, !webView.isLoading,
+              let url = webView.url, PageCache.key(for: url) != nil
+        else { return }
+        Task { @MainActor in
+            let value = try? await webView.evaluateJavaScript(Self.snapshotScript)
+            // 中身が空に近い（読み込み途中・エラー画面）ものは残さない
+            guard let html = value as? String, html.count > 1000 else { return }
+            PageCache.save(html: html, for: url)
+        }
+    }
+
+    /// スクリプトを除き、読み込んだCSSを1つの `<style>` にまとめた読み取り専用のHTMLを作る
+    private static let snapshotScript = """
+    (() => {
+      const css = [];
+      for (const sheet of document.styleSheets) {
+        try { for (const rule of sheet.cssRules) css.push(rule.cssText); } catch (e) {}
+      }
+      const root = document.documentElement.cloneNode(true);
+      root.querySelectorAll('script, noscript, iframe, link[rel=stylesheet], link[rel=preload], link[rel=modulepreload], link[rel=prefetch]')
+        .forEach((node) => node.remove());
+      const style = document.createElement('style');
+      style.textContent = css.join('\\n');
+      (root.querySelector('head') || root).appendChild(style);
+      return '<!DOCTYPE html>' + root.outerHTML;
+    })()
+    """
 
     private func openExternally(_ url: URL) {
         guard AppConfig.canOpenExternally(url) else { return }
@@ -283,7 +355,17 @@ extension WebViewModel: WKNavigationDelegate {
         }
 
         if AppConfig.isAppURL(url) {
-            if isMainFrame { lastRequestedURL = url }
+            if isMainFrame {
+                lastRequestedURL = url
+                // ログイン画面へ着く・ログアウトする＝セッションが替わるので、保存した画面は残さない
+                if url.path.hasPrefix("/login") || url.path == "/auth/signout" {
+                    slowTask?.cancel()
+                    PageCache.clearAll()
+                    cachedPage = nil
+                } else {
+                    scheduleSlowFallback(for: url)
+                }
+            }
             return .allow
         }
         // 埋め込み（iframe）はそのまま。画面ごと他のサイトへ移るものはSafari等で開く
@@ -301,7 +383,11 @@ extension WebViewModel: WKNavigationDelegate {
            let response = navigationResponse.response as? HTTPURLResponse,
            response.statusCode >= 500 {
             isRetrying = false
-            failure = .server(status: response.statusCode)
+            slowTask?.cancel()
+            if !showCachedPage(for: lastRequestedURL, mode: .unreachable) {
+                cachedPage = nil
+                failure = .server(status: response.statusCode)
+            }
             return .cancel
         }
         return .allow
@@ -310,6 +396,13 @@ extension WebViewModel: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         isRetrying = false
         failure = nil
+        slowTask?.cancel()
+        cachedPage = nil
+        if let url = webView.url, url.path.hasPrefix("/login") {
+            PageCache.clearAll()
+        } else {
+            saveSnapshotIfPossible()
+        }
         pushCheckpoint()
     }
 
@@ -359,6 +452,21 @@ extension WebViewModel: WKUIDelegate {
     ) async -> WKPermissionDecision {
         guard type == .microphone,
               origin.protocol == AppConfig.baseURL.scheme,
+              origin.host == AppConfig.baseURL.host
+        else { return .deny }
+        return .grant
+    }
+
+    /// 位置情報の要求（現在地の天気。#641）。Morrow自身のオリジンにだけ許可し、他は拒否する。
+    /// 許可してもOSの位置許可（「Appを使用中は許可」）は別に効く。このデリゲートはiOS 27以降なので、
+    /// それより前のOSでは従来どおりWebKitの既定の確認になる
+    @available(iOS 27.0, *)
+    func webView(
+        _ webView: WKWebView,
+        requestGeolocationPermissionFor origin: WKSecurityOrigin,
+        initiatedBy frame: WKFrameInfo
+    ) async -> WKPermissionDecision {
+        guard origin.protocol == AppConfig.baseURL.scheme,
               origin.host == AppConfig.baseURL.host
         else { return .deny }
         return .grant

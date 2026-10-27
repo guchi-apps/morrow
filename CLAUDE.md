@@ -153,6 +153,14 @@ curl -s -b /tmp/cookies.txt -o /dev/null -w '%{http_code}\n' http://localhost:<�
   `ios/ExportOptions.plist`（upload）と別**——uploadのまま使うと二重アップロード防止が効かない。ASCのAPIキーは
   `apps/AppStoreConnect`（マニフェストの `ASC_*`）。**subpcにXcodeは無い**ので、手動ビルド・実機確認はMacで本人が行う
 
+### iOSアプリのオフライン・低速時の表示（#643）
+
+殻が「最後に見た画面」を端末に持ち、圏外・5xx・読み込み4秒超のときに出す（`PageCache.swift`・`CachedPageView.swift`。詳細は `ios/README.md`）。Web・サーバーは変えていない。
+
+- **保存はスクリプトを除いた読み取り専用のDOM。** 画面は都度サーバーから取る方針（`sw.js` は何もキャッシュしない）のままで、キャッシュは殻の中だけ
+- **認可の迂回を作らない。** 保存はサーバーが答えた画面だけ。メインフレームが `/login` へ着いた・`/auth/signout` へ向かった時点で**全削除**する（許可の取り消し〔#246〕・ログアウト・別アカウントはどれも `/login` を経由する）。失効は3日。圏外のあいだに許可が取り消されていても、通信できた最初の読み込みで `/login?error=not_allowed` へ着いて消える。**削除の契機を足し忘れる変更（新しいログアウト経路など）を入れるときは `WebViewModel.decidePolicyFor` を見ること**
+- `/login`・`/auth`・`/api` は保存しない（`PageCache.key(for:)`）
+
 ### iOSアプリへのAPNs通知（#475）
 
 WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取って `POST /api/push/apns` へ登録し、`sendPushToUser()`
@@ -359,7 +367,7 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
 ### 天気の地点・時間と場所ごとの雨・現在地（#586）
 
 天気カードは、自宅の1日の予報（AIDE）に加えて、今日の予定の移動から作った区間（〜06:30 自宅 → 07:30–17:30 栗東市 →
-18:30〜 自宅）ごとの天気と雨、右上の「現在地」バッジ（押したときだけ。#625）で現在地の天気を出す。明日・明後日の行き先の雨の一覧は#625で外した。
+18:30〜 自宅）ごとの天気と雨、天気カード先頭の「現在地」折りたたみ行（既定は畳む。押したときだけ取得。#625・#641）で現在地の天気を出す。明日・明後日の行き先の雨の一覧は#625で外した。
 
 - **地点の名前・座標の正はAIDE**（`aide_weather` の `location`。guchi-apps/aide#673。`parseWeather()` は無ければnull）。AIDEが返すまでは見出しに
   市町村名を出さず、自宅の区間はAIDEの日別予報で代用する（「1日の予報」と添える）。Morrowの設定で自宅を持つ案は二重管理になるので採らなかった
