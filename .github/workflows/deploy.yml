@@ -109,7 +109,6 @@ jobs:
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
       DB_NAME: ${{ secrets.DB_NAME }}
       ALLOWED_GOOGLE_EMAILS: ${{ secrets.ALLOWED_GOOGLE_EMAILS }}
-      SIGNALY_WEBHOOK_URL: ${{ secrets.SIGNALY_WEBHOOK_URL }}
       VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
       VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
       APNS_KEY_ID: ${{ secrets.APNS_KEY_ID }}
@@ -192,7 +191,6 @@ jobs:
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
       DB_NAME: ${{ secrets.DB_NAME }}
       ALLOWED_GOOGLE_EMAILS: ${{ secrets.ALLOWED_GOOGLE_EMAILS }}
-      SIGNALY_WEBHOOK_URL: ${{ secrets.SIGNALY_WEBHOOK_URL }}
       VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
       VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
       APNS_KEY_ID: ${{ secrets.APNS_KEY_ID }}
@@ -327,64 +325,3 @@ jobs:
           HOST: ${{ env.HOST }}
           USERNAME: ${{ env.USERNAME }}
           SSH_PORT: ${{ env.SSH_PORT }}
-
-  notify:
-    runs-on: ubuntu-latest
-    needs: [tag, build, deploy]
-    if: always()
-
-    env:
-      SIGNALY_WEBHOOK_URL: ${{ secrets.SIGNALY_WEBHOOK_URL }}
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Determine workflow status
-        id: status
-        run: |
-          tag="${{ needs.tag.result }}"
-          build="${{ needs.build.result }}"
-          deploy="${{ needs.deploy.result }}"
-          if [ "$tag" = "success" ] && [ "$build" = "success" ] && [ "$deploy" = "success" ]; then
-            result=success
-          elif [ "$tag" = "cancelled" ] || [ "$build" = "cancelled" ] || [ "$deploy" = "cancelled" ]; then
-            result=cancelled
-          else
-            result=failure
-          fi
-          echo "result=$result" >> "$GITHUB_OUTPUT"
-
-      - name: Signaly に通知
-        # 通知はCIやデプロイの合否そのものではない。ここが失敗してもrun全体を
-        # 落とさない（guchi-apps/issue-deck#1302）。
-        continue-on-error: true
-        env:
-          SIGNALY_WEBHOOK_URL: ${{ env.SIGNALY_WEBHOOK_URL }}
-          NOTIFY_APP: aide-bot
-          NOTIFY_KIND: デプロイ
-          NOTIFY_STATUS: ${{ steps.status.outputs.result }}
-        run: bash .github/scripts/signaly-notify.sh
-
-  notify-release:
-    runs-on: ubuntu-latest
-    needs: [tag, deploy, release]
-    if: always() && needs.release.result != 'skipped'
-
-    env:
-      SIGNALY_WEBHOOK_URL: ${{ secrets.SIGNALY_WEBHOOK_URL }}
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Signaly に通知
-        continue-on-error: true
-        env:
-          SIGNALY_WEBHOOK_URL: ${{ env.SIGNALY_WEBHOOK_URL }}
-          NOTIFY_STATUS: ${{ needs.release.result }}
-          NOTIFY_APP: aide-bot
-          SIGNALY_RELEASE_WEBHOOK_URL: ${{ secrets.SIGNALY_RELEASE_WEBHOOK_URL }}
-          NOTIFY_KIND: リリース
-          NOTIFY_VERSION: ${{ needs.tag.outputs.tag }}
-        run: bash .github/scripts/signaly-notify.sh

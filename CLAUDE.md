@@ -407,7 +407,7 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
 **このアプリで唯一、利用者が開いていないときに動く仕組み。** 毎朝1回、AIDEから今の状況を取り、
 秘書の言葉で短くまとめて端末へWeb Pushで届ける。押すとダッシュボード（`/`）が開き、本文は「今日届いた通知」で読める。
 
-配る先は**aide-bot自身のWeb Push**（#77で決定）。Signalyへ流す案は、通知を押した先がSignalyのPWAになるため採らなかった。
+配る先は**aide-bot自身のWeb Push**（#77で決定）。Signaly（廃止済み）へ流す案は、通知を押した先がSignalyのPWAになるため採らなかった。
 
 - **起動は外に任せる。** 常駐プロセスを足さず、`guchi-apps/vps` の `cron/crontab.txt` から
   `POST /api/briefing` を叩く（AIDEの `src/worker/run.ts` と同じ考え方）。認証は共有シークレットの
@@ -1407,15 +1407,14 @@ aide-botでは build ジョブの「Construct DATABASE_URL」が
 `DB_NAME: DB_NAME is required` で落ちた（run 32648571956）。
 
 初回は上流の1Passwordアイテムごと存在しないので、次の順で埋める。**どれもエージェントは代行できない**
-（1Passwordへの書き込み・Signalyのチャンネル作成・本番デプロイの実行はいずれも人の操作）。
+（1Passwordへの書き込み・本番デプロイの実行はいずれも人の操作）。
 
-1. Signalyでこのアプリ用の通知チャンネルを作り、Webhook URLを控える
-2. 1Passwordの `apps` ボールトに `aide-bot` アイテムを作り、`target-dir` / `db-name` /
-   `allowed-google-emails` / `ci-webhook-url` を登録する。値の形は他アプリのアイテムに揃える
+1. 1Passwordの `apps` ボールトに `aide-bot` アイテムを作り、`target-dir` / `db-name` /
+   `allowed-google-emails` を登録する。値の形は他アプリのアイテムに揃える
    （`target-dir` は `/home/github-user/apps/aide-bot`、`db-name` は `app_aide_bot`）
-3. `eval $(op signin)` の後に `scripts/sync-github-secrets.sh --dry-run` → 本実行。
+2. `eval $(op signin)` の後に `scripts/sync-github-secrets.sh --dry-run` → 本実行。
    **個人アカウントで実行する**（サービスアカウントは日次1,000リクエストの共有枠を消費する）
-4. `gh api repos/guchi-apps/morrow/actions/secrets --jq .total_count` で登録件数を確かめてから
+3. `gh api repos/guchi-apps/morrow/actions/secrets --jq .total_count` で登録件数を確かめてから
    Deploy to Production を再実行する
 
 **secretを埋めてもまだ公開はされない。** gateのヘルスチェックはVPS内の
