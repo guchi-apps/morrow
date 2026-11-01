@@ -516,12 +516,12 @@ const BAND_CLASS: Record<HourCell["placeKind"], string> = {
 
 /** 気温グラフの凡例と昨日との差の一行（#651）。昨日の値が1つも無ければ何も出さない。 */
 function YesterdayNote({ cells, nowIndex }: { cells: HourCell[]; nowIndex: number }) {
-  const diff = compareWithYesterday(cells, nowIndex);
-  if (!diff) return null;
-  const hasNow = nowIndex >= 0 && cells[nowIndex]?.yesterday != null && cells[nowIndex]?.temperature != null;
+  if (!cells.some((cell) => cell.yesterday !== null)) return null;
+  // 差の一行は「いま」がある日（今日）だけ。ほかの日は凡例だけ出す。
+  const diff = nowIndex >= 0 ? compareWithYesterday(cells.map((cell, index) => (index === nowIndex ? cell : { ...cell, yesterday: null })), nowIndex) : null;
   return (
     <div className="flex flex-wrap items-center gap-x-3 text-xs text-muted">
-      <span className="font-bold text-foreground">{describeDiff(diff, hasNow)}</span>
+      {diff && <span className="font-bold text-foreground">{describeDiff(diff, true)}</span>}
       <span className="inline-flex items-center gap-1">
         <i className="inline-block w-5 border-t-2 border-topic" aria-hidden="true" />今日
       </span>
