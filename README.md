@@ -81,7 +81,6 @@ curl -s -b /tmp/cookies.txt -o /dev/null -w '%{http_code}\n' http://localhost:30
 | `ACCESS_API_URL` / `ACCESS_APP_TOKEN` | 判定APIの宛先（既定は本番StatusHub）と、共有トークンを読めない開発環境用のアプリ別トークン |
 | `CODEX_BIN` | 返答生成に使う `codex` の実行ファイル。未設定なら PATH 上の `codex` |
 | `NOTICE_INGEST_TOKEN` | ChatGPTのスケジュールなどから `/api/mcp`・`/api/notices` へ登録するときのBearerシークレット |
-| `SIGNALY_WEBHOOK_URL` | CI／デプロイ結果の通知先 |
 | `CI_LOGIN_BYPASS_SECRET` | 開発用ログイン（Cookieバイパス）のシークレット。**本番には設定しない** |
 
 変数名の一覧は `.env.example`、ローカルの記入例は `.env.local.example`、
