@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
  *   帯を動かしている間は日が変わらず、0時／23時の端でさらに引くと画面が付いてきて、離すと前後の日へ移る（`day-swipe-edge.ts`）
  * - **画面の左右の端から始めた操作も無視する。** iOSの殻（WKWebView）は端からのスワイプを戻る・進むに使う
  *   （`allowsBackForwardNavigationGestures`）。移るときも `router.replace` で履歴を積まず、戻る操作と食い合わせない
+ * - **`data-no-day-swipe` の要素（雨雲レーダーのスライダー。#654）から始めた操作も無視する**
  * - 指に合わせて中身が付いてきて、一定の距離（`THRESHOLD`）を超えて離すと移る。端の日（行き先なし）は少しだけ動いて戻る
  *
  * ボタン（‹ ›）は見出しの `Link` が受け持つので、ここはタッチ操作だけ。JSが動く前でもボタンでは移れる。
@@ -81,6 +82,11 @@ export function DaySwipe({
   const onTouchStart = (event: React.TouchEvent) => {
     const root = rootRef.current;
     if (!root || event.touches.length !== 1) return reset();
+    // スライダーなど、横の動きをそれ自体の操作に使う部品の上では、めくらない（#654）。
+    if (event.target instanceof Element && event.target.closest("[data-no-day-swipe]")) {
+      gesture.current = null;
+      return;
+    }
     const touch = event.touches[0];
     if (touch.clientX < EDGE_PX || touch.clientX > window.innerWidth - EDGE_PX) return;
     const scroller = horizontalScrollerAt(event.target, root);
