@@ -1,4 +1,5 @@
 import { jstDayKey } from "@/lib/day-key";
+import { DAY_RANGE } from "@/lib/dashboard/day-offset";
 import { cached, dashboardWeather, scheduleSource } from "@/lib/dashboard/aide";
 import type { WeatherDay, WeatherLocation, WeatherView } from "@/lib/dashboard/parse";
 import { resolvePlace } from "@/lib/weather/geocode";
@@ -57,6 +58,8 @@ export type HourCell = {
   placeKind: "home" | "away" | "move";
   code: number | null;
   temperature: number | null;
+  /** 前日の同じ時刻に、前日の予定で居た場所の気温（#651）。前日の予定・予報が取れなければnull。 */
+  yesterday: number | null;
   pop: number | null;
   /** 1時間の降水量（mm）。 */
   precipitation: number | null;
@@ -149,7 +152,7 @@ async function cellsFor(
       const placeLabel =
         at.kind === "move" ? "移動" : target ? segmentName(target.segment) : homeName ? `${homeName}・自宅` : "自宅";
       const placeKind = at.kind === "move" ? "move" : target && !target.segment.home ? "away" : "home";
-      const empty = { date, hour, placeLabel, placeKind, code: null, temperature: null, pop: null, precipitation: null } as const;
+      const empty = { date, hour, placeLabel, placeKind, code: null, temperature: null, yesterday: null, pop: null, precipitation: null } as const;
       if (!point) return empty;
       try {
         const found = hourlyPoint(await forecastAt(point), date, hour);
@@ -160,6 +163,34 @@ async function cellsFor(
       }
     }),
   );
+}
+
+/**
+ * 表示日の前日に居た場所の気温（#651）。前日の予定から区間を作り直して同じ0〜23時の帯を引く。
+ * 前日が予報の範囲外・予定が取れない・場所不明の時間はnull（自宅の日別予報などで代用しない）。
+ */
+async function yesterdayTemperatures(
+  userId: string,
+  now: Date,
+  offset: number,
+  weather: WeatherView,
+  home: Coordinates | null,
+  homeName: string | null,
+): Promise<(number | null)[]> {
+  const none = range(0, 24).map(() => null);
+  if (offset - 1 < -DAY_RANGE) return none;
+  try {
+    const source = await scheduleSource(userId, now, offset - 1);
+    if (source.status !== "ok" || source.json.configured === false) return none;
+    const day = buildStays(source.json)?.[0];
+    if (!day) return none;
+    const resolved = await Promise.all(day.stays.map((stay) => segmentFor(stay, weather, home)));
+    const cells = await cellsFor(day.date, range(0, 24), resolved, home, homeName);
+    return cells.map((cell) => cell.temperature);
+  } catch (error) {
+    console.error("[aide-bot] 前日の気温を取得できなかった", error);
+    return none;
+  }
 }
 
 const range = (from: number, to: number) => Array.from({ length: to - from }, (_, index) => from + index);
@@ -189,7 +220,13 @@ export function dashboardPlaces(userId: string, now = new Date(), offset = 0): P
     );
 
     // 帯は表示する日の0〜23時だけ（#620。翌0時は出さない）。
-    const hourly = today ? await cellsFor(today.date, range(0, 24), today.resolved, home, homeName) : [];
+    const [cells, yesterday] = today
+      ? await Promise.all([
+          cellsFor(today.date, range(0, 24), today.resolved, home, homeName),
+          yesterdayTemperatures(userId, now, offset, weather, home, homeName),
+        ])
+      : [[], []];
+    const hourly = cells.map((cell, index) => ({ ...cell, yesterday: yesterday[index] ?? null }));
 
     return {
       status: "ok",
