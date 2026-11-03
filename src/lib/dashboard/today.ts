@@ -2,7 +2,6 @@ import { db } from "@/lib/db";
 import { dayStart, jstDayKey } from "@/lib/day-key";
 import { addDays } from "@/lib/dashboard/day-offset";
 import { PUSH_HISTORY_LIMIT } from "@/lib/dashboard/push-history";
-import { noticeBoard } from "@/lib/notice-list";
 import { PUSH_KIND_INFO, isPushKind } from "@/lib/push/kinds";
 import { listTopicCategories } from "@/lib/topic-category-store";
 import { topicCategoryShort } from "@/lib/topic-categories";
@@ -90,34 +89,6 @@ function toDeliveredPush(row: { id: string; kind: string; title: string; body: s
     body: row.body,
     createdAt: row.createdAt,
     urgent: row.kind === "urgent-notice",
-  };
-}
-
-export type DashboardNotices = {
-  /**
-   * いま秘書が出している一言。無ければnull。形は `/api/notices/current` の `notice` と同じにしてあり、
-   * 画面の問い合わせ（`LiveNoticeLine`）の応答でそのまま置き換わる。
-   */
-  current: { id: string; text: string; urgent: boolean; shownAt: string; url: string | null } | null;
-  pendingCount: number;
-  urgentCount: number;
-};
-
-export async function dashboardNotices(userId: string, now = new Date()): Promise<DashboardNotices> {
-  const board = await noticeBoard(userId, now);
-  return {
-    current:
-      board.current?.shownAt && board.current.spokenText
-        ? {
-            id: board.current.id,
-            text: board.current.spokenText,
-            urgent: board.current.spokenUrgent,
-            shownAt: board.current.shownAt.toISOString(),
-            url: board.current.url,
-          }
-        : null,
-    pendingCount: board.pending.length,
-    urgentCount: board.pending.filter((notice) => notice.priority === "URGENT").length,
   };
 }
 

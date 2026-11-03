@@ -8,7 +8,7 @@ import { addTopicCategory, listTopicCategories } from "@/lib/topic-category-stor
 /**
  * 話題（#144）として仕入れるニュースの種類の一覧と追加（#345）。
  *
- * DBに保存する。読むのが応答後のバックグラウンド（`refreshTopicsIfStale()`）で、Cookieを当てに
+ * DBに保存する。読むのが手動ボタン・cronの仕入れ（Cookieの届かない経路）で、Cookieを当てに
  * できないため。保存しただけでは仕入れ直さない——次に今日の記録の画面の問い合わせが来て、前回から
  * 間隔があいていれば新しい種類で仕入れる（触るたびに27秒の検索を走らせない）。
  */

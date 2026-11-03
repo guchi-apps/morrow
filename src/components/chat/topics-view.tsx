@@ -4,6 +4,7 @@ import type { TopicBoard } from "@/lib/topics";
 import { ScheduledPushSettingsCard, type ScheduleRow } from "@/components/settings/scheduled-push-settings";
 
 import { TopicCategoryPicker } from "./topic-category-picker";
+import { TopicRefreshButton } from "./topic-refresh-button";
 import { TopicSeenMarker } from "./topic-seen-marker";
 import { TopicTabs } from "./topic-tabs";
 
@@ -41,9 +42,11 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
               ? `最終取得 ${jstTimeLabel(lastFetchedAt)}（${elapsedLabel(lastFetchedAt, now)}）`
               : enabledCategories.length === 0
                 ? "仕入れを止めています"
-                : "今日の記録（トップ）を開くと仕入れます"}
+                : "まだ取得していません"}
           </span>
         </div>
+
+        <TopicRefreshButton />
 
         <details className="group rounded-xl border border-border bg-surface">
           <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3.5 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
@@ -76,8 +79,8 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
         {topics.length === 0 ? (
           <p className="rounded-xl border border-border bg-surface px-4 py-3 text-xs leading-relaxed text-muted">
             {enabledCategories.length === 0
-              ? "仕入れを止めています。下の種類を1つ以上チェックすると、次に今日の記録（トップ）を開いたときに仕入れます。"
-              : "まだ話題がありません。今日の記録（トップ）を開くと仕入れが始まり、30秒ほどで並びます（画面は読み込み直してください）。"}
+              ? "仕入れを止めています。下の種類を1つ以上チェックしてから「最近の記事を取得する」を押してください。"
+              : "まだ話題がありません。「最近の記事を取得する」を押すと仕入れが始まり、30秒ほどで並びます。"}
           </p>
         ) : (
           <TopicTabs categories={categories} allTopics={topics} byCategory={byCategory} mergedCount={mergedCount} seenAt={seenAt} now={now} />
@@ -104,7 +107,7 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
           </summary>
           <div className="border-t border-border px-4 py-3.5">
             <p className="mb-3 text-[0.6875rem] leading-relaxed text-muted">
-              チェックした種類だけを、アプリを開いたときにウェブで調べます。
+              チェックした種類だけを、定時のお知らせの前と「最近の記事を取得する」を押したときにウェブで調べます。
             </p>
             <TopicCategoryPicker initial={categories} />
           </div>

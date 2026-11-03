@@ -215,7 +215,7 @@ jobs:
       - name: Construct DATABASE_URL
         run: bash scripts/construct-database-url.sh
 
-      # NOTICE_INGEST_TOKEN・OPS_API_TOKEN は環境変数で配らず共有トークンから読む（#570）。未登録だと
+      # OPS_API_TOKEN は環境変数で配らず共有トークンから読む（#570）。未登録だと
       # お知らせの受け口とAI利用APIが401で閉じるので、何も送る前にここで落とす（#581）。
       - name: Check shared tokens are registered
         run: bash scripts/check-shared-tokens.sh
@@ -310,7 +310,7 @@ jobs:
             printf '%s\n' "APNS_TEAM_ID=${APNS_TEAM_ID}"
             printf '%s\n' "APNS_KEY_P8=${APNS_KEY_P8}"
             printf '%s\n' "BRIEFING_TRIGGER_TOKEN=${BRIEFING_TRIGGER_TOKEN}"
-            # NOTICE_INGEST_TOKEN・OPS_API_TOKEN は共有トークンAPIから実行時に取る（#403・#570）ので配らない。
+            # OPS_API_TOKEN は共有トークンAPIから実行時に取る（#403・#570）ので配らない。
             # 共有トークンAPI（#403）。空だと共有トークンを取れず、受け口（お知らせ・AI利用）とログイン判定が閉じる。
             printf '%s\n' "SHARED_TOKEN_API_SECRET=${SHARED_TOKEN_API_SECRET}"
             printf '%s\n' "ISSUE_DECK_URL=${ISSUE_DECK_URL}"

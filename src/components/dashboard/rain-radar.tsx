@@ -7,15 +7,19 @@ import { jstTimeLabel } from "@/lib/day-key";
 import { cn } from "@/lib/utils";
 import {
   RADAR_FORECAST_TIMES_URL,
+  RADAR_LONG_TIMES_URL,
   RADAR_PAST_TIMES_URL,
   RADAR_ZOOMS,
   type RadarFrame,
+  type RadarTime,
   type RadarTile,
   type RadarZoom,
   baseTileUrl,
   buildFrames,
   carryFrameIndex,
   frameDate,
+  hoursAfter,
+  parseLongRangeTimes,
   parseTargetTimes,
   rainTileUrl,
   tilesFor,
@@ -51,10 +55,10 @@ function frameLabel(frame: RadarFrame): string {
   return `${jstTimeLabel(frameDate(frame.validtime))} ${KIND_LABEL[frame.kind]}`;
 }
 
-async function fetchTimes(url: string) {
+async function fetchTimes(url: string, parse: (json: unknown) => RadarTime[] = parseTargetTimes) {
   const response = await fetch(url, { referrerPolicy: "no-referrer", signal: AbortSignal.timeout(TIMES_TIMEOUT_MS) });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return parseTargetTimes(await response.json());
+  return parse(await response.json());
 }
 
 function TileImage({
@@ -91,6 +95,7 @@ function TileImage({
 export function RainRadar({ latitude, longitude }: { latitude: number; longitude: number }) {
   const [frames, setFrames] = useState<RadarFrame[] | null>(null);
   const [hasForecast, setHasForecast] = useState(true);
+  const [hasLongRange, setHasLongRange] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   const [index, setIndex] = useState(0);
@@ -114,11 +119,16 @@ export function RainRadar({ latitude, longitude }: { latitude: number; longitude
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      const [past, forecast] = await Promise.allSettled([fetchTimes(RADAR_PAST_TIMES_URL), fetchTimes(RADAR_FORECAST_TIMES_URL)]);
+      const [past, forecast, longRange] = await Promise.allSettled([
+        fetchTimes(RADAR_PAST_TIMES_URL),
+        fetchTimes(RADAR_FORECAST_TIMES_URL),
+        fetchTimes(RADAR_LONG_TIMES_URL, parseLongRangeTimes),
+      ]);
       if (cancelled) return;
       const built = buildFrames(
         past.status === "fulfilled" ? past.value : [],
         forecast.status === "fulfilled" ? forecast.value : [],
+        longRange.status === "fulfilled" ? longRange.value : [],
       );
       if (built.length === 0) {
         if (past.status === "rejected") console.error("[aide-bot] 雨雲の時刻を取得できなかった", past.reason);
@@ -128,6 +138,7 @@ export function RainRadar({ latitude, longitude }: { latitude: number; longitude
       }
       setLoadFailed(false);
       setHasForecast(built.some((frame) => frame.kind === "forecast"));
+      setHasLongRange(longRange.status === "fulfilled" && longRange.value.length > 0);
       const nextIndex = carryFrameIndex(currentRef.current, built);
       setFrames(built);
       setIndex(nextIndex);
@@ -320,7 +331,9 @@ export function RainRadar({ latitude, longitude }: { latitude: number; longitude
             >
               今
             </span>
-            {nowIndex < lastIndex && <span className="absolute right-0">1時間後</span>}
+            {nowIndex < lastIndex && (
+              <span className="absolute right-0">{Math.max(1, hoursAfter(frames[nowIndex], frames[lastIndex]))}時間後</span>
+            )}
           </div>
         </div>
       </div>
@@ -329,6 +342,9 @@ export function RainRadar({ latitude, longitude }: { latitude: number; longitude
         <p role="status" className="text-xs text-danger">
           この時刻の雨雲を一部取得できませんでした。雨雲が無いとは限りません。
         </p>
+      )}
+      {hasForecast && !hasLongRange && (
+        <p className="text-xs text-danger">1時間より先の予報を取得できなかったので、1時間先までを出しています。</p>
       )}
       {!hasForecast && <p className="text-xs text-danger">予報を取得できなかったので、今までの実況だけを出しています。</p>}
 
@@ -341,7 +357,7 @@ export function RainRadar({ latitude, longitude }: { latitude: number; longitude
           </span>
         ))}
       </div>
-      <p className="text-[0.6875rem] text-muted">雨雲: 気象庁 高解像度降水ナウキャスト／地図: 地理院タイル</p>
+      <p className="text-[0.6875rem] text-muted">雨雲: 気象庁 高解像度降水ナウキャスト・降水短時間予報（1時間より先）／地図: 地理院タイル</p>
     </Section>
   );
 }

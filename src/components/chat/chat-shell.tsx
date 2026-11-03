@@ -10,8 +10,6 @@ import { ConversationRail } from "./conversation-rail";
 import { useVisualViewportFit } from "./use-visual-viewport";
 
 type Props = {
-  /** まだ秘書が出していないお知らせの件数（#114）。一覧の下のバッジに出す。 */
-  pendingNoticeCount: number;
   /** 溜まっている話題の件数（#144）。一覧の下に出す。 */
   topicCount: number;
   userLabel: string;
@@ -39,7 +37,6 @@ type Props = {
  * （#379。iOSでキーボードを閉じた後にページが持ち上がったまま残るのを防ぐ）。
  */
 export function ChatShell({
-  pendingNoticeCount,
   topicCount,
   userLabel,
   userEmail,
@@ -58,7 +55,6 @@ export function ChatShell({
   // トップ（`/`）は今日のダッシュボード（#573）。
   const isDashboard = pathname === "/";
   const isSettings = pathname === "/settings";
-  const isNotices = pathname === "/notices";
   const isPushes = pathname === "/pushes";
   const isTopics = pathname === "/topics";
   const isModels = pathname === "/models";
@@ -66,9 +62,7 @@ export function ChatShell({
     ? "今日"
     : isSettings
       ? "設定"
-      : isNotices
-        ? "お知らせ"
-        : isPushes
+      : isPushes
           ? "届いた通知"
           : isTopics
             ? "話題"
@@ -116,11 +110,9 @@ export function ChatShell({
         <ConversationRail
           isDashboardActive={isDashboard}
           isSettingsActive={isSettings}
-          isNoticesActive={isNotices}
           isPushesActive={isPushes}
           isTopicsActive={isTopics}
           isModelsActive={isModels}
-          pendingNoticeCount={pendingNoticeCount}
           topicCount={topicCount}
           userLabel={userLabel}
           userEmail={userEmail}
@@ -154,11 +146,9 @@ export function ChatShell({
             <ConversationRail
               isDashboardActive={isDashboard}
               isSettingsActive={isSettings}
-              isNoticesActive={isNotices}
               isPushesActive={isPushes}
               isTopicsActive={isTopics}
               isModelsActive={isModels}
-              pendingNoticeCount={pendingNoticeCount}
               topicCount={topicCount}
               userLabel={userLabel}
               userEmail={userEmail}
