@@ -9,7 +9,6 @@ import { jstDayKey } from "@/lib/day-key";
 import { db } from "@/lib/db";
 import { allowedUserIds, isAllowedUserId } from "@/lib/allowed-user-ids";
 import { listConnectedServers, toCodexMcpServers } from "@/lib/mcp/connections";
-import { ingestNotice } from "@/lib/notices";
 import { disabledPushKinds } from "@/lib/push/kinds-server";
 import type { PushKind } from "@/lib/push/kinds";
 import { countSubscriptions, sendPushToUser, usersWithSubscriptions } from "@/lib/push/subscriptions";
@@ -65,14 +64,6 @@ const MORNING_TOPICS_TITLE = "今日のニュース";
 const CODEX_TIMEOUT_MS = 180 * 1000;
 
 /**
- * 朝の見通しを、秘書の吹き出しの候補として残しておく時間（#93）。
- *
- * 朝7時に作って6時間なので、昼過ぎまで。**その日のうちでも、夕方に「今日の見通し」が
- * 吹き出しへ出てくると、いま知らせている内容だと誤解される。**
- */
-const BRIEFING_NOTICE_LIFETIME_MS = 6 * 60 * 60 * 1000;
-
-/**
  * 日本時間での「その日の何分目か」（0〜1439）。#121で時刻を設定できるようにするために追加。
  *
  * サーバーのタイムゾーンに頼らない（`jstDayKey()` と同じ理由）。
@@ -105,8 +96,7 @@ export type BriefingOutcome = {
 /**
  * Codexへ渡す1本のプロンプト（#183）。
  *
- * **Codexにはシステムプロンプトを別に渡す口が無い。** お知らせ選定（`buildNoticePrompt()`）と
- * 同じく、体裁・材料の指示（`briefingSystemPrompt()`）と依頼の文面を `---` で繋いで1本にする。
+ * **Codexにはシステムプロンプトを別に渡す口が無い。** 体裁・材料の指示（`briefingSystemPrompt()`）と依頼の文面を `---` で繋いで1本にする。
  *
  * 依頼の文面は `MORNING_BRIEFING_REQUEST` をそのまま使う。
  */
@@ -354,33 +344,6 @@ async function deliverFor(userId: string, now: Date): Promise<BriefingOutcome> {
     url: "/",
     tag: MORNING_BRIEFING_KIND,
   });
-
-  // 同じ内容を、秘書の吹き出しの受け皿へも積む（#93）。
-  //
-  // **aide-bot自身が最初の「積む側」になる。** 受け皿と投入口だけでは、繋いだアプリが
-  // 積みに来るまで吹き出しは黙ったままになる。ここはすでにAIDEから材料を取れている
-  // 唯一の経路なので、通知を送ったのと同じ一言をそのまま回す。
-  //
-  // **積むのは通知を実際に送った回だけ。** 黙った回（BRIEFING_SKIP_TOKEN）は上で戻って
-  // いるのでここへ来ない。通知の抑制（NotificationLog）が1日1本を守るので、二重には積まれない。
-  //
-  // 期限を切っておくのは、朝の見通しが夕方の吹き出しに出てこないようにするため
-  // （吹き出し側の表示は60分で引っ込むが、候補として選ばれ直すのはこちらで止める）。
-  if (delivered > 0) {
-    try {
-      await ingestNotice(userId, {
-        source: "aide-bot",
-        kind: MORNING_BRIEFING_KIND,
-        dedupeKey,
-        body: text,
-        url: "/",
-        expiresAt: new Date(now.getTime() + BRIEFING_NOTICE_LIFETIME_MS),
-      });
-    } catch (error) {
-      // 積めなくても通知は届いている。#51・#79と同じで、記録の失敗で本筋を止めない。
-      console.error("[aide-bot] 朝の見通しをお知らせの受け皿へ積めなかった", error);
-    }
-  }
 
   if (delivered > 0) {
     await db.notificationLog.create({

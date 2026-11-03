@@ -20,9 +20,9 @@ test("何も保存していなければ全用途が既定", () => {
 test("知らない用途・モデル名・形は既定へ落とす", () => {
   assert.deepEqual(resolveModelSettings([]), DEFAULT_MODELS);
   assert.deepEqual(resolveModelSettings("gpt-6-sol"), DEFAULT_MODELS);
-  const resolved = resolveModelSettings({ notice: "gpt-5.6-sol", topic: "nope", unknown: "gpt-6-sol", memory: "gpt-6-luna", chat_text: "gpt-6-sol" });
-  assert.equal(resolved.notice, DEFAULT_MODELS.notice);
+  const resolved = resolveModelSettings({ topic: "gpt-5.6-sol", proactive: "nope", unknown: "gpt-6-sol", memory: "gpt-6-luna", chat_text: "gpt-6-sol" });
   assert.equal(resolved.topic, DEFAULT_MODELS.topic);
+  assert.equal(resolved.proactive, DEFAULT_MODELS.proactive);
   assert.equal("memory" in resolved, false);
   assert.equal("chat_text" in resolved, false);
 });
@@ -35,9 +35,9 @@ test("用途の表は3か所で揃っている", () => {
 });
 
 test("既定と同じ値は保存に残さない", () => {
-  const next = mergeModelSettings({ briefing: "gpt-6-luna", memory: "gpt-6-luna" }, { notice: "gpt-6-astra", topic: DEFAULT_MODELS.topic });
-  assert.deepEqual(next, { briefing: "gpt-6-luna", notice: "gpt-6-astra" });
-  assert.deepEqual(mergeModelSettings(next, { briefing: DEFAULT_MODELS.briefing, notice: DEFAULT_MODELS.notice }), {});
+  const next = mergeModelSettings({ briefing: "gpt-6-luna", memory: "gpt-6-luna" }, { topic: "gpt-6-astra", proactive: DEFAULT_MODELS.proactive });
+  assert.deepEqual(next, { briefing: "gpt-6-luna", topic: "gpt-6-astra" });
+  assert.deepEqual(mergeModelSettings(next, { briefing: DEFAULT_MODELS.briefing, topic: DEFAULT_MODELS.topic }), {});
 });
 
 test("表示の版・愛称はモデルIDから導かれ、IDと一致する（#633）", () => {
