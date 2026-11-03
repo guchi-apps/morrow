@@ -28,6 +28,7 @@ import {
   type PlacesView,
 } from "@/lib/dashboard/places";
 import { compareWithYesterday, describeDiff } from "@/lib/dashboard/temperature-diff";
+import { tempDelta, type TempDelta } from "@/lib/dashboard/temp-delta";
 import type { DashboardTopic, DeliveredPush } from "@/lib/dashboard/today";
 import { dayLabel, jstDayKey, jstTimeLabel } from "@/lib/day-key";
 import { describeWeatherCode, RAIN_POP, type RainVerdict } from "@/lib/weather/rain-check";
@@ -296,17 +297,19 @@ async function WeatherCard({
   offset: number;
   dayKey: string;
 }) {
-  const [weather, tomorrow] = await Promise.all([
+  const [weather, tomorrow, previous] = await Promise.all([
     dashboardDayWeather(userId, now, dayKey),
     // 今日の画面だけ、明日の1行を添える（めくった先の日では出さない）。
     offset === 0 ? dashboardDayWeather(userId, now, addDays(dayKey, 1)) : null,
+    // 明日以降の日だけ、前日の予報と並べて気温の前日比を出す（#665）。取れなければ差は出さない。
+    offset >= 1 ? dashboardDayWeather(userId, now, addDays(dayKey, -1)) : null,
   ]);
   const homeName = weather.status === "ok" ? (weather.location?.name ?? null) : null;
 
   return (
     <Card title={`${cardDayName(dayKey, offset)}の天気`}>
       {offset === 0 && <CurrentLocationWeather />}
-      <WeatherBody weather={weather} />
+      <WeatherBody weather={weather} previous={previous?.status === "ok" ? previous.day : null} />
       <Suspense fallback={<p className="text-xs text-muted">時間と場所ごとの天気を取得しています…</p>}>
         <PlacesSection
           userId={userId}
@@ -315,6 +318,7 @@ async function WeatherCard({
           dayKey={dayKey}
           dailyRainy={weather.status === "ok" && weather.day.pop !== null && weather.day.pop >= RAIN_POP}
           tomorrow={tomorrow?.status === "ok" ? tomorrow.day : null}
+          today={weather.status === "ok" ? weather.day : null}
           homeName={homeName}
         />
       </Suspense>
@@ -326,7 +330,7 @@ async function WeatherCard({
   );
 }
 
-function WeatherBody({ weather }: { weather: DayWeatherView }) {
+function WeatherBody({ weather, previous }: { weather: DayWeatherView; previous: WeatherDay | null }) {
   switch (weather.status) {
     case "unconnected":
       return <Unconnected />;
@@ -340,7 +344,7 @@ function WeatherBody({ weather }: { weather: DayWeatherView }) {
       // 今日・明日以外はAIDEの予報が無く、自宅の地点（AIDEの `location`）が届くまでは引けない（#606）。
       return <Empty>この日の予報はありません（自宅の地点がまだAIDEから届いていません）。</Empty>;
     case "ok":
-      return <WeatherOk today={weather.day} stale={weather.stale} />;
+      return <WeatherOk today={weather.day} previous={previous} stale={weather.stale} />;
   }
 }
 
@@ -348,9 +352,18 @@ function temp(value: number | null): string {
   return value === null ? "—" : `${value.toFixed(1)}°`;
 }
 
-function WeatherOk({ today, stale }: { today: WeatherDay; stale: boolean }) {
+/** 気温の前日比（#665）。＋は暖かい側（橙）、−は寒い側（青）、同じなら灰色。符号でも判別できる。 */
+function DeltaMark({ delta }: { delta: TempDelta | null }) {
+  if (!delta) return null;
+  const tone = delta.direction === "up" ? "text-accent" : delta.direction === "down" ? "text-topic" : "text-muted";
+  return <span className={cn("ml-0.5 text-xs font-bold", tone)}>{delta.text}</span>;
+}
+
+function WeatherOk({ today, previous, stale }: { today: WeatherDay; previous: WeatherDay | null; stale: boolean }) {
   const rainy = today.pop !== null && today.pop >= RAIN_POP;
   const Icon = rainy ? CloudRain : CloudSun;
+  const maxDelta = previous ? tempDelta(today.max, previous.max) : null;
+  const minDelta = previous ? tempDelta(today.min, previous.min) : null;
 
   return (
     <>
@@ -366,8 +379,10 @@ function WeatherOk({ today, stale }: { today: WeatherDay; stale: boolean }) {
             )}
           </div>
           <div className="text-[0.8125rem] tabular-nums">
-            最高 <span className="font-bold text-accent">{temp(today.max)}</span> ／ 最低{" "}
-            <span className="font-bold text-topic">{temp(today.min)}</span>
+            最高 <span className="font-bold text-accent">{temp(today.max)}</span>
+            <DeltaMark delta={maxDelta} /> ／ 最低 <span className="font-bold text-topic">{temp(today.min)}</span>
+            <DeltaMark delta={minDelta} />
+            {(maxDelta || minDelta) && <span className="ml-1.5 whitespace-nowrap text-[0.6875rem] text-muted">前日比</span>}
           </div>
         </div>
       </div>
@@ -386,6 +401,7 @@ async function PlacesSection({
   dayKey,
   dailyRainy,
   tomorrow,
+  today,
   homeName,
 }: {
   userId: string;
@@ -394,12 +410,16 @@ async function PlacesSection({
   dayKey: string;
   dailyRainy: boolean;
   tomorrow: WeatherDay | null;
+  /** 明日の1行の前日比（今日との差）の相手。 */
+  today: WeatherDay | null;
   homeName: string | null;
 }) {
   const places: PlacesView = await dashboardPlaces(userId, now, offset);
   const tomorrowLine = tomorrow && (
     <div className="text-xs tabular-nums text-muted">
-      明日{homeName && `（${homeName}）`} {tomorrow.summary}　{temp(tomorrow.max)} / {temp(tomorrow.min)}
+      明日{homeName && `（${homeName}）`} {tomorrow.summary}　{temp(tomorrow.max)}
+      <DeltaMark delta={today ? tempDelta(tomorrow.max, today.max) : null} /> / {temp(tomorrow.min)}
+      <DeltaMark delta={today ? tempDelta(tomorrow.min, today.min) : null} />
       {tomorrow.pop !== null && `　降水 ${tomorrow.pop}%`}
     </div>
   );
