@@ -79,7 +79,6 @@ model User {
   apnsDevices       ApnsDevice[]
   notificationLogs  NotificationLog[]
   scheduledPushes   ScheduledPush[]
-  notices           Notice[]
   topics            Topic[]
 }
 
@@ -256,10 +255,9 @@ model NotificationLog {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  /// 通知の種類。`morning-briefing`（#79）・`urgent-notice`（#115）。
+  /// 通知の種類。`morning-briefing`（#79）・`proactive-suggestion` ほか。`urgent-notice`（#115）は#663で廃止し、過去の行だけが残る。
   kind String @db.VarChar(40)
-  /// 同じ理由の通知を抑制するための鍵。朝の見通しでは `2026-08-26` の形、
-  /// 急ぎのお知らせ（#115）では `Notice.id` をそのまま使う。
+  /// 同じ理由の通知を抑制するための鍵。朝の見通しでは `2026-08-26` の形。
   dedupeKey String @db.VarChar(120)
 
   title String @db.VarChar(120)
@@ -275,76 +273,8 @@ model NotificationLog {
   @@index([userId, createdAt])
 }
 
-// --- お知らせの受け皿（#93） ---
-// **各アプリが「利用者に知らせたいこと」を積む場所。** 秘書は「話す」画面で待っている間、
-// ここから1件を選んで自分の言葉に直し、頭上の吹き出しに出す。
-//
-// 積むのはHTTP（`POST /api/notices`・共有シークレットのBearer）に限る。他アプリから同じ
-// MariaDBへ直に書かせると、このスキーマが外部の実装に固定されて動かせなくなる。
-//
-// **溜まっただけではモデルを呼ばない。** 未読が0件なら生成そのものを行わないため、
-// 黙っている間のAPI費用は0円になる（#79「知らせることが無ければ黙る」と同じ考え方）。
-
-model Notice {
-  id     String @id @default(cuid())
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId String
-
-  /// 積んだアプリ（`aide`・`dayspan` など）。画面には出さず、追跡と抑制の鍵に使う。
-  source String @db.VarChar(40)
-  /// 積んだ側から見た種類（`schedule`・`laundry` など）。抑制の鍵の一部。
-  kind   String @db.VarChar(40)
-  /// 同じ用件を二重に積まないための鍵。積む側が決める（`2026-08-27-dental` など）。
-  dedupeKey String @db.VarChar(120)
-
-  /// 情報の短いタイトル。画面の一覧や将来のタスク表示で使う。
-  title String @db.VarChar(120)
-
-  /// 知らせたいことの中身。秘書が言い直す前の、積んだ側の文面。
-  body String @db.Text
-  /// 押したときに開く先（任意）。急ぎの通知・吹き出し・一覧の遷移先に使う（#137）。
-  /// 受け付ける形は `safeNoticeUrl()`（src/lib/notice-url.ts）に閉じてあり、積むときと
-  /// 出すときの両方で通す（判定を足す前に積まれた行が残っているため）。
-  url  String? @db.VarChar(500)
-
-  /// 急ぎかどうかの申告。`urgent` は10分を待たずに出す引き金になる。
-  /// **最終的に「急ぎ」として出すかはモデルが決める**ので、これは手掛かりでしかない。
-  priority NoticePriority @default(NORMAL)
-
-  /// この時刻より前には出さない。未指定なら積んだ時点から出せる。
-  showAt    DateTime?
-  /// この時刻を過ぎたら出さない。予定の通知が翌日まで居座るのを防ぐ。
-  expiresAt DateTime?
-
-  /// 秘書が選んで書いた一言。**吹き出しに出るのはこちら**で、nullなら未読。
-  spokenText String? @db.Text
-  /// 選んだ時点で「急ぎ」として出したか。
-  spokenUrgent Boolean @default(false)
-  /// 選ばれて吹き出しに出た時刻。入っている＝もう出したので、二度は選ばない。
-  shownAt DateTime?
-
-  createdAt DateTime @default(now())
-
-  // 積む側が二重に投げても1行に畳む。source を含めるのは、別のアプリが同じ kind と
-  // dedupeKey を使っても衝突させないため。
-  @@unique([userId, source, kind, dedupeKey])
-  // 未読の取り出し（未読・出せる時刻・期限）と、直近に出したものの取り出しで引く。
-  @@index([userId, shownAt, createdAt])
-}
-
-/// お知らせの急ぎ具合。積む側が申告する。
-enum NoticePriority {
-  /// 出す価値はあるが急がない。溜まっていても後回しでよい。
-  LOW
-  NORMAL
-  /// 時間を逃すと意味が無くなる。届いた回は10分を待たずに選び直す。
-  URGENT
-}
-
 // --- 話題（#144） ---
 // **秘書が雑談の話題として振るために、ウェブ検索で仕入れたニュースを溜める場所。**
-// お知らせ（`Notice`）とは分ける——あちらは「逃すと困るか」で1件選ぶ受け皿で、ニュースを
-// 混ぜると選定基準がぶれ、支払い期限のような用件が候補から押し出される。
 //
 // 仕入れは `codex --search exec`（ChatGPTのサブスク枠。`src/lib/topics.ts`）で1日数回だけ走り、
 // 吹き出しへ出すときも相談の材料に添えるときもモデルは呼ばない（#93・#101「黙っている間の

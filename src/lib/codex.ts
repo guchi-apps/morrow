@@ -94,7 +94,7 @@ export type CodexToolCallEvent = {
  * Codexの子プロセスへ渡してよい環境変数の名前（#258）。**許可リストで拾う。**
  *
  * 子プロセスへ `process.env` を丸ごと渡すと、本番では `next start` が読み込んだ `DATABASE_URL`・
- * `VAPID_PRIVATE_KEY`・`BRIEFING_TRIGGER_TOKEN`・`NOTICE_INGEST_TOKEN` などがそのまま入る。
+ * `VAPID_PRIVATE_KEY`・`BRIEFING_TRIGGER_TOKEN`・`OPS_API_TOKEN` などがそのまま入る。
  * `--sandbox read-only` はファイルや環境変数を**読む**ことを止めないので、モデルが `env` を
  * 実行すれば値が見える。モデルへ食わせる文字列は外から来る（`--search` のニュース・MCPの道具の
  * 結果）ため、プロンプトインジェクションが入るとシークレットが外へ出る筋が成り立つ。

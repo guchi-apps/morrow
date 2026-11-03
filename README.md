@@ -80,7 +80,7 @@ curl -s -b /tmp/cookies.txt -o /dev/null -w '%{http_code}\n' http://localhost:30
 | `ALLOWED_GOOGLE_EMAILS` | **判定には使わない**（#513でStatusHubの共通アクセス設定へ切替済み。旧設定の整理待ちで残っている） |
 | `ACCESS_API_URL` / `ACCESS_APP_TOKEN` | 判定APIの宛先（既定は本番StatusHub）と、共有トークンを読めない開発環境用のアプリ別トークン |
 | `CODEX_BIN` | 返答生成に使う `codex` の実行ファイル。未設定なら PATH 上の `codex` |
-| `NOTICE_INGEST_TOKEN` | ChatGPTのスケジュールなどから `/api/mcp`・`/api/notices` へ登録するときのBearerシークレット |
+| `TASK_API_TOKEN` | `/api/mcp` のタスクのツール（`aide_task_*`）を呼ぶBearerシークレット |
 | `CI_LOGIN_BYPASS_SECRET` | 開発用ログイン（Cookieバイパス）のシークレット。**本番には設定しない** |
 
 変数名の一覧は `.env.example`、ローカルの記入例は `.env.local.example`、
@@ -90,8 +90,7 @@ curl -s -b /tmp/cookies.txt -o /dev/null -w '%{http_code}\n' http://localhost:30
 
 | パス | 内容 |
 |---|---|
-| `/` | 今日のダッシュボード（天気・予定・今日届いた通知・お知らせ・話題。通知を押した先） |
-| `/notices` | 積まれたお知らせの一覧 |
+| `/` | 今日のダッシュボード（天気・予定（タスク含む）・今日届いた通知・話題。通知を押した先） |
 | `/topics` | 仕入れた話題と、定時のお知らせの設定 |
 | `/models` | 用途ごとのAIモデル |
 | `/usage` | 使用量 |
@@ -99,7 +98,6 @@ curl -s -b /tmp/cookies.txt -o /dev/null -w '%{http_code}\n' http://localhost:30
 | `/c/<ID>` | 古い通知の受け皿（`/` へリダイレクトするだけ） |
 | `/login` | ログイン |
 
-ChatGPTのスケジュールから情報を登録する方法は [docs/chatgpt-mcp.md](docs/chatgpt-mcp.md) を参照。
 
 ### 実機（iPhoneのPWA）で開発環境を見る
 

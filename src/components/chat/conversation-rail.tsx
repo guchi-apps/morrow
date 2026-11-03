@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Cpu, History, LayoutDashboard, Newspaper, Settings } from "lucide-react";
+import { Cpu, History, LayoutDashboard, Newspaper, Settings } from "lucide-react";
 import Link from "next/link";
 
 import { AppLogo } from "@/components/brand/app-icon";
@@ -11,12 +11,8 @@ type Props = {
   isDashboardActive: boolean;
   /** 設定の画面を開いているか（#46）。 */
   isSettingsActive: boolean;
-  /** お知らせの画面を開いているか（#114）。 */
-  isNoticesActive: boolean;
   /** 届いた通知の画面を開いているか（#581）。 */
   isPushesActive: boolean;
-  /** まだ秘書が出していないお知らせの件数（#114）。0のときは数字を出さない。 */
-  pendingNoticeCount: number;
   /** 話題の画面を開いているか（#144）。 */
   isTopicsActive: boolean;
   /** モデルの画面を開いているか（#349）。 */
@@ -37,9 +33,7 @@ type Props = {
 export function ConversationRail({
   isDashboardActive,
   isSettingsActive,
-  isNoticesActive,
   isPushesActive,
-  pendingNoticeCount,
   isTopicsActive,
   isModelsActive,
   topicCount,
@@ -67,26 +61,6 @@ export function ConversationRail({
       <div className="min-h-0 flex-1" />
 
       <div className="border-t border-border">
-        {/* 積まれたお知らせ（#114）。使用量・設定と同じく下部に置く。
-            未読は「秘書がまだ出していない件数」。 */}
-        <Link
-          href="/notices"
-          onClick={onNavigate}
-          aria-current={isNoticesActive ? "page" : undefined}
-          className={cn(
-            "mx-2.5 mt-2 flex items-center justify-between gap-2 rounded-[9px] px-2.5 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-            isNoticesActive && "bg-rail-active shadow-[inset_2px_0_0_var(--accent)]",
-          )}
-        >
-          <span className="flex items-center gap-1.5">
-            <Bell className="size-3.5 text-muted" aria-hidden="true" />
-            お知らせ
-          </span>
-          {pendingNoticeCount > 0 && (
-            <span className="tabular-nums font-bold text-accent">未読 {pendingNoticeCount}</span>
-          )}
-        </Link>
-
         {/* 送った通知の本文（#581）。ダッシュボードは今日の分だけなので、きのう以前はここで読む。 */}
         <Link
           href="/pushes"

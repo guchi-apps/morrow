@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 # 本番へ配る前に、issue-deckの共有トークンAPIから受け口の認証値を読めることを確かめる（#581）。
 #
-# NOTICE_INGEST_TOKEN・OPS_API_TOKEN は #570 から環境変数で配らず、共有トークン
-# （AIDE_BOT_NOTICE_INGEST_TOKEN・OPS_API_TOKEN）を実行時に読むだけになった。issue-deckへ未登録のまま
-# 配ると、フォールバックが無いので POST /api/notices・/api/mcp のお知らせ登録・GET /api/ai-usage が
-# 401 で閉じる（画面からは見えない）。**読めなければ、何も送る前に落とす。**
+# OPS_API_TOKEN は #570 から環境変数で配らず、共有トークン OPS_API_TOKEN を実行時に読むだけになった。
+# issue-deckへ未登録のまま配ると、フォールバックが無いので GET /api/ai-usage が
+# 401 で閉じる（お知らせの受け口は#663で廃止したので、AIDE_BOT_NOTICE_INGEST_TOKEN は確かめない）（画面からは見えない）。**読めなければ、何も送る前に落とす。**
 #
 # 必要な環境変数: SHARED_TOKEN_API_SECRET・ISSUE_DECK_URL（`src/lib/shared-token.ts` と同じ）。
 # 値・Bearerは出力しない（HTTPステータスだけを見る）。読み取りは利用元 `aide-bot` として記録される。
 set -euo pipefail
 
 : "${SHARED_TOKEN_API_SECRET:=}" "${ISSUE_DECK_URL:=}"
-NAMES=(AIDE_BOT_NOTICE_INGEST_TOKEN OPS_API_TOKEN)
+NAMES=(OPS_API_TOKEN)
 
 if [[ -z "$SHARED_TOKEN_API_SECRET" || -z "$ISSUE_DECK_URL" ]]; then
   echo "::error::SHARED_TOKEN_API_SECRET と ISSUE_DECK_URL（organization変数 APP_BASE_URL）が空です。共有トークンを読めないため配布を止めます" >&2
