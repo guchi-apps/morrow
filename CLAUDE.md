@@ -191,7 +191,6 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
   新しいRoute Handlerで本文を読むときは `request.json()` を直接呼ばない
 - **MCP（`/api/mcp`）だけは形の違う本文を400ではなくJSON-RPCの `-32600`（`id` は `null`）で返す。**
   JSONとして読めない本文は従来どおり400。呼ぶ側がJSON-RPCの応答として読めるようにするため
-- `POST /api/notices` は `parseNoticeInput()` が同じ判定を持っているので `request.json()` のまま
 
 ## チャット（相談）と音声は廃止した（#574）
 
@@ -202,19 +201,16 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
   `src/lib/speech/`）、会話の要約（compact）・会話の区切り・継続記憶（`/memory`）、会話からの設定変更・書き込み前の
   確認カード、自宅の前提の取り込み、声かけ・秘書の一言、書き込みの道具の許可設定（`WriteToolPicker`・Cookie）、
   「モデル」の画面の相談専用の用途（話す・書く・要約・自宅の前提・継続記憶）、過去の日の画面（`/d/<日付>`）・左メニューの日付一覧
-- **残したもの**: 朝の見通し・起きた合図（#79・#233）、お知らせの受け皿と急ぎのPush（#93・#115）、話題の仕入れと
+- **残したもの**: 朝の見通し・起きた合図（#79・#233）、話題の仕入れと
   定時のお知らせ（#144・#344・#362）、先回りの提案（#325）、通知の種類ごとのオン・オフ（#488）、使用量の記録と
   `/api/ai-usage`（#297）、`/c/<ID>` の転送（古い通知のURL。「届いた通知」（`/pushes`。#581）へ飛ばすだけ。消さない）
 - **DBのテーブル・列は#575で落とした**（`Conversation`・`Message`・`ToolCall`・`ContextBreak`・`Memory`、`User.homeProfile*`、
-  `ApiUsage.conversationId`・`NotificationLog.conversationId`）。`User.modelSettings` は朝の見通しなど4用途で使うので残す。`ApiUsage.feature` の `chat`・`compact`・
+  `ApiUsage.conversationId`・`NotificationLog.conversationId`）。`User.modelSettings` は朝の見通しなど3用途で使うので残す。`ApiUsage.feature` の `chat`・`compact`・
   `home_profile`・`memory` は移行前の行の名前としてだけ残している（`USAGE_FEATURE_LABELS`）
 - **通知の本文の読み先は `NotificationLog`**（ダッシュボードの「今日届いた通知」）。朝の見通し・急ぎ・先回りの提案・朝のニュースは、
   もう相談へ積まない（`appendSecretaryExchange()` は無い）
 - **ニュースの仕入れの起点は、話題画面の「最近の記事を取得する」ボタン（`POST /api/topics/refresh`）と、
-  定時のお知らせの直前（cron）の2つだけ**（#660。画面を開いても仕入れない）。ダッシュボードの `NoticeLiveProvider`
-  （`use-notice-poll.ts`。3分ごと・見えている間だけ・1時間触られなければ休む）はお知らせの選定の問い合わせなので、
-  **外さないこと**。`/api/notices/current` は `{ notice }` だけを返す
-  （ひとりごと・話題の輪・声かけは無い）
+  定時のお知らせの直前（cron）の2つだけ**（#660。画面を開いても仕入れない）。
 - **`src/lib/anthropic.ts` はファイル名に反してSDKを使っていない**（#183）。朝の見通し・先回りの提案・お知らせ選定の
   プロンプトの置き場。**アプリからAnthropic（Claude）を呼ぶ経路はもう無い**（`ANTHROPIC_API_KEY`・`@anthropic-ai/sdk` も無い）。
   使ったトークン量は#133から `ApiUsage` へ記録している（費用が付かないだけ）
@@ -235,7 +231,7 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
 
 返答の生成元をAnthropic ClaudeからOpenAI Codex CLI（ChatGPTのサブスク枠で動く）へ移した（#128。
 その後#132・#167・#183で全経路が移り、**Claudeを呼ぶ経路は残っていない**）。#574で相談を廃止したので、
-いま使うのは朝の見通し・先回りの提案・お知らせの選定・話題の仕入れ。以下はCodexを呼ぶ全経路に共通の事実。
+いま使うのは朝の見通し・先回りの提案・話題の仕入れ（お知らせの選定は#663で廃止）。以下はCodexを呼ぶ全経路に共通の事実。
 
 - **`turn.completed` の `usage` にトークン数が載る**（#133）。取れないのはChatGPTサブスクの
   利用枠（5時間ローリング・週次）の消費率だけ。`runCodexExec()` はこれを `CodexResult.usage` で
@@ -297,8 +293,8 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
 （5.6系は選択肢から外れ、過去の使用量の記録にだけ残る）。サブスクの定額制なので、賢さとサブスクの利用枠
 （5時間ローリング＋週次）の減りの速さのトレードオフで選ぶ。
 
-- **用途の正は `src/lib/chat-model.ts` の `MODEL_USES` / `MODEL_USE_META` / `DEFAULT_MODELS`。** 4用途
-  （朝の見通し・先回りの提案・お知らせの選定・話題の仕入れ。#574で相談専用の5用途を消した。保存済みの値に
+- **用途の正は `src/lib/chat-model.ts` の `MODEL_USES` / `MODEL_USE_META` / `DEFAULT_MODELS`。** 3用途
+  （朝の見通し・先回りの提案・話題の仕入れ。#574で相談専用の5用途を消した。保存済みの値に
   残っていても `resolveModelSettings()` が読まない）。
   **用途を足すときは3つの表を揃える**（`Record<ModelUse, …>` なので漏れは型で落ちる）。既定は従来の役割に
   合わせた値（5.6のSol→Astra、Terra→Sol、Luna→Luna）。このモジュールはクライアントからもimportするので、
@@ -322,8 +318,8 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
 ## 今日のダッシュボード（#573）
 
 **トップ（`/`）は今日のダッシュボード**（#573。相談は#574で廃止した）。
-天気・予定（AIDE）・今日届いた通知・お知らせ・話題を並べる、見るだけの画面（`src/components/dashboard/dashboard-view.tsx`）。
-朝の見通し・急ぎのお知らせ・先回りの提案の通知を押すとここへ着き、本文は「今日届いた通知」に出る。
+天気・予定（AIDE。タスクを含む）・今日届いた通知・話題を並べる、見るだけの画面（`src/components/dashboard/dashboard-view.tsx`）。
+朝の見通し・先回りの提案の通知を押すとここへ着き、本文は「今日届いた通知」に出る。
 
 - **天気・予定はモデルを通さず、AIDEのMCPを直接叩く**（`src/lib/mcp/direct-call.ts`）。依存は足さず、
   `initialize` → `notifications/initialized` → `tools/call` をfetchで送るだけ。応答はJSONとSSEのどちらも読み
@@ -335,10 +331,6 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
 - **プロセス内で成功5分・失敗1分キャッシュする**（`src/lib/dashboard/aide.ts`。鍵に日本時間の日付を含む）。走っている
   取得は共有する。画面はスマホ用とPC用の2つの並びを描き分けている（CSSで片方を隠す）ので、これが無いとAIDEへ2本ずつ出る。
   未接続はキャッシュしない
-- **ダッシュボードがお知らせの選定を動かす。** `/api/notices/current` はその起点（ニュースの仕入れは#660から起こさない）で、チャット廃止（#574）後に
-  アプリを開いたときに叩くのはここだけ。ダッシュボードは `NoticeLiveProvider`（`live-notice-line.tsx`）が `useNoticePoll()`
-  （`use-notice-poll.ts`。3分ごと・見えている間だけ・1時間触られなければ休む）を**1本だけ**持ち、選ばれた一言を「いまの一言」に出す
-  （出さずに消費しない。#114）
 - **「今日届いた通知」の正は `NotificationLog`**（本文が空＝黙った回は出さない。定時のお知らせは `/topics` が受け皿なので除く）。
   通知は会話へ積まない（#574）
 - **きのう以前の通知の本文は「届いた通知」（`/pushes`。#581）で読む。** ダッシュボードは今日の分しか出さず、#574で過去の日の画面
@@ -359,8 +351,7 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
 - **予定は `aide_schedule` の `offsetDays`**（今日だけ従来どおり `days: 3`。日付を自分で作らない）。キャッシュ（`cached()`）の鍵にずれを足してある
 - **自宅の日別予報は今日・明日だけAIDE、それ以外の日は自宅の地点（AIDEの `location`）のOpen-Meteo**（`dashboardDayWeather()`）。地点が無い間は
   「この日の予報はありません」（`none`）で、取得失敗（赤）とは分ける。区間の自宅も同じ理由で、AIDEの2日に無い日は `unresolved`
-- **今日以外では「いま」の状態（お知らせ・話題・現在地の天気）を出さない。** 未来の日は届いた通知も出さない。
-  `NoticeLiveProvider` はどの日でも外さない（お知らせの選定の起点。上の節）
+- **今日以外では「いま」の状態（話題・現在地の天気）を出さない。** 未来の日は届いた通知も出さない。
 - **スワイプは、画面の左右24pxから始めた操作を無視する。横にスクロールできる要素（1時間ごとの帯）の上では、帯が0時／23時の端に着いたあとの引きだけをめくりに使う**（#620。帯が動く間は日が変わらない。判定は純粋な `day-swipe-edge.ts`・`test/day-swipe-edge.test.ts`。帯には `overscroll-x-contain` を付けてある）。iOSの殻は端からの
   スワイプを戻る・進むに使う（`allowsBackForwardNavigationGestures`）。移るのは `router.replace`（‹ › も `replace`）で、日付めくりを履歴に積まない
 - 天気・予定の `Suspense` は `key` に日付を入れてある。めくった直後に前の日の中身を残さず「取得しています…」を出すため
@@ -399,6 +390,7 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
   （`INFOPLIST_KEY_NSLocationWhenInUseUsageDescription`）を持ち、WKWebViewがOSの許可ダイアログ経由で位置を渡す（Swiftの追加は無い）。
   利用目的を持たない古い殻では拒否として返るので、アプリ内の拒否の案内は「設定アプリで許可／最新版へ更新」にしてある
 - **雨雲レーダー（#654。`rain-radar.tsx`・純粋な計算は `src/lib/weather/radar.ts`・`test/radar.test.ts`）は「現在地」を開いた中に出す。** 気象庁の高解像度降水ナウキャスト（`www.jma.go.jp/bosai/jmatile`。**公開仕様ではない**）を地理院タイルに重ねる。依存は足していない（`<img>` を並べるだけで、指で地図は動かせない）。**時刻の一覧もタイルもブラウザから直接取る**——相手にはIPとタイル番号（約30km単位）が見えるが、正確な座標は渡さずリファラも送らない。サーバー経由にしないのは、middlewareがタイル1枚ごとにSupabaseへ往復するため。**雨雲タイルが取れなかったコマは赤で知らせる**（空の地図は「雨なし」に見える。#214）。スライダーの行は `data-no-day-swipe` で日めくりから外してある（地図の上のスワイプは従来どおりめくる）。iOSの殻の保存（#643）には地図の `<img>` のURLだけが残り、画像は保存されない
+- **雨雲レーダーはナウキャストの先（1時間より後）を降水短時間予報（`rasrf`。#666）で継ぎ足す**（最大約15時間先・1時間刻み・解像度は粗い）。一覧（`jmatile/data/rasrf/targetTimes.json`）は他の製品・解析値も混ざるので `parseLongRangeTimes()` が `rasrf` の予報（`validtime` > `basetime`）だけ採り、同じ時刻は新しい基準時刻を使う。**タイルのURLに一覧の `member`（`none`／`immed`）が入る**（`rainTileUrl()`。`none` 固定にすると404）。取れなかった回はナウキャストの範囲で動き続け、画面に知らせる。Yahoo天気（YOLP）は地点ごとの値だけで地図タイルが無く、appid発行も要るため採らなかった
 - 手元で確かめるときは、上のスタブMCPに `aide_weather`（`location` 付き・無しの両方）と `aide_schedule`（`days` を受ける）を答えさせる
 - 手元では、ローカルのスタブMCP（`initialize` と `tools/call` に答えるだけ）を立て、`McpConnection.url` と
   `MCP_PRESETS` の `aide` の `url` を一時的にそちらへ向けて確かめる（**`presets.ts` は戻すこと**）。シードは
@@ -577,9 +569,9 @@ Claudeを呼ぶ場所は1つも無い**。移せるようになったのは#131�
 
 ## 共有トークンから認証値を取る（#403）
 
-**`NOTICE_INGEST_TOKEN`（受ける側。aide・research-deskから届く）と `OPS_API_TOKEN`（ops-dashboardから届く）は、
-issue-deckの共有トークンAPIから実行時に取る**（`src/lib/shared-token.ts`。共有トークン名は
-`AIDE_BOT_NOTICE_INGEST_TOKEN` / `OPS_API_TOKEN`）。1Passwordからの複製をやめる「方式A」。
+**`OPS_API_TOKEN`（ops-dashboardから届く）は、
+issue-deckの共有トークンAPIから実行時に取る**（`src/lib/shared-token.ts`。共有トークン名も
+`OPS_API_TOKEN`。お知らせの受け口の `AIDE_BOT_NOTICE_INGEST_TOKEN` は#663で廃止）。1Passwordからの複製をやめる「方式A」。
 
 - **取れなければ従来の環境変数へフォールバックする**（`sharedTokenOrEnv()`。ただし本番では環境変数をもう配らないので、手元・移行前の環境向け）。キャッシュ10分・タイムアウト5秒・
   失敗時は古くても直前の値。`SHARED_TOKEN_API_SECRET` と `ISSUE_DECK_URL`（deploy.ymlでorganization変数
@@ -588,208 +580,22 @@ issue-deckの共有トークンAPIから実行時に取る**（`src/lib/shared-t
   `aide-bot` が出ることを必ず確かめる（出なければsecret・変数が未登録のままフォールバックしている）。
   取れなかった回は `console.warn` にも残る
 - **#570から、環境変数のフォールバックは配らない**（`deploy.yml`・マニフェストから外した）。issue-deckへ
-  `AIDE_BOT_NOTICE_INGEST_TOKEN`・`OPS_API_TOKEN` が未登録だと、お知らせの受け口（`POST /api/notices`・`/api/mcp`）と
-  `GET /api/ai-usage` が401で閉じる。**そのため `deploy.yml` は、何も送る前に `scripts/check-shared-tokens.sh` で2つを
+  `OPS_API_TOKEN` が未登録だと `GET /api/ai-usage` が401で閉じる。**そのため `deploy.yml` は、何も送る前に `scripts/check-shared-tokens.sh` で
   読めるか確かめ、読めなければ配布を止める**（#581。404＝未登録、401/403/503＝`SHARED_TOKEN_API_SECRET` の不一致）。
   登録そのもの（issue-deckの設定画面での登録・利用元 `aide-bot` の確認）は人の作業で、#570の手順1。
   **確認用の読み取りも利用元 `aide-bot` として記録される**。`test/check-shared-tokens.test.ts` がスタブで判定を固定する
-- 値・Bearerはログに出さない。`isNoticeIngestAuthorized()` は非同期になった（呼ぶ側は `await`）
+- 値・Bearerはログに出さない
 
-## お知らせの受け皿と、「いまの一言」（#93）
+## お知らせ機能は廃止した（#663）
 
-**各アプリが「利用者に知らせたいこと」を `Notice` へ積み、秘書がダッシュボードで待っている間に
-1件選んで「いまの一言」に出す。** 選ぶのも文面を書くのもモデル（`src/lib/notices.ts`）。
-朝の見通し（#79）と違い、材料を外部サービスへ取りに行かない——もう積まれている。
+「いまの一言」・お知らせの一覧（`/notices`）・受け口（`POST /api/notices`・MCPのお知らせ3ツール）・選定（Codex）・急ぎ（URGENT）のPush・
+`Notice` テーブル・用途「お知らせの選定」・共有トークン `AIDE_BOT_NOTICE_INGEST_TOKEN` / `NOTICE_INGEST_TOKEN` を消した。トップは
+予定（タスクを含む）・天気・今日届いた通知・話題を見せるだけ。`/notices` は `/` へ転送する（古い通知のURL用。消さない）。
+`/api/mcp` に残るのはタスクのツール（`aide_task_*`。`TASK_API_TOKEN`）だけで、未設定なら経路ごと401。
 
-- **積む口はHTTPまたはMCP**（`POST /api/notices` / `POST /api/mcp`・共有シークレットのBearer。
-  **`NOTICE_INGEST_TOKEN` 未設定なら経路ごと401**）。ChatGPTのスケジュールはMCPの3ツールから登録し、
-  既存のHTTP入口と同じ `ingestNotice()`・重複排除を通す。他アプリは同じMariaDBに同居しているので
-  直接INSERTさせることもできるが、それをやると**このスキーマが外部の実装に固定され**、
-  列を1つ足すたびに全アプリを直すことになる。宛先は `email`（`User.email` は一意）
-- **MCPの3ツールの入力に `body` は無い**（#247）。`title` / `summary` / `recommendedAction` を
-  `composeBody()`（`src/app/api/mcp/route.ts`）でつないで `body`（上限500文字）にしており、
-  **title は本文の先頭にも入る**ので2回数える。`parseNoticeInput()` が超過を返すと `body` を
-  名指しし、呼ぶ側（ChatGPTのスケジュール）はどの項目を縮めればよいか分からず、そのお知らせは
-  登録されない。**そのため `callTool()` が先に、項目名と超過した文字数つきで断る**。上限は
-  `NOTICE_BODY_MAX` / `NOTICE_TITLE_MAX`（`src/lib/notice-ingest.ts`）に1か所で持ち、
-  ツールの `inputSchema` の `maxLength` と説明文にも同じ値を出す。切り詰めて受け付ける形は
-  採らなかった——`aide_save_daily_brief` の後半（推奨アクション等）が黙って落ちるため
-- **未読が0件ならモデルを呼ばない。黙っている間の費用は0円。** これが「10分ごとに走る」を
-  許容できる唯一の理由なので、候補が無くても定型文を出すような形へ変えないこと
-- **黙った回（`NO_NOTICE`）も「叩いた」ものとして残す**（`lastRuns`。プロセス内のMap。
-  PM2で1プロセスという前提）。残さないと次の問い合わせで
-  また叩き、**いちばん起こりやすい「知らせることが無い」場面で費用が10倍になる**
-- **選び直すのは10分に1回まで。ただし、まだ一度も候補に入れていない急ぎ（`URGENT`）が
-  積まれた回だけ1分まで詰める。** 画面側（`use-notice-poll.ts`）は3分ごとに問い合わせるが、
-  **そのほとんどはDBを引くだけで戻る**。頻度を上げてよいのはこの造りのため
-- **黙った回の後は、候補が変わらないかぎり10分おきにも呼ばない**（#227。判定は `notice-schedule.ts` の
-  `shouldGenerate()`）。以前は `NO_NOTICE` で黙った後も未読が1件でも残れば10分ごとに選び直しており、
-  同じ候補を同じ基準で見せ直すだけなのに1回約12,600トークンを使っていた（ダッシュボードを開いている間は
-  1時間に最大6回）。黙った回（`LastRun.silent`）の後は、**前回の候補に入っていなかったお知らせが増えた・
-  前回から60分（`NOTICE_REFRESH_MS`）経った・時間帯（朝・昼・夜の区切り。`notice-schedule.ts` の `noticeSlot()`）が
-  変わった・候補の期限が60分／15分のしきい値を越えた**のどれかが起きるまで呼ばない。
-  **候補が減っただけ（期限切れ・出し終えた）では呼ばない**（減った側は前回すべて見せて黙られている）。
-  **前回が何かを選んだ回は絞らない**——選ばれなかった残りは順番待ちで、まだ一度も見せていないため、
-  従来どおり10分おきに進め、黙った回に当たった時点で止まる。急ぎ（1分）の割り込みは絞り込みの外。
-  期限のしきい値は「越えるたびに1回」で、残り60分以内の間ずっと呼ぶ形にはしていない。
-  判定は Prisma に触れない別ファイルへ出してあり、`test/notice-schedule.test.ts` が固定する
-- **`resolveNotice()` は利用者ごとに同時に1本だけ走る**（#463。`inFlight`）。複数端末のポーリングが重なると、同じ候補でCodexが二重に走り2件が同時に `shownAt` を持ちうる。走っている間に来た問い合わせは同じPromiseの結果を共有する（PM2で1プロセスという前提は `lastRuns` と同じ）
-- **一度出した行は二度と候補にならない**（`shownAt`）。`ingestNotice()` のupsertは
-  出した行を未読へ戻さない。戻すと同じ話が何度でも吹き出しに出る
-- **モデルの返答は1行目が「番号（＋`URGENT`）」、2行目が吹き出しに出す文。**
-  知らない形で返ってきた回は**黙る**（`parseChoice()` が null）。無理に読み取ると、前置きの
-  一文がそのまま吹き出しに出たり、番号として読めないものを0番と見なして関係の無いお知らせを
-  消費したりする。生成に失敗した回は `lastRuns` にも残さず、次の問い合わせでやり直す
-- **出した吹き出しは60分で引っ込める**（`NOTICE_DISPLAY_TTL_MS`）。残し続けると、朝に選ばれた
-  お知らせが夜まで頭上に居座り、いま知らせている内容だと誤解される
-- **開きっぱなしのタブへの錠は2つ。** 画面が見えている間だけ動かすことと、1時間触られなければ
-  休むこと（`IDLE_LIMIT_MS`）。前者だけでは、サブディスプレイに置いた画面が丸一日ぶんの
-  生成を回す
-- **モデルを叩かない問い合わせもただではない。** `/api/*` はRoute Handlerが自分で認証するが、
-  **middlewareは素通しの判定より前に必ず `auth.getUser()` を通す**（`src/lib/supabase/middleware.ts`）
-  ため、問い合わせ1回ごとにSupabaseへ1往復増える。Supabaseは他アプリと共有のプロジェクトで、
-  レート制限もそちらに効く。`POLL_INTERVAL_MS` を縮めるときはここを見ること
-- **aide-bot自身が最初の「積む側」になっている。** 朝の見通し（#79）が通知を送った回は、
-  同じ一言を `Notice` へも積む（`src/lib/briefing.ts`）。受け皿と投入口だけでは、繋いだアプリが
-  積みに来るまで吹き出しは黙ったままになる。**AIDEから材料を取れる経路はここだけ**
-  （aide-botはMCPクライアントを実装していない）
-- **吹き出しにエラーを出さない。** 通信も生成も、失敗した回はログにだけ残していまの表示を
-  続ける。状況を知らせる場所が小言で埋まると読まれなくなる（#79と同じ理由）
-- 開発DBにはダミーのお知らせを入れてある（`scripts/seed-ci-db.mjs` の `NOTICE_SEEDS`）。
-  **未読が0件だと吹き出しは正しく黙る**ので、空のままでは実装が効いているのか材料が無いだけ
-  なのかを画面から切り分けられない。**「まだ出せない」（`showAt` が先）と「出さないまま
-  期限が切れた」（`expiresInMinutes` が負）のダミーも入れてある**（#114）。この2つは
-  吹き出しには一生出ないので、一覧（`/notices`）でしか見えない
-
-### お知らせの選定をCodexへ移した（#132）
-
-**候補から1件選んで言い直すのを、Anthropic ClaudeからCodex CLIへ移した**（チャットの#128に続く
-2本目）。プロンプト（`noticeSystemPrompt()`）も返させる形も読み取り（`parseChoice()`）も変えていない。
-当時は**朝の見通し（#79）だけがClaudeのまま**残った——本文の材料をすべてAIDEのMCP接続から取る
-設計で、Codex側のMCPの扱いが決まる前に移すと届く通知が空になるため。扱いは#131で決まり、
-**#183で移した**（下記「朝の見通しをCodexへ移した（#183）」）。
-
-- **`noticeSystemPrompt()` は `src/lib/anthropic.ts` に置いたまま。** ファイル名に反するが、
-  ここは秘書としての振る舞い（`SECRETARY_INTRO` は#226から `src/lib/persona.ts`）の置き場で、**Anthropic SDKを使うかどうかとは
-  無関係**——朝の見通し・先回りの提案もここから読んでいる
-- **Codexにはシステムプロンプトを別に渡す口が無い。** 体裁の指示と候補一覧を `---` で繋いだ1本のプロンプトにする（`buildNoticePrompt()`）。
-  **末尾に「本文だけを返せ」の一文は足していない**——`noticeSystemPrompt()` が返させる形を
-  最後まで指定しているため
-- **`max_tokens` に当たる引数が無い。** `NOTICE_MAX_OUTPUT_TOKENS`（300）は消した。長さの
-  歯止めはプロンプトの「40文字前後」「3行目以降は書かない」だけになっている
-- **タイムアウトを付けた**（`CODEX_TIMEOUT_MS`、60秒）。この経路はダッシュボードから3分ごとに
-  叩かれるので、返らなくなると詰まったリクエストが積み上がる。`runCodexExec()` は打ち切りを
-  `interrupted` で返すが、**この経路に利用者からの割り込みは無い**ので、立っていれば上限に
-  掛かったものとして失敗扱いにする
-- **失敗（例外）と「黙った」（null）を分ける。** 例外は呼び出し元が捕まえて `lastRuns` を
-  更新せずに戻る＝次の問い合わせでやり直す。**読めない形で返ってきた回はnull**——モデルは
-  実際に答えており、同じ候補ですぐ叩き直しても結果は変わらないため
-- **`ApiUsage` への記録は#133で戻した。** #132の時点では「定額制だから」という理由でやめたが、
-  トークン量そのものは `turn.completed` から取れる。量は `/api/ai-usage`（ops-dashboard向け）で読める
-  （画面の `/usage` は#634で廃止）。**金額には積まない**
-- **Codexは自前の指示文を毎回前置きする。** 実測（サブPC・`codex-cli 0.152.1`）で、プロンプトを
-  `"ok"` の2文字にしても入力は12,113トークンだった。お知らせ選定の実回は12,568〜12,615トークン
-  （うち8,960はキャッシュ読み）で、**足しているのは自前のプロンプトぶん約500トークンだけ**。
-  `--ignore-user-config` で外れるのは利用者の `~/.codex/config.toml` 側だけで、この前置きは消せない。
-  **「未読が0件なら叩かない」「10分に1回まで」の歯止めは、これまでより効いている**
-- **所要は3.5〜5.3秒**（同・`gpt-5.6-luna`。Claudeのときより伸びる）。待っている間、画面は
-  いま出しているものをそのまま出し続けるので止まらない
-
-### 急ぎ（`URGENT`）のお知らせをその場でPushする（#115）
-
-**`URGENT` は受け付けているのに、届くのはダッシュボードを開いている端末の「いまの一言」だけだった。**
-画面を閉じていればその用件は誰にも届かないまま `expiresAt` を過ぎる。`ingestNotice()`
-（`src/lib/notices.ts`）が `priority === URGENT` を積んだ回にかぎり、その場でWeb Pushを
-1本送るようにしてある。
-
-- **文面はモデルに書かせない。** 積む側の `body` をそのまま出す。生成を挟むと#93の
-  「黙っている間の費用は0円」が崩れる（「いまの一言」用の選定・言い直しとは別経路）
-- **抑制は `NotificationLog` の一意制約 `(userId, kind, dedupeKey)` に任せる。**
-  `dedupeKey` には `Notice.id` をそのまま使う。`ingestNotice()` は同じ `(source, kind,
-  dedupeKey)` を上書き（「あと30分」→「あと8分」）する設計だが、upsertでも `Notice.id` は
-  変わらないため、同じ用件が積み直されても2回目以降は一意制約に触れてPushが飛ばない。
-  Issue本文の提案どおり `<source>:<kind>:<dedupeKey>` を連結する形だと、`Notice` 側の入力上限
-  （source/kind各40文字・dedupeKey120文字）をそのまま繋いだ場合に
-  `NotificationLog.dedupeKey`（`@db.VarChar(120)`）を超過しうるため採らなかった
-- **押した先は、`Notice.url` があればそのページ（#137）。** 無い用件だけ、ダッシュボード（`/`）を開く。
-  届いた文面は「今日届いた通知」（`NotificationLog`）に残る。**会話へは積まない**（#574）
-- **重い処理（Push送信）の前に一意制約の有無を確かめる。** 先に
-  `NotificationLog.create()` してから重い処理へ進む順にしなかったのは、同じ用件が短時間に
-  何度も届く運用ではないため。ごく短い時間差での多重POSTでは二重送信のTOCTOUが残るが、
-  許容している
-- **1日あたりの上限は設けていない。** 同じ用件（`Notice.id`）の二重送信だけを防ぐ。
-  「読まれなくなる通知」を避ける仕組み（#79）とは別枠——URGENTは元々「時間を逃すと意味が
-  無くなる」用件に限られる前提のため
-- **`showAt` / `expiresAt` は吹き出し側（`pendingNotices()`）と同じ条件で絞る。**
-  積んだ時点では**まだ早い**（`showAt` が先）・**もう意味が無い**（`expiresAt` を過ぎた）
-  URGENTも、絞らなければそのままPushしてしまう。**`showAt` の到来だけを拾って後から送る
-  仕組みは無い。** まだ早い分は積んだ回に見送られ、次に同じ用件が積み直されて
-  `ingestNotice()` が呼ばれ直したときに改めて判定する
-- **開発DBのシード（`scripts/seed-ci-db.mjs`）はこの経路を通らない。** `NOTICE_SEEDS` は
-  `ingestNotice()` ではなく `db.notice.upsert()` を直接呼んでおり、`pnpm db:seed:dev` の
-  たびにPushが飛ぶことはない
-
-### 積まれたお知らせの一覧（#114）
-
-**「いまの一言」に出るのは1件だけなので、控えているものを見る場所を別に置く。** 左メニューの
-「お知らせ」（`/notices`）に、いま出している一言・待っている候補・出したもの・出さないまま
-期限が切れたものを並べる。**見るだけの画面で、操作は置いていない。**
-
-- **この画面は取り出すだけで、選定には一切関わらない**（`src/lib/notice-list.ts`）。
-  モデルを呼ばず、`shownAt` も書かない。**書くのは `resolveNotice()` の1か所のまま**——
-  一覧を開いただけで候補が消費されると、吹き出しに出るはずだったお知らせが画面を見た人にだけ
-  届いて終わる
-- **取り出しの条件は `src/lib/notice-conditions.ts` の1か所に閉じてある**（#229）。
-  `pendingNoticeWhere()`（未読でいま出せる）・`waitingNoticeWhere()`（未読だが `showAt` がまだ先）・
-  `currentNoticeWhere()`（いま吹き出しに出ている）が `Prisma.NoticeWhereInput` を返し、秘書の選定
-  （`notices.ts`）・この画面（`notice-list.ts`）・左メニューの件数が
-  同じ関数を通る。以前は4か所に手書きで複製していた。**条件を変えるときはこのファイルだけを直す**
-  ——ずれると「一覧には出ているのに候補に入らない」お知らせができ、原因が画面側かモデル側かを
-  切り分けられなくなる。**手元の1件に当てる `isWithinShowWindow()`（急ぎのPush）も同じ
-  ファイル**にある。`NOTICE_DISPLAY_TTL_MS` もここ（循環importを避けるため `notices.ts` から
-  移した）。Prismaは型だけをimportする純粋なモジュールで、`test/notice-conditions.test.ts` が
-  条件の意味（境目・重ならないこと・JS側との一致）を固定する
-- **`showAt` がまだ来ていないものは候補から外れるが、一覧には出す。** 出さないと
-  「積んだはずなのに何も出ない」を画面から切り分けられない。期限切れも同じ理由で別の欄に置く
-  ——**読まれずに消えたことが分かるのはここだけ**
-- **`Notice.title` は後から足した列で、既定は空文字。** 積む側が省略したぶんは
-  `ingestNotice()` が本文の1行目で埋めるが、列を足す前に積まれた行は空文字のまま残っている。
-  画面側でも同じ埋め方をする（`toRow()`）
-- **未読の件数は `(chat)/layout.tsx` で引く**ので、どの画面でも毎回1本増える。`count` 1本
-  なので今月の使用量と同じ `Promise.all` に混ぜて待ち時間は足さない
-- 日付・時刻は**日本時間で作る**（#79の `jstDayKey()`・#101の `jstParts()` と同じ理由）
-
-### 押した先へ移る（#137）
-
-**`Notice.url`（積む側が付ける元データへのリンク）を遷移先として使う。** 列もMCPの入力も#93から
-あったが、`prisma/schema.prisma` のコメントどおり「記録するだけで画面からは使わない」まま
-だった。使うのは3か所——急ぎのお知らせのPush（#115）・ダッシュボードの「いまの一言」・一覧（`/notices`）。
-
-- **判定は `safeNoticeUrl()`（`src/lib/notice-url.ts`）に閉じ、受け取るときと出すときの
-  両方で通す。** 受け付けるのは `http(s)://` の絶対URLと `/` で始まるパスだけで、
-  `javascript:` や `//evil.example.com`（プロトコル相対）は落とす。**`/\evil.example.com` も
-  同じ扱いにする**——Chromeはバックスラッシュをスラッシュとして読む。積む口
-  （`parseNoticeInput()`）だけで弾かないのは、列を足す前・判定を足す前に積まれた行が
-  DBに残っているため。このモジュールはクライアントコンポーネントからimportするので、
-  Prismaや `next/headers` に触れるものを持ち込まない
-- **`public/sw.js` に同じ判定を二重に持っている**（`safeTarget()`）。ビルドを通らない素のJSで
-  importできないため。**片方だけ直さないこと**——判定を直したら `test/cases.ts` の表へ入力を足す
-  （`pnpm test:unit` が3か所に同じ表を流す。#248）
-- **`WindowClient.navigate()` は同一オリジンのURLしか受け付けない。** 別オリジンを渡すと
-  拒否されて**何も起きない**（通知を押しても画面が変わらない）。`notificationclick` では
-  `new URL(target, self.location.origin).origin` で見て、別オリジンなら開いているタブを
-  探さずに `openWindow()` する。したがって `PushPayload.url` は**同一オリジンの相対パスとは
-  限らなくなった**（`src/lib/push/subscriptions.ts` のコメント）
-- **外部のリンクは新しいタブ、アプリ内のパスは `next/link` で同じタブ**（`isExternalNoticeUrl()`)。
-  絶対URLは同じオリジンを指していても「外」として扱う——サーバー・Service Worker・ブラウザで
-  「自分のオリジン」の見え方が揃わない（本番・localhost・tailnetのホスト名）
-- **「いまの一言」は丸ごとリンクにしない。** 面全体が押せると読んでいる途中の誤タップになる。押せるのは末尾の「開く」だけ
-- **一覧では見出しと「開く」を1つのリンクにまとめる**（`notices-view.tsx` の `Title`）。
-  2つに割ると、読み上げソフトには同じ行き先のリンクが2つ並んで聞こえる
-- **開発DBのシードには、リンク有り（外部・アプリ内）とリンク無しの両方を入れてある**
-  （`scripts/seed-ci-db.mjs`）。**リンク無しの行を残すのが要点**——全部にリンクがあると、
-  出し分けているのか全件に出しているのかを画面から切り分けられない。アプリ内を指すぶんは
-  `/`（ダッシュボード）で固定。実際の経路（`src/lib/briefing.ts` の `ingestNotice()`）と同じ値にしてある
+- **残したもの**: `notice-url.ts`（`safeNoticeUrl()`。話題のURL検証と `sw.js` の一致テストが使う）、`NotificationLog` の `urgent-notice`
+  （過去の通知を「今日届いた通知」・`/pushes` に出すため。新しくは作らない）、`ApiUsage.feature` の `notice`（過去の記録の名前）
+- 戻すなら履歴（PR #663より前）から拾う
 
 ## APIの消費量（#51）
 
@@ -925,7 +731,7 @@ ops-dashboardの「アプリ別のAI利用」（ops-dashboard#325）が、`GET /
   利用者ごとに同時実行は1つ・終わってから1分あける（プロセス内の記録。`maxDuration` は180秒）。未保存の種類には `key` が無いので仮のid（`preview`）でプロンプトと `parseTopics()` を通す
 - 開発DBのシード（`scripts/seed-ci-db.mjs` の `TOPIC_SEEDS`）は実際の検索を走らせない。
   **期間（24時間）を過ぎた行を1件入れてある**——一覧にもダッシュボードにも出ないことを確かめるため。
-  実際の仕入れを手元で通すには、`Topic.fetchedAt` を2時間ほど戻してから `/api/notices/current` を
+  実際の仕入れを手元で通すには、`Topic.fetchedAt` を2時間ほど戻してから 「最近の記事を取得する」ボタン（`POST /api/topics/refresh`）を
   叩き、30〜60秒待って `Topic` を見る
 
 ## 定時のお知らせ（#344）
@@ -1212,15 +1018,11 @@ CI専用のプレースホルダーでよい。
 
 - **対象は「外から来た値を判定する関数」と、ずれると静かに壊れる件数の計算。** いまは
   `isInternalPath()` / `safeInternalPath()`・`safeNoticeUrl()`・`public/sw.js` の `safeTarget()`
-  との一致・`readJsonObject()`（#262）・`parseNoticeInput()`
-  （`notice-ingest.ts`）・`parseChoice()`（`notice-choice.ts`）・`shouldGenerate()`（`notice-schedule.ts`。お知らせ選定を呼び直す条件。#227）・`buildAiUsageReport()` /
+  との一致・`readJsonObject()`（#262）・`buildAiUsageReport()` /
   `hasValidBearer()`（`ai-usage-report.ts`・`bearer-auth.ts`。使用量APIの組み立てとBearer検証。#297）・
-  `pendingNoticeWhere()` ほか（`notice-conditions.ts`。お知らせの未読・表示中の条件。#229）・
   `throwIfCodexFailed()`（`codex.ts`。Codexの打ち切り・失敗の文言。#229）。**PrismaやSupabaseへ触れる
   モジュールはimportしない**（テストからDBへ繋がない）。**DBに触れるモジュールの中にある計算を
-  テストしたいなら、純粋な関数として別ファイルへ切り出す**（#265で `parseChoice()` を
-  `notices.ts` から出した）。`@prisma/client` の `NoticePriority`
-  のように、生成物を実行時にimportするだけのものは素のNodeでも読める
+  テストしたいなら、純粋な関数として別ファイルへ切り出す**。生成物を実行時にimportするだけのものは素のNodeでも読める
 - **入力の表は `test/cases.ts` に1つだけ置き、3か所に流す。** `sw.js` は `node:vm` で読み込んで
   `safeTarget()` を取り出す（`sw.js` をexportさせたり書き換えたりしない）。**判定を直したら、
   この表へ入力を足す**
