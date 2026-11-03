@@ -15,7 +15,6 @@ import { Suspense } from "react";
 import { CurrentLocationWeather } from "@/components/dashboard/current-location-weather";
 import { DaySwipe } from "@/components/dashboard/day-swipe";
 import { ScrollToNow } from "@/components/dashboard/scroll-to-now";
-import { LiveNoticeLine, NoticeLiveProvider } from "@/components/dashboard/live-notice-line";
 import { dashboardSchedule } from "@/lib/dashboard/aide";
 import { addDays, cardDayName, DAY_RANGE, dayHref, relativeDayName } from "@/lib/dashboard/day-offset";
 import type { ScheduleItem, ScheduleView, WeatherDay } from "@/lib/dashboard/parse";
@@ -30,7 +29,7 @@ import {
 } from "@/lib/dashboard/places";
 import { compareWithYesterday, describeDiff } from "@/lib/dashboard/temperature-diff";
 import { tempDelta, type TempDelta } from "@/lib/dashboard/temp-delta";
-import type { DashboardNotices, DashboardTopic, DeliveredPush } from "@/lib/dashboard/today";
+import type { DashboardTopic, DeliveredPush } from "@/lib/dashboard/today";
 import { dayLabel, jstDayKey, jstTimeLabel } from "@/lib/day-key";
 import { describeWeatherCode, RAIN_POP, type RainVerdict } from "@/lib/weather/rain-check";
 import { cn } from "@/lib/utils";
@@ -38,15 +37,15 @@ import { cn } from "@/lib/utils";
 /**
  * 今日のダッシュボード（#573）。トップ（`/`）に出す。**見るだけの画面で、操作は置かない。**
  *
- * サーバーコンポーネントのまま置く（`/notices` と同じ）。天気・予定はAIDEへ取りに行く
- * ので `Suspense` で後から流し、DBだけで出せるもの（届いた通知・お知らせ・話題）を先に描く。
+ * サーバーコンポーネントのまま置く。天気・予定はAIDEへ取りに行く
+ * ので `Suspense` で後から流し、DBだけで出せるもの（届いた通知・話題）を先に描く。
  *
- * 並びは、スマホ（1列）で上から「天気 → 予定 → 今日届いた通知 → お知らせ → 話題」。PC・iPad
- * （lg以上）は左に天気・お知らせ・話題、右に予定・届いた通知の2列。
+ * 並びは、スマホ（1列）で上から「天気 → 予定 → 今日届いた通知 → 話題」。PC・iPad
+ * （lg以上）は左に天気・話題、右に予定・届いた通知の2列。
  *
  * 左右のスワイプ（`DaySwipe`）・見出しの ‹ › で前後の日へめくる（#606。`?d=`）。今日以外の日は、天気・予定・
- * その日届いた通知（未来の日は出さない）だけを出す。お知らせ・話題・現在地の天気は「いま」の
- * 状態なので今日だけ。お知らせの問い合わせ（`NoticeLiveProvider`）はどの日でも外さない（仕入れの起点）。
+ * その日届いた通知（未来の日は出さない）だけを出す。話題・現在地の天気は「いま」の
+ * 状態なので今日だけ。
  */
 
 type Props = {
@@ -56,11 +55,10 @@ type Props = {
   /** 表示する日の今日からのずれ（0＝今日）。 */
   offset: number;
   pushes: DeliveredPush[];
-  notices: DashboardNotices;
   topics: DashboardTopic[];
 };
 
-export function DashboardView({ userId, now, todayKey, offset, pushes, notices, topics }: Props) {
+export function DashboardView({ userId, now, todayKey, offset, pushes, topics }: Props) {
   const dayKey = addDays(todayKey, offset);
   const dayName = cardDayName(dayKey, offset);
   const isToday = offset === 0;
@@ -88,7 +86,6 @@ export function DashboardView({ userId, now, todayKey, offset, pushes, notices, 
   );
   // 未来の日はまだ何も届いていないので出さない。
   const pushCard = offset <= 0 && <PushCard pushes={pushes} day={dayName} isToday={isToday} />;
-  const noticeCard = isToday && <NoticeCard notices={notices} />;
   const topicCard = isToday && <TopicCard topics={topics} />;
 
   const prev = offset > -DAY_RANGE ? offset - 1 : null;
@@ -96,45 +93,40 @@ export function DashboardView({ userId, now, todayKey, offset, pushes, notices, 
   const peekName = (target: number) => relativeDayName(target) ?? cardDayName(addDays(todayKey, target), target);
 
   return (
-    // お知らせの問い合わせ（選定・仕入れの起点）は1本だけ。2つの並びのどちらからも同じ値を読む。
-    <NoticeLiveProvider initial={notices.current}>
-      <DaySwipe
-        prevHref={prev === null ? null : dayHref(todayKey, prev)}
-        nextHref={next === null ? null : dayHref(todayKey, next)}
-        prevLabel={prev === null ? null : peekName(prev)}
-        nextLabel={next === null ? null : peekName(next)}
-      >
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto flex w-full max-w-[980px] flex-col gap-3 px-3.5 py-4 md:gap-4 md:px-7 md:py-6">
-            <DayNav todayKey={todayKey} offset={offset} prev={prev} next={next} now={now} />
+    <DaySwipe
+      prevHref={prev === null ? null : dayHref(todayKey, prev)}
+      nextHref={next === null ? null : dayHref(todayKey, next)}
+      prevLabel={prev === null ? null : peekName(prev)}
+      nextLabel={next === null ? null : peekName(next)}
+    >
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex w-full max-w-[980px] flex-col gap-3 px-3.5 py-4 md:gap-4 md:px-7 md:py-6">
+          <DayNav todayKey={todayKey} offset={offset} prev={prev} next={next} now={now} />
 
-            {/* スマホ: 1列（読む順） */}
-            <div className="flex flex-col gap-3 lg:hidden">
-              {weather}
-              {schedule}
-              {pushCard}
-              {noticeCard}
-              {topicCard}
-            </div>
-
-            {/* PC・iPad横向き: 2列。どちらの並びもHTMLに入り、CSSで片方を隠す（取得の重複は `DesktopOnly` の注記） */}
-            <DesktopOnly>
-              <div className="grid grid-cols-[minmax(0,5fr)_minmax(0,7fr)] items-start gap-3.5">
-                <div className="flex min-w-0 flex-col gap-3.5">
-                  {weather}
-                  {noticeCard}
-                  {topicCard}
-                </div>
-                <div className="flex min-w-0 flex-col gap-3.5">
-                  {schedule}
-                  {pushCard}
-                </div>
-              </div>
-            </DesktopOnly>
+          {/* スマホ: 1列（読む順） */}
+          <div className="flex flex-col gap-3 lg:hidden">
+            {weather}
+            {schedule}
+            {pushCard}
+            {topicCard}
           </div>
+
+          {/* PC・iPad横向き: 2列。どちらの並びもHTMLに入り、CSSで片方を隠す（取得の重複は `DesktopOnly` の注記） */}
+          <DesktopOnly>
+            <div className="grid grid-cols-[minmax(0,5fr)_minmax(0,7fr)] items-start gap-3.5">
+              <div className="flex min-w-0 flex-col gap-3.5">
+                {weather}
+                {topicCard}
+              </div>
+              <div className="flex min-w-0 flex-col gap-3.5">
+                {schedule}
+                {pushCard}
+              </div>
+            </div>
+          </DesktopOnly>
         </div>
-      </DaySwipe>
-    </NoticeLiveProvider>
+      </div>
+    </DaySwipe>
   );
 }
 
@@ -968,19 +960,7 @@ export function PushList({ pushes }: { pushes: DeliveredPush[] }) {
   );
 }
 
-/* ---------------- お知らせ・話題 ---------------- */
-
-function NoticeCard({ notices }: { notices: DashboardNotices }) {
-  return (
-    <Card title="お知らせ" link={{ href: "/notices", label: "一覧へ" }}>
-      <LiveNoticeLine />
-      <p className="text-xs text-muted">
-        まだ出していない <b className="font-semibold tabular-nums text-foreground">{notices.pendingCount}件</b>
-        {notices.urgentCount > 0 && `（うち急ぎ ${notices.urgentCount}件）`}
-      </p>
-    </Card>
-  );
-}
+/* ---------------- 話題 ---------------- */
 
 function TopicCard({ topics }: { topics: DashboardTopic[] }) {
   return (

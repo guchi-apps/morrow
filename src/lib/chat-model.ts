@@ -60,9 +60,9 @@ export function modelDisplayName(id: string): string {
  * （`User.modelSettings`）へ持つ。用途を足したら `MODEL_USES`・`MODEL_USE_META`・`DEFAULT_MODELS`
  * の3つを揃える（型で漏れは落ちる）。
  */
-export type ModelUse = "briefing" | "proactive" | "notice" | "topic";
+export type ModelUse = "briefing" | "proactive" | "topic";
 
-export const MODEL_USES: readonly ModelUse[] = ["briefing", "proactive", "notice", "topic"];
+export const MODEL_USES: readonly ModelUse[] = ["briefing", "proactive", "topic"];
 
 export type ModelUseGroup = "scheduled" | "background";
 
@@ -74,7 +74,6 @@ export const MODEL_USE_GROUP_LABELS: Record<ModelUseGroup, string> = {
 export const MODEL_USE_META: Record<ModelUse, { group: ModelUseGroup; label: string; hint: string }> = {
   briefing: { group: "scheduled", label: "朝の見通し", hint: "毎朝1回・10本の道具を集約" },
   proactive: { group: "scheduled", label: "先回りの提案", hint: "空き時間と希望から判断" },
-  notice: { group: "scheduled", label: "お知らせの選定", hint: "ダッシュボードに出す1件を選ぶ" },
   topic: { group: "background", label: "話題の仕入れ", hint: "ウェブ検索でニュース収集（重い）" },
 };
 
@@ -86,7 +85,6 @@ export const MODEL_USE_META: Record<ModelUse, { group: ModelUseGroup; label: str
 export const DEFAULT_MODELS: Record<ModelUse, ChatModelId> = {
   briefing: "gpt-6-astra",
   proactive: "gpt-6-astra",
-  notice: "gpt-6-luna",
   topic: "gpt-6-luna",
 };
 

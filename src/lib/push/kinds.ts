@@ -10,7 +10,6 @@
 export const PUSH_KINDS = [
   "morning-briefing",
   "morning-topics",
-  "urgent-notice",
   "proactive-suggestion",
   "scheduled-push",
 ] as const;
@@ -43,16 +42,6 @@ export const PUSH_KIND_INFO: Record<PushKind, PushKindInfo> = {
     sample: {
       title: "今日のニュース",
       body: "（見本）注目の話題が3件あります。",
-      url: "/",
-    },
-  },
-  "urgent-notice": {
-    label: "急ぎのお知らせ",
-    hint: "他のアプリから「急ぎ」で積まれた用件を、その場で届けます。",
-    when: "届いた直後",
-    sample: {
-      title: "急ぎのお知らせ",
-      body: "（見本）急ぎの用件が届いたときは、このように知らせます。",
       url: "/",
     },
   },
