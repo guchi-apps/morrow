@@ -19,15 +19,13 @@ import { OTHER_CATEGORY_ID, type TopicCategory } from "@/lib/topic-categories";
  * ダッシュボードの「話題」にはここから新しい数件を出す。**出すときにモデルは呼ばない**——仕入れたときに一度だけ書かせた文を出す
  * だけなので、#93・#101の「黙っている間の費用は0円」はそのまま守られる。
  *
- * ## 仕入れの起点はアプリを開いたときと、定時のお知らせの直前（#362）。専用のcronは足さない
- *
- * 常駐の仕入れは持たない。仕入れはダッシュボードの問い合わせ（`/api/notices/current`）の応答後に
- * バックグラウンドで走る
- * （`refreshTopicsIfStale()`）。前回から `TOPIC_REFRESH_INTERVAL_MS` あいていなければ何もしない
- * ので、開きっぱなしでも1時間に1回まで。1時間触られなければ問い合わせ自体が止まる
- * （`IDLE_LIMIT_MS`。`use-notice-poll.ts`）ので、放置した画面が夜通し仕入れ続けることも無い。
- *
- * ## 検索は `codex --search exec`（ChatGPTのサブスク枠）
+ * ## 仕入れの起点は手動ボタンと、定時のお知らせの直前（#362・#660）。専用のcronは足さない
+
+常駐の仕入れは持たない。画面（ダッシュボード・話題）を開いただけでは仕入れない（#660）。
+走るのは、話題画面の「最近の記事を取得する」ボタン（`refreshTopicsNow()`）と、定時のお知らせ・
+朝の見通しの直前（`refreshTopicsForSchedule()`）だけ。
+
+## 検索は `codex --search exec`（ChatGPTのサブスク枠）
  *
  * 新しいAPIキーも依存パッケージも増えない（Issue #144）。実測（サブPC・`codex-cli 0.152.1`・
  * `gpt-5.6-luna`・2026-09-02）では1回27秒、入力64,086トークン（うち29,952がキャッシュ読み）で
@@ -426,37 +424,23 @@ async function fetchTopics(userId: string, categories: TopicCategory[], now: Dat
 }
 
 /**
- * 仕入れが要るなら走らせる。**必ずすぐ戻る。** 応答を返した後（`after()`）から呼ぶ想定。
+ * 手動ボタン（#660）の仕入れ。**待って結果を返す**。間隔（成功後の1時間・失敗後の15分）は見ず、
+ * 押されたら必ず取りに行く。同じ利用者の仕入れが走っている間は `busy`、仕入れる種類が0なら `disabled`。
+ * 仕入れ自体の失敗は `failed` で返し、前処理（種類の読み出しなど）で落ちた回だけ投げる。
  *
- * 走らせない条件は上から順に軽いものから見る。**1・2の判定を通ったら、DBを見る前に同期的に
- * 「走っている」印を立てる**（3・4のDBの待ちの間に重なった問い合わせが二重に走らせないため）。
- * 3・4で止まった回は印を外す。
- *
- * 1. 同じ利用者の仕入れがまだ走っている
- * 2. 前回叩いてから間隔（成功なら1時間・失敗なら15分）があいていない（プロセス内の記録）
- * 3. 仕入れる種類を1つも選んでいない（DBを1回引く。ここで止まれば費用は0）
- * 4. DBの最新の `fetchedAt` から1時間あいていない（プロセスが再起動した直後の歯止め）
- *
- * 失敗はログに残して黙る。吹き出しにも相談にも影響させない（#93「吹き出しにエラーを出さない」）。
+ * 画面を開いたときの自動仕入れは#660でやめた。仕入れの起点は、この口と定時のお知らせの直前だけ。
  */
-export function refreshTopicsIfStale(userId: string, now = new Date()): Promise<void> {
-  return startRefresh(userId, now, TOPIC_REFRESH_INTERVAL_MS).then(
-    () => undefined,
-    (error) => {
-      // 種類の読み出しなど、仕入れの前に落ちた回。次の問い合わせでやり直す。
-      console.error("[aide-bot] 話題の仕入れの前処理に失敗した", error);
-    },
-  );
+export function refreshTopicsNow(userId: string, now = new Date()): Promise<TopicRefreshResult> {
+  return startRefresh(userId, now, 0, true);
 }
 
 /** 仕入れを試みた結果。定時のお知らせ（#362）が「送る前に何が起きたか」を読むために返す。 */
 export type TopicRefreshResult = "fetched" | "fresh" | "busy" | "failed" | "disabled";
 
 /**
- * 定時のお知らせ（#362）の直前に仕入れる。**待って結果を返す**（`refreshTopicsIfStale()` は応答後に
- * すぐ戻るが、こちらは仕入れが終わるまで待つ。呼び出し元はcronの `after()` の中）。
+ * 定時のお知らせ（#362）の直前に仕入れる。**待って結果を返す**（呼び出し元はcronの `after()` の中）。
  *
- * 同じ利用者の仕入れと錠（`attempts`）を共有するので、画面を開いたときの仕入れと重ならない。
+ * 同じ利用者の仕入れと錠（`attempts`）を共有するので、手動ボタンの仕入れと重ならない。
  * 前回から `TOPIC_SCHEDULE_MIN_INTERVAL_MS` あいていなければ走らせず、溜まっているものを使う。
  * **例外は外へ出さず `failed` で返す**——仕入れに失敗しても、溜まっている話題があれば送れる。
  */
@@ -470,15 +454,20 @@ export async function refreshTopicsForSchedule(userId: string, now = new Date())
 }
 
 /**
- * 仕入れの共通の入口。判定の順は `refreshTopicsIfStale()` の説明のとおり。`intervalMs` は
+ * 仕入れの共通の入口。手動ボタン（`force`）は間隔とDB上の最新時刻を見ない。`intervalMs` は
  * 「成功した前回からこれだけあいていなければ走らせない」間隔。**仕入れ自体の失敗は投げず `failed`
  * で返し**、その前（種類・DBの読み出し）で落ちた回だけ投げる。
  */
-async function startRefresh(userId: string, now: Date, intervalMs: number): Promise<TopicRefreshResult> {
+async function startRefresh(
+  userId: string,
+  now: Date,
+  intervalMs: number,
+  force = false,
+): Promise<TopicRefreshResult> {
   const attempt = attempts.get(userId);
   if (attempt?.running) return "busy";
 
-  if (attempt) {
+  if (attempt && !force) {
     const interval = attempt.failed ? TOPIC_RETRY_INTERVAL_MS : intervalMs;
     if (now.getTime() - attempt.at < interval) return attempt.failed ? "failed" : "fresh";
   }
@@ -507,7 +496,7 @@ async function startRefresh(userId: string, now: Date, intervalMs: number): Prom
       orderBy: { fetchedAt: "desc" },
       select: { fetchedAt: true },
     });
-    if (latest && now.getTime() - latest.fetchedAt.getTime() < intervalMs) {
+    if (!force && latest && now.getTime() - latest.fetchedAt.getTime() < intervalMs) {
       // 再起動の直後など、プロセス内の記録は無いがDB上は仕入れたばかり。記録だけ復元して戻る。
       attempts.set(userId, { at: latest.fetchedAt.getTime(), failed: false, running: false });
       return "fresh";

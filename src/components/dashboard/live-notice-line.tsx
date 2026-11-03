@@ -7,11 +7,10 @@ import { useNoticePoll, type NoticeBubble } from "@/components/dashboard/use-not
 import { cn } from "@/lib/utils";
 
 /**
- * ダッシュボードの「いまの一言」（#573）。**お知らせの選定・話題の仕入れの起点も兼ねる。**
+ * ダッシュボードの「いまの一言」（#573）。**お知らせの選定の起点も兼ねる。**
  *
- * `/api/notices/current` は、お知らせの選定（#93。`shownAt` を書く）とニュースの仕入れ（#144。応答後の
- * `refreshTopicsIfStale()`）の起点。チャットを廃止した（#574）後、アプリを開いたときにこれを叩くのは
- * ここだけ。選ばれたお知らせはここに出すので、出さずに消費する形にはならない（#114）。
+ * `/api/notices/current` は、お知らせの選定（#93。`shownAt` を書く）の起点。ニュースの仕入れは
+ * 起こさない（#660）。選ばれたお知らせはここに出すので、出さずに消費する形にはならない（#114）。
  *
  * **問い合わせは `NoticeLiveProvider` の1本だけ。** ダッシュボードはスマホ用とPC用の並びを両方描く
  * （CSSで片方を隠す）ので、`LiveNoticeLine` に持たせると同じ口を2本で叩く。

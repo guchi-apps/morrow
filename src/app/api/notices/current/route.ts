@@ -1,8 +1,7 @@
-import { NextResponse, after } from "next/server";
+import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth-user";
 import { resolveNotice } from "@/lib/notices";
-import { refreshTopicsIfStale } from "@/lib/topics";
 
 /**
  * いま「いまの一言」に出すお知らせを返す（#93）。ダッシュボード（`/`）から定期的に呼ばれる。
@@ -16,9 +15,7 @@ import { refreshTopicsIfStale } from "@/lib/topics";
  * 未ログインでも200で `notice: null` を返す。画面が開いた直後に走る問い合わせで、
  * 401をエラーとして扱うと、ログインの切れ目に関係のない文言が出る。
  *
- * **ニュースの仕入れ（#144）の起点でもある。** 仕入れそのものは応答を返した後に走らせる
- * （`after()`）——1回27秒前後掛かるので応答の中で待つと画面が止まって見える。走らせるかどうか
- * （前回から1時間あいたか）は `refreshTopicsIfStale()` が決める。
+ * **ニュースの仕入れは起こさない**（#660）。話題の取得は定時の時刻と、話題画面の手動ボタンだけ。
  *
  * #574でチャットを廃止したので、待機中のひとりごと・話題の輪・秘書からの声かけは返さない。
  */
@@ -33,9 +30,6 @@ export async function GET() {
   if (!user) return NextResponse.json({ notice: null });
 
   const notice = await resolveNotice(user.id);
-
-  // アプリを開いたとき（＝この問い合わせ）を仕入れの起点にする。応答は待たせない。
-  after(() => refreshTopicsIfStale(user.id));
 
   return NextResponse.json({ notice });
 }
