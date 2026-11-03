@@ -399,6 +399,7 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
   （`INFOPLIST_KEY_NSLocationWhenInUseUsageDescription`）を持ち、WKWebViewがOSの許可ダイアログ経由で位置を渡す（Swiftの追加は無い）。
   利用目的を持たない古い殻では拒否として返るので、アプリ内の拒否の案内は「設定アプリで許可／最新版へ更新」にしてある
 - **雨雲レーダー（#654。`rain-radar.tsx`・純粋な計算は `src/lib/weather/radar.ts`・`test/radar.test.ts`）は「現在地」を開いた中に出す。** 気象庁の高解像度降水ナウキャスト（`www.jma.go.jp/bosai/jmatile`。**公開仕様ではない**）を地理院タイルに重ねる。依存は足していない（`<img>` を並べるだけで、指で地図は動かせない）。**時刻の一覧もタイルもブラウザから直接取る**——相手にはIPとタイル番号（約30km単位）が見えるが、正確な座標は渡さずリファラも送らない。サーバー経由にしないのは、middlewareがタイル1枚ごとにSupabaseへ往復するため。**雨雲タイルが取れなかったコマは赤で知らせる**（空の地図は「雨なし」に見える。#214）。スライダーの行は `data-no-day-swipe` で日めくりから外してある（地図の上のスワイプは従来どおりめくる）。iOSの殻の保存（#643）には地図の `<img>` のURLだけが残り、画像は保存されない
+- **雨雲レーダーはナウキャストの先（1時間より後）を降水短時間予報（`rasrf`。#666）で継ぎ足す**（最大約15時間先・1時間刻み・解像度は粗い）。一覧（`jmatile/data/rasrf/targetTimes.json`）は他の製品・解析値も混ざるので `parseLongRangeTimes()` が `rasrf` の予報（`validtime` > `basetime`）だけ採り、同じ時刻は新しい基準時刻を使う。**タイルのURLに一覧の `member`（`none`／`immed`）が入る**（`rainTileUrl()`。`none` 固定にすると404）。取れなかった回はナウキャストの範囲で動き続け、画面に知らせる。Yahoo天気（YOLP）は地点ごとの値だけで地図タイルが無く、appid発行も要るため採らなかった
 - 手元で確かめるときは、上のスタブMCPに `aide_weather`（`location` 付き・無しの両方）と `aide_schedule`（`days` を受ける）を答えさせる
 - 手元では、ローカルのスタブMCP（`initialize` と `tools/call` に答えるだけ）を立て、`McpConnection.url` と
   `MCP_PRESETS` の `aide` の `url` を一時的にそちらへ向けて確かめる（**`presets.ts` は戻すこと**）。シードは

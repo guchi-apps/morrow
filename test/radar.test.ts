@@ -7,6 +7,8 @@ import {
   carryFrameIndex,
   frameDate,
   isInRadarArea,
+  hoursAfter,
+  parseLongRangeTimes,
   parseTargetTimes,
   rainTileUrl,
   tilesFor,
@@ -128,5 +130,43 @@ describe("carryFrameIndex", () => {
   it("過去を見ていたら同じ時刻に留まり、無くなっていたら「今」へ", () => {
     assert.equal(carryFrameIndex({ ...time("1225"), kind: "past" }, frames), 0);
     assert.equal(carryFrameIndex({ ...time("1100"), kind: "past" }, frames), 2);
+  });
+});
+
+describe("降水短時間予報（#666）", () => {
+  const row = (basetime: string, validtime: string, member: string, elements = ["rasrf", "rasrf_point"]) => ({
+    basetime: `20261102${basetime}00`,
+    validtime: `20261102${validtime}00`,
+    member,
+    elements,
+  });
+
+  it("降水の予報だけを読み、同じ時刻は新しい基準時刻を使う", () => {
+    const times = parseLongRangeTimes([
+      row("1400", "2100", "none"),
+      row("1440", "2100", "immed"),
+      row("1400", "1400", "none"), // 解析値（基準時刻と同じ）
+      row("1440", "1500", "immed", ["sjfcstmap"]), // 別の製品
+      { basetime: "x", validtime: "20261102210000", member: "none", elements: ["rasrf"] },
+    ]);
+    assert.deepEqual(times, [{ basetime: "20261102144000", validtime: "20261102210000", member: "immed" }]);
+    assert.deepEqual(parseLongRangeTimes(null), []);
+  });
+
+  it("ナウキャストが終わった後の時刻だけを継ぎ足す", () => {
+    const long = parseLongRangeTimes([row("1230", "1240", "immed"), row("1230", "1335", "immed"), row("1230", "1440", "immed")]);
+    const frames = buildFrames([time("1235")], [time("1240", "1235"), time("1330", "1235")], long);
+    assert.deepEqual(frames.map((frame) => frame.validtime.slice(8, 12)), ["1235", "1240", "1330", "1335", "1440"]);
+    assert.equal(frames.at(-1)?.kind, "forecast");
+    assert.equal(hoursAfter(frames[0], frames.at(-1)!), 2);
+  });
+
+  it("タイルのURLは製品ごとの形になる", () => {
+    const tile = { x: 227, y: 100 };
+    assert.equal(
+      rainTileUrl({ basetime: "20261103144000", validtime: "20261103164000", member: "immed" }, 8, tile),
+      "https://www.jma.go.jp/bosai/jmatile/data/rasrf/20261103144000/immed/20261103164000/surf/rasrf/8/227/100.png",
+    );
+    assert.match(rainTileUrl({ basetime: "a", validtime: "b" }, 8, tile), /nowc\/a\/none\/b\/surf\/hrpns\/8\/227\/100\.png$/);
   });
 });
