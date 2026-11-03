@@ -3,7 +3,9 @@
 import { ChevronDown, LocateFixed } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import { RainRadar } from "@/components/dashboard/rain-radar";
 import { jstTimeLabel } from "@/lib/day-key";
+import { isInRadarArea } from "@/lib/weather/radar";
 
 /**
  * 天気カード先頭の「現在地」折りたたみ行（#586・#625・#631・#641）。位置を取り、`POST /api/weather/here` へ渡す。
@@ -13,6 +15,7 @@ import { jstTimeLabel } from "@/lib/day-key";
  *
  * - iOSアプリ（殻。UAに `MorrowIOS/`）でも出す（#587）。殻のInfo.plistに位置の利用目的があり、WKWebViewが
  *   OSの許可ダイアログを経由して位置を渡す。利用目的を持たない古い殻では拒否として返るので、案内の文を分ける
+ * - 開いた中に雨雲レーダーを出す（#654。`rain-radar.tsx`）
  * - `navigator.geolocation` はHTTPSか `localhost` でしか使えない。無い環境でも出さない
  */
 
@@ -28,7 +31,7 @@ type Result = {
 type State =
   | { kind: "idle" }
   | { kind: "loading" }
-  | { kind: "ok"; result: Result; at: Date }
+  | { kind: "ok"; result: Result; at: Date; point: { latitude: number; longitude: number } }
   | { kind: "denied"; inApp: boolean }
   | { kind: "failed"; message: string };
 
@@ -62,6 +65,54 @@ function currentPosition(): Promise<GeolocationPosition> {
   );
 }
 
+/**
+ * 位置の取得〜`POST /api/weather/here` を、同時に走る分は1本にまとめる（#657）。
+ * ダッシュボードはスマホ用とPC用の2つの並びを描き（CSSで片方を隠す）、このコンポーネントも2つ動くため、
+ * 許可済みだと同時に2回呼んで10秒制限の429を自分で踏んでいた。走っている間に来た呼び出しは同じ結果を共有する。
+ */
+let inflight: Promise<State> | null = null;
+/** サーバーの最小間隔（10秒）より短く、直後に来た呼び出しへ使い回す。 */
+let recent: { at: number; state: State } | null = null;
+const SHARE_MS = 8_000;
+
+function fetchHere(): Promise<State> {
+  if (recent && Date.now() - recent.at < SHARE_MS) return Promise.resolve(recent.state);
+  inflight ??= doFetchHere()
+    .then((state) => {
+      if (state.kind === "ok") recent = { at: Date.now(), state };
+      return state;
+    })
+    .finally(() => {
+      inflight = null;
+    });
+  return inflight;
+}
+
+async function doFetchHere(): Promise<State> {
+  let position: GeolocationPosition;
+  try {
+    position = await currentPosition();
+  } catch (error) {
+    const denied = (error as GeolocationPositionError | undefined)?.code === 1;
+    return denied ? { kind: "denied", inApp: isInApp() } : { kind: "failed", message: "位置を取得できませんでした。少し待ってもう一度押してください。" };
+  }
+  const point = { latitude: round2(position.coords.latitude), longitude: round2(position.coords.longitude) };
+  try {
+    const response = await fetch("/api/weather/here", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(point),
+    });
+    const json = (await response.json().catch(() => null)) as (Result & { error?: string }) | null;
+    if (!response.ok || !json) {
+      return { kind: "failed", message: json?.error ?? "天気を取得できませんでした。少し待ってもう一度押してください。" };
+    }
+    return { kind: "ok", result: json, at: new Date(), point };
+  } catch {
+    return { kind: "failed", message: "通信できませんでした。少し待ってもう一度押してください。" };
+  }
+}
+
 export function CurrentLocationWeather() {
   const supported = useSyncExternalStore(noSubscribe, canLocate, cannotLocate);
   const [state, setState] = useState<State>({ kind: "idle" });
@@ -74,32 +125,10 @@ export function CurrentLocationWeather() {
     busy.current = true;
     lastLoadedAt.current = Date.now();
     setState({ kind: "loading" });
-    let position: GeolocationPosition;
     try {
-      position = await currentPosition();
-    } catch (error) {
-      const denied = (error as GeolocationPositionError | undefined)?.code === 1;
-      setState(denied ? { kind: "denied", inApp: isInApp() } : { kind: "failed", message: "位置を取得できませんでした。少し待ってもう一度押してください。" });
-      busy.current = false;
-      return;
-    }
-
-    try {
-      const response = await fetch("/api/weather/here", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ latitude: round2(position.coords.latitude), longitude: round2(position.coords.longitude) }),
-      });
-      const json = (await response.json().catch(() => null)) as (Result & { error?: string }) | null;
-      if (!response.ok || !json) {
-        // 取り直しの失敗（10秒制限の429など）では、取得済みの結果を消さない
-        const message = json?.error ?? "天気を取得できませんでした。少し待ってもう一度押してください。";
-        setState((prev) => (prev.kind === "ok" ? prev : { kind: "failed", message }));
-        return;
-      }
-      setState({ kind: "ok", result: json, at: new Date() });
-    } catch {
-      setState({ kind: "failed", message: "通信できませんでした。少し待ってもう一度押してください。" });
+      const outcome = await fetchHere();
+      // 取り直しの失敗（10秒制限の429など）では、取得済みの結果を消さない
+      setState((prev) => (outcome.kind === "failed" && prev.kind === "ok" ? prev : outcome));
     } finally {
       busy.current = false;
     }
@@ -213,6 +242,13 @@ export function CurrentLocationWeather() {
             >
               取り直す
             </button>
+            {/* 開いている間だけ描く（開くまで地図も雨雲も読み込まない。#654） */}
+            {expanded &&
+              (isInRadarArea(state.point.latitude, state.point.longitude) ? (
+                <RainRadar latitude={state.point.latitude} longitude={state.point.longitude} />
+              ) : (
+                <p className="mt-2 border-t border-border pt-2.5 text-xs text-muted">雨雲レーダーは日本の周辺でだけ見られます。</p>
+              ))}
           </>
         )}
         {state.kind === "denied" && (

@@ -397,6 +397,7 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
   HTTPSか `localhost` でしか動かない。**iOSアプリ（UA `MorrowIOS/`）でも出す**（#587）——殻のビルド設定に位置の利用目的
   （`INFOPLIST_KEY_NSLocationWhenInUseUsageDescription`）を持ち、WKWebViewがOSの許可ダイアログ経由で位置を渡す（Swiftの追加は無い）。
   利用目的を持たない古い殻では拒否として返るので、アプリ内の拒否の案内は「設定アプリで許可／最新版へ更新」にしてある
+- **雨雲レーダー（#654。`rain-radar.tsx`・純粋な計算は `src/lib/weather/radar.ts`・`test/radar.test.ts`）は「現在地」を開いた中に出す。** 気象庁の高解像度降水ナウキャスト（`www.jma.go.jp/bosai/jmatile`。**公開仕様ではない**）を地理院タイルに重ねる。依存は足していない（`<img>` を並べるだけで、指で地図は動かせない）。**時刻の一覧もタイルもブラウザから直接取る**——相手にはIPとタイル番号（約30km単位）が見えるが、正確な座標は渡さずリファラも送らない。サーバー経由にしないのは、middlewareがタイル1枚ごとにSupabaseへ往復するため。**雨雲タイルが取れなかったコマは赤で知らせる**（空の地図は「雨なし」に見える。#214）。スライダーの行は `data-no-day-swipe` で日めくりから外してある（地図の上のスワイプは従来どおりめくる）。iOSの殻の保存（#643）には地図の `<img>` のURLだけが残り、画像は保存されない
 - 手元で確かめるときは、上のスタブMCPに `aide_weather`（`location` 付き・無しの両方）と `aide_schedule`（`days` を受ける）を答えさせる
 - 手元では、ローカルのスタブMCP（`initialize` と `tools/call` に答えるだけ）を立て、`McpConnection.url` と
   `MCP_PRESETS` の `aide` の `url` を一時的にそちらへ向けて確かめる（**`presets.ts` は戻すこと**）。シードは
