@@ -10,6 +10,9 @@
 const JMA_NOWC = "https://www.jma.go.jp/bosai/jmatile/data/nowc";
 export const RADAR_PAST_TIMES_URL = `${JMA_NOWC}/targetTimes_N1.json`;
 export const RADAR_FORECAST_TIMES_URL = `${JMA_NOWC}/targetTimes_N2.json`;
+/** 降水短時間予報（#666）。ナウキャストの先（1時間より後。1時間刻みで約15時間先まで）を継ぎ足す。 */
+const JMA_RASRF = "https://www.jma.go.jp/bosai/jmatile/data/rasrf";
+export const RADAR_LONG_TIMES_URL = `${JMA_RASRF}/targetTimes.json`;
 
 /** 周辺（約45km四方）と広域（約180km四方）のタイルのズーム。 */
 export const RADAR_ZOOMS = { near: 10, wide: 8 } as const;
@@ -19,7 +22,8 @@ const TILE_PX = 256;
 /** 「今」の前後に出すコマ数（5分刻みで1時間ぶん）。 */
 const FRAMES_EACH_SIDE = 12;
 
-export type RadarTime = { basetime: string; validtime: string };
+/** `member` があれば降水短時間予報（タイルのURLに入る）。無ければナウキャスト。 */
+export type RadarTime = { basetime: string; validtime: string; member?: string };
 export type RadarFrame = RadarTime & { kind: "past" | "now" | "forecast" };
 export type RadarTile = { x: number; y: number; left: number; top: number };
 
@@ -39,10 +43,35 @@ export function parseTargetTimes(json: unknown): RadarTime[] {
 }
 
 /**
+ * 降水短時間予報の一覧を読む。一覧には予報以外（解析値・他の製品）も混ざるので、降水（`rasrf`）の予報
+ * （`validtime` が `basetime` より後）だけを採り、同じ時刻は新しい基準時刻の行を使う。
+ */
+export function parseLongRangeTimes(json: unknown): RadarTime[] {
+  if (!Array.isArray(json)) return [];
+  const byValid = new Map<string, RadarTime>();
+  for (const row of json) {
+    if (typeof row !== "object" || row === null) continue;
+    const { basetime, validtime, member, elements } = row as Record<string, unknown>;
+    if (typeof basetime !== "string" || !/^\d{14}$/.test(basetime)) continue;
+    if (typeof validtime !== "string" || !/^\d{14}$/.test(validtime) || validtime <= basetime) continue;
+    if (typeof member !== "string" || !/^[a-z]+$/.test(member)) continue;
+    if (!Array.isArray(elements) || !elements.includes("rasrf")) continue;
+    const known = byValid.get(validtime);
+    if (!known || known.basetime < basetime) byValid.set(validtime, { basetime, validtime, member });
+  }
+  return [...byValid.values()];
+}
+
+/** 「今」の何時間後か（四捨五入）。スライダー右端の注記に使う。 */
+export function hoursAfter(from: RadarTime, to: RadarTime): number {
+  return Math.round((frameDate(to.validtime).getTime() - frameDate(from.validtime).getTime()) / 3_600_000);
+}
+
+/**
  * 実況の最新を「今」として、前後1時間のコマを古い順に並べる。実況と予報は更新の時刻がずれるので、
  * 「今」より後の予報だけを採る（同じ時刻を二重に出さない）。実況が無ければ空。
  */
-export function buildFrames(past: RadarTime[], forecast: RadarTime[]): RadarFrame[] {
+export function buildFrames(past: RadarTime[], forecast: RadarTime[], longRange: RadarTime[] = []): RadarFrame[] {
   const observed = [...past].sort((a, b) => a.validtime.localeCompare(b.validtime));
   const latest = observed.at(-1);
   if (!latest) return [];
@@ -51,10 +80,14 @@ export function buildFrames(past: RadarTime[], forecast: RadarTime[]): RadarFram
     .filter((time) => time.validtime > latest.validtime)
     .sort((a, b) => a.validtime.localeCompare(b.validtime))
     .slice(0, FRAMES_EACH_SIDE);
+  // ナウキャストが終わった後の時刻だけを降水短時間予報で継ぎ足す（同じ時刻を二重に出さない）
+  const nowcastEnd = after.at(-1)?.validtime ?? latest.validtime;
+  const beyond = longRange.filter((time) => time.validtime > nowcastEnd).sort((a, b) => a.validtime.localeCompare(b.validtime));
   return [
     ...before.map((time) => ({ ...time, kind: "past" as const })),
     { ...latest, kind: "now" as const },
     ...after.map((time) => ({ ...time, kind: "forecast" as const })),
+    ...beyond.map((time) => ({ ...time, kind: "forecast" as const })),
   ];
 }
 
@@ -93,6 +126,7 @@ export function baseTileUrl(zoom: number, tile: Pick<RadarTile, "x" | "y">): str
 }
 
 export function rainTileUrl(frame: RadarTime, zoom: number, tile: Pick<RadarTile, "x" | "y">): string {
+  if (frame.member) return `${JMA_RASRF}/${frame.basetime}/${frame.member}/${frame.validtime}/surf/rasrf/${zoom}/${tile.x}/${tile.y}.png`;
   return `${JMA_NOWC}/${frame.basetime}/none/${frame.validtime}/surf/hrpns/${zoom}/${tile.x}/${tile.y}.png`;
 }
 
