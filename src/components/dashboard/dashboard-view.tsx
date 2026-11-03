@@ -526,7 +526,7 @@ function YesterdayNote({ cells, nowIndex }: { cells: HourCell[]; nowIndex: numbe
         <i className="inline-block w-5 border-t-2 border-topic" aria-hidden="true" />今日
       </span>
       <span className="inline-flex items-center gap-1">
-        <i className="inline-block w-5 border-t-[3px] border-topic/25" aria-hidden="true" />昨日
+        <i className="inline-block w-5 border-t-2 border-topic/25" aria-hidden="true" />昨日
       </span>
     </div>
   );
@@ -581,7 +581,7 @@ function TemperatureChart({ cells, nowIndex }: { cells: HourCell[]; nowIndex: nu
   const split = nowIndex >= 0 ? nowIndex : 0;
   return (
     <svg width={cells.length * CELL_W} height={CHART_H} className="block overflow-visible" aria-hidden="true">
-      {yesterdayPath && <path d={yesterdayPath} fill="none" strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" className="stroke-topic/25" />}
+      {yesterdayPath && <path d={yesterdayPath} fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="stroke-topic/25" />}
       {nowIndex > 0 && <path d={pathOf(0, split)} fill="none" strokeWidth={2} strokeLinejoin="round" className="stroke-muted/50" />}
       <path d={pathOf(split, cells.length - 1)} fill="none" strokeWidth={2} strokeLinejoin="round" className="stroke-topic" />
       {points.map((point) =>
