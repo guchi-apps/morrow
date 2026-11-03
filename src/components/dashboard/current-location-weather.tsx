@@ -65,6 +65,54 @@ function currentPosition(): Promise<GeolocationPosition> {
   );
 }
 
+/**
+ * 位置の取得〜`POST /api/weather/here` を、同時に走る分は1本にまとめる（#657）。
+ * ダッシュボードはスマホ用とPC用の2つの並びを描き（CSSで片方を隠す）、このコンポーネントも2つ動くため、
+ * 許可済みだと同時に2回呼んで10秒制限の429を自分で踏んでいた。走っている間に来た呼び出しは同じ結果を共有する。
+ */
+let inflight: Promise<State> | null = null;
+/** サーバーの最小間隔（10秒）より短く、直後に来た呼び出しへ使い回す。 */
+let recent: { at: number; state: State } | null = null;
+const SHARE_MS = 8_000;
+
+function fetchHere(): Promise<State> {
+  if (recent && Date.now() - recent.at < SHARE_MS) return Promise.resolve(recent.state);
+  inflight ??= doFetchHere()
+    .then((state) => {
+      if (state.kind === "ok") recent = { at: Date.now(), state };
+      return state;
+    })
+    .finally(() => {
+      inflight = null;
+    });
+  return inflight;
+}
+
+async function doFetchHere(): Promise<State> {
+  let position: GeolocationPosition;
+  try {
+    position = await currentPosition();
+  } catch (error) {
+    const denied = (error as GeolocationPositionError | undefined)?.code === 1;
+    return denied ? { kind: "denied", inApp: isInApp() } : { kind: "failed", message: "位置を取得できませんでした。少し待ってもう一度押してください。" };
+  }
+  const point = { latitude: round2(position.coords.latitude), longitude: round2(position.coords.longitude) };
+  try {
+    const response = await fetch("/api/weather/here", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(point),
+    });
+    const json = (await response.json().catch(() => null)) as (Result & { error?: string }) | null;
+    if (!response.ok || !json) {
+      return { kind: "failed", message: json?.error ?? "天気を取得できませんでした。少し待ってもう一度押してください。" };
+    }
+    return { kind: "ok", result: json, at: new Date(), point };
+  } catch {
+    return { kind: "failed", message: "通信できませんでした。少し待ってもう一度押してください。" };
+  }
+}
+
 export function CurrentLocationWeather() {
   const supported = useSyncExternalStore(noSubscribe, canLocate, cannotLocate);
   const [state, setState] = useState<State>({ kind: "idle" });
@@ -77,33 +125,10 @@ export function CurrentLocationWeather() {
     busy.current = true;
     lastLoadedAt.current = Date.now();
     setState({ kind: "loading" });
-    let position: GeolocationPosition;
     try {
-      position = await currentPosition();
-    } catch (error) {
-      const denied = (error as GeolocationPositionError | undefined)?.code === 1;
-      setState(denied ? { kind: "denied", inApp: isInApp() } : { kind: "failed", message: "位置を取得できませんでした。少し待ってもう一度押してください。" });
-      busy.current = false;
-      return;
-    }
-
-    const point = { latitude: round2(position.coords.latitude), longitude: round2(position.coords.longitude) };
-    try {
-      const response = await fetch("/api/weather/here", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(point),
-      });
-      const json = (await response.json().catch(() => null)) as (Result & { error?: string }) | null;
-      if (!response.ok || !json) {
-        // 取り直しの失敗（10秒制限の429など）では、取得済みの結果を消さない
-        const message = json?.error ?? "天気を取得できませんでした。少し待ってもう一度押してください。";
-        setState((prev) => (prev.kind === "ok" ? prev : { kind: "failed", message }));
-        return;
-      }
-      setState({ kind: "ok", result: json, at: new Date(), point });
-    } catch {
-      setState({ kind: "failed", message: "通信できませんでした。少し待ってもう一度押してください。" });
+      const outcome = await fetchHere();
+      // 取り直しの失敗（10秒制限の429など）では、取得済みの結果を消さない
+      setState((prev) => (outcome.kind === "failed" && prev.kind === "ok" ? prev : outcome));
     } finally {
       busy.current = false;
     }
