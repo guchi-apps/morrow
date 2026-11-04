@@ -60,20 +60,17 @@ export function modelDisplayName(id: string): string {
  * （`User.modelSettings`）へ持つ。用途を足したら `MODEL_USES`・`MODEL_USE_META`・`DEFAULT_MODELS`
  * の3つを揃える（型で漏れは落ちる）。
  */
-export type ModelUse = "briefing" | "proactive" | "topic";
+export type ModelUse = "topic";
 
-export const MODEL_USES: readonly ModelUse[] = ["briefing", "proactive", "topic"];
+export const MODEL_USES: readonly ModelUse[] = ["topic"];
 
-export type ModelUseGroup = "scheduled" | "background";
+export type ModelUseGroup = "background";
 
 export const MODEL_USE_GROUP_LABELS: Record<ModelUseGroup, string> = {
-  scheduled: "定時・通知",
   background: "バックグラウンド",
 };
 
 export const MODEL_USE_META: Record<ModelUse, { group: ModelUseGroup; label: string; hint: string }> = {
-  briefing: { group: "scheduled", label: "朝の見通し", hint: "毎朝1回・10本の道具を集約" },
-  proactive: { group: "scheduled", label: "先回りの提案", hint: "空き時間と希望から判断" },
   topic: { group: "background", label: "話題の仕入れ", hint: "ウェブ検索でニュース収集（重い）" },
 };
 
@@ -83,8 +80,6 @@ export const MODEL_USE_META: Record<ModelUse, { group: ModelUseGroup; label: str
  * 変えると、設定を触っていない利用者の返答が黙って変わる。
  */
 export const DEFAULT_MODELS: Record<ModelUse, ChatModelId> = {
-  briefing: "gpt-6-astra",
-  proactive: "gpt-6-astra",
   topic: "gpt-6-luna",
 };
 

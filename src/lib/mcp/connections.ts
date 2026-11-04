@@ -1,6 +1,5 @@
 import type { McpConnection } from "@prisma/client";
 
-import type { CodexMcpServer } from "@/lib/codex";
 import { db } from "@/lib/db";
 import { isPendingStateFresh } from "@/lib/mcp/pending-state";
 import {
@@ -13,7 +12,7 @@ import {
   refreshTokens,
   registerClient,
 } from "@/lib/mcp/oauth";
-import { briefingToolsFor, findPreset, readToolsFor, writeToolsFor } from "@/lib/mcp/presets";
+import { findPreset } from "@/lib/mcp/presets";
 
 /**
  * 外部サービスとの接続の出し入れ（#46）。
@@ -355,49 +354,4 @@ export async function listConnectedServers(userId: string): Promise<ConnectedSer
   }
 
   return servers;
-}
-
-/**
- * Codexへ渡す形に均す（相談は#131、朝の見通し・自宅の前提は#183・#167）。
- *
- * `-c mcp_servers.<slug>.…` の組み立てそのものは `runCodexExec()` の仕事で、ここでは
- * 「どの接続を・どの道具を止めて」渡すかだけを決める。止め方は名指し（`MCP_PRESETS` の
- * `writeTools`）で、**挙げ漏らした道具はそのまま渡る**（#78）。
- *
- * **#183で、繋ぎ先を組み立てる口はこれ1つになった**（朝の見通しもCodexへ移り、Messages API用の
- * `toMcpRequestParts()` を消した）。
- * 止めた道具の名前は `withheldTools` で返し、システムプロンプトで「渡っていない」と伝える。
- */
-export function toCodexMcpServers(
-  servers: ConnectedServer[],
-  allowWriteTools: boolean,
-  purpose: "default" | "briefing" = "default",
-): { mcpServers: CodexMcpServer[]; withheldTools: string[] } {
-  const withheldTools: string[] = [];
-
-  // 朝の見通しは、材料の許可リスト（`briefingTools`）を持つ接続先だけを渡す（#367）。
-  const targets =
-    purpose === "briefing" ? servers.filter((server) => briefingToolsFor(server.url)) : servers;
-
-  const mcpServers = targets.map((server) => {
-    const withheld = allowWriteTools ? [] : writeToolsFor(server.url);
-    withheldTools.push(...withheld);
-    // 許可リストのある接続先は、書き込みを渡さない回に読み取りの道具だけを見せる（#366）。
-    const enabledTools =
-      purpose === "briefing"
-        ? briefingToolsFor(server.url)
-        : allowWriteTools
-          ? undefined
-          : readToolsFor(server.url);
-
-    return {
-      name: server.slug,
-      url: server.url,
-      accessToken: server.accessToken,
-      disabledTools: withheld,
-      ...(enabledTools ? { enabledTools } : {}),
-    };
-  });
-
-  return { mcpServers, withheldTools };
 }
