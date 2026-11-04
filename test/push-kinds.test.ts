@@ -15,14 +15,14 @@ test("空・nullは全部オン", () => {
 });
 
 test("知らない種類・空白は捨てる", () => {
-  const set = parseDisabledKinds(" morning-briefing ,unknown,,scheduled-push");
-  assert.deepEqual([...set].sort(), ["morning-briefing", "scheduled-push"]);
+  const set = parseDisabledKinds(" scheduled-push ,morning-briefing,unknown,,scheduled-push");
+  assert.deepEqual([...set].sort(), ["scheduled-push"]);
 });
 
 test("保存は決まった順で、読み戻すと同じ集合になる", () => {
-  const set = parseDisabledKinds("scheduled-push,morning-briefing");
+  const set = parseDisabledKinds("scheduled-push");
   const stored = serializeDisabledKinds(set);
-  assert.equal(stored, "morning-briefing,scheduled-push");
+  assert.equal(stored, "scheduled-push");
   assert.deepEqual(parseDisabledKinds(stored), set);
 });
 

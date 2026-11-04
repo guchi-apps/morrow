@@ -15,7 +15,7 @@ import { listTopicCategories } from "@/lib/topic-category-store";
 import { refreshTopicsForSchedule, topicsForScheduledPush } from "@/lib/topics";
 
 /**
- * 定時のお知らせ（#344）。**サーバー専用。** 起点は朝の見通しと同じcron（`/api/briefing` の末尾）。
+ * 定時のお知らせ（#344）。**サーバー専用。** 起点はcron（`/api/briefing` の末尾。朝の見通し・先回りの提案は#675で廃止し、いまはこれだけを起動する）。
  *
  * - **送る前にニュースを仕入れる**（#362。`refreshTopicsForSchedule()`）。送信対象の設定があり、まだ
  *   送っていない回だけ。30分以内に仕入れ済みなら省く。失敗・実行中でも、溜まっている話題があれば送る
@@ -23,7 +23,7 @@ import { refreshTopicsForSchedule, topicsForScheduledPush } from "@/lib/topics";
  *   （仕入れそのものはCodexの検索を使う）。同じ出来事の記事は1件にまとめる
  * - **黙れる。** 話題が0件の回は送らず、記録も残さない（猶予の3時間内に仕入れられれば、次の起動で届く）
  * - **同じ日・同じ設定で二度送らない。** `NotificationLog` の一意制約（`<日付>:<設定id>`）。
- *   朝の見通し・急ぎ・先回りの提案とは `kind` を分けてあり、その枠を消費しない
+ *   過去の通知（朝の見通しなど）とは `kind` を分けてある
  * - **送った話題には `Topic.spokenAt` を付け、次からは選ばない**（声かけ・別の定時との二重出しを避ける）
  * - 押した先は「話題」ページ（`/topics`）。相談の記録へは積まない（会話の最中へ割り込むため。#278の錠を再実装しない）
  */

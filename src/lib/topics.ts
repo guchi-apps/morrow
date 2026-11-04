@@ -23,7 +23,7 @@ import { OTHER_CATEGORY_ID, type TopicCategory } from "@/lib/topic-categories";
 
 常駐の仕入れは持たない。画面（ダッシュボード・話題）を開いただけでは仕入れない（#660）。
 走るのは、話題画面の「最近の記事を取得する」ボタン（`refreshTopicsNow()`）と、定時のお知らせ・
-朝の見通しの直前（`refreshTopicsForSchedule()`）だけ。
+定時のお知らせの直前（`refreshTopicsForSchedule()`）だけ。
 
 ## 検索は `codex --search exec`（ChatGPTのサブスク枠）
  *
@@ -603,14 +603,4 @@ export async function topicsForScheduledPush(
   return unspokenGroups(groupDuplicateTopics(topics))
     .slice(0, limit)
     .map(groupToRow);
-}
-
-/**
- * 朝の見通しに続けて届ける、まだ振っていない話題。種類は問わない。
- *
- * 定時のお知らせと同じ選び方にすることで、同じ記事を朝のニュース・声かけ・定時のお知らせで
- * 繰り返さない。件数の上限は呼び出し元が通知の読みやすさに合わせて決める。
- */
-export function topicsForMorningBriefing(userId: string, limit: number, now = new Date()): Promise<TopicRow[]> {
-  return topicsForScheduledPush(userId, SCHEDULED_PUSH_ALL, limit, now);
 }

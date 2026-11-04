@@ -29,7 +29,7 @@ import {
 } from "@/lib/dashboard/places";
 import { compareWithYesterday, describeDiff } from "@/lib/dashboard/temperature-diff";
 import { tempDelta, type TempDelta } from "@/lib/dashboard/temp-delta";
-import type { DashboardTopic, DeliveredPush } from "@/lib/dashboard/today";
+import type { DashboardTopic } from "@/lib/dashboard/today";
 import { dayLabel, jstDayKey, jstTimeLabel } from "@/lib/day-key";
 import { describeWeatherCode, RAIN_POP, type RainVerdict } from "@/lib/weather/rain-check";
 import { cn } from "@/lib/utils";
@@ -38,13 +38,12 @@ import { cn } from "@/lib/utils";
  * 今日のダッシュボード（#573）。トップ（`/`）に出す。**見るだけの画面で、操作は置かない。**
  *
  * サーバーコンポーネントのまま置く。天気・予定はAIDEへ取りに行く
- * ので `Suspense` で後から流し、DBだけで出せるもの（届いた通知・話題）を先に描く。
+ * ので `Suspense` で後から流し、DBだけで出せるもの（話題）を先に描く。
  *
- * 並びは、スマホ（1列）で上から「天気 → 予定 → 今日届いた通知 → 話題」。PC・iPad
- * （lg以上）は左に天気・話題、右に予定・届いた通知の2列。
+ * 並びは、スマホ（1列）で上から「天気 → 予定 → 話題」。PC・iPad
+ * （lg以上）は左に天気・話題、右に予定の2列。
  *
- * 左右のスワイプ（`DaySwipe`）・見出しの ‹ › で前後の日へめくる（#606。`?d=`）。今日以外の日は、天気・予定・
- * その日届いた通知（未来の日は出さない）だけを出す。話題・現在地の天気は「いま」の
+ * 左右のスワイプ（`DaySwipe`）・見出しの ‹ › で前後の日へめくる（#606。`?d=`）。今日以外の日は、天気・予定だけを出す。話題・現在地の天気は「いま」の
  * 状態なので今日だけ。
  */
 
@@ -54,11 +53,10 @@ type Props = {
   todayKey: string;
   /** 表示する日の今日からのずれ（0＝今日）。 */
   offset: number;
-  pushes: DeliveredPush[];
   topics: DashboardTopic[];
 };
 
-export function DashboardView({ userId, now, todayKey, offset, pushes, topics }: Props) {
+export function DashboardView({ userId, now, todayKey, offset, topics }: Props) {
   const dayKey = addDays(todayKey, offset);
   const dayName = cardDayName(dayKey, offset);
   const isToday = offset === 0;
@@ -84,8 +82,6 @@ export function DashboardView({ userId, now, todayKey, offset, pushes, topics }:
       </Suspense>
     </Card>
   );
-  // 未来の日はまだ何も届いていないので出さない。
-  const pushCard = offset <= 0 && <PushCard pushes={pushes} day={dayName} isToday={isToday} />;
   const topicCard = isToday && <TopicCard topics={topics} />;
 
   const prev = offset > -DAY_RANGE ? offset - 1 : null;
@@ -107,7 +103,6 @@ export function DashboardView({ userId, now, todayKey, offset, pushes, topics }:
           <div className="flex flex-col gap-3 lg:hidden">
             {weather}
             {schedule}
-            {pushCard}
             {topicCard}
           </div>
 
@@ -120,8 +115,7 @@ export function DashboardView({ userId, now, todayKey, offset, pushes, topics }:
               </div>
               <div className="flex min-w-0 flex-col gap-3.5">
                 {schedule}
-                {pushCard}
-              </div>
+                  </div>
             </div>
           </DesktopOnly>
         </div>
@@ -920,43 +914,6 @@ function ScheduleOk({ schedule, now, offset }: { schedule: Extract<ScheduleView,
         </p>
       )}
     </>
-  );
-}
-
-/* ---------------- 今日届いた通知 ---------------- */
-
-function PushCard({ pushes, day, isToday }: { pushes: DeliveredPush[]; day: string; isToday: boolean }) {
-  // きのう以前の分は「届いた通知」（`/pushes`。#581）で読む。端末に残った古い通知を開いてもここへ着くため。
-  // 前の日へめくったときは、その日の分をここに出す（#606）。
-  return (
-    <Card title={`${day}${/\d日$/.test(day) ? "に" : ""}届いた通知`} link={{ href: "/pushes", label: "これまでの通知" }}>
-      {pushes.length === 0 ? (
-        <Empty>{isToday ? "今日はまだ通知を送っていません。" : "この日は通知を送っていません。"}</Empty>
-      ) : (
-        <PushList pushes={pushes} />
-      )}
-    </Card>
-  );
-}
-
-/** 届いた通知の本文の並び。ダッシュボードと「届いた通知」（`/pushes`）で共有する。 */
-export function PushList({ pushes }: { pushes: DeliveredPush[] }) {
-  return (
-    <ul className="flex flex-col gap-3">
-      {pushes.map((push) => (
-        <li
-          key={push.id}
-          className={cn("flex flex-col gap-1 border-l-[3px] py-0.5 pl-3", push.urgent ? "border-danger" : "border-accent")}
-        >
-          <div className="flex gap-2 text-[0.6875rem] text-muted">
-            <b className={push.urgent ? "text-danger" : "text-accent"}>{push.label}</b>
-            <span className="tabular-nums">{jstTimeLabel(push.createdAt)}</span>
-            {push.urgent && push.title !== push.label && <span className="min-w-0 truncate">{push.title}</span>}
-          </div>
-          <p className="whitespace-pre-wrap text-sm leading-relaxed">{push.body}</p>
-        </li>
-      ))}
-    </ul>
   );
 }
 
