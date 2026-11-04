@@ -8,9 +8,6 @@
  */
 
 export const PUSH_KINDS = [
-  "morning-briefing",
-  "morning-topics",
-  "proactive-suggestion",
   "scheduled-push",
 ] as const;
 
@@ -25,36 +22,6 @@ export type PushKindInfo = {
 };
 
 export const PUSH_KIND_INFO: Record<PushKind, PushKindInfo> = {
-  "morning-briefing": {
-    label: "朝の見通し",
-    hint: "その日の予定・天気・部屋やシステムの状況。知らせることが無い日は届きません。",
-    when: "毎日、設定した時刻",
-    sample: {
-      title: "今日の見通し",
-      body: "（見本）今日は午後から雨です。15時に打ち合わせがあります。",
-      url: "/",
-    },
-  },
-  "morning-topics": {
-    label: "朝のニュース",
-    hint: "朝の見通しの時刻に、溜まっている話題の見出しを届けます。",
-    when: "朝の見通しと同じ時刻",
-    sample: {
-      title: "今日のニュース",
-      body: "（見本）注目の話題が3件あります。",
-      url: "/",
-    },
-  },
-  "proactive-suggestion": {
-    label: "先回りの提案",
-    hint: "「今ならできる」ことを秘書から。種類や静かな時間帯は下の設定で決めます。",
-    when: "条件に合ったとき（上限あり）",
-    sample: {
-      title: "先回りの提案",
-      body: "（見本）土曜の午後が空いています。やりたいことを一緒に選びませんか。",
-      url: "/",
-    },
-  },
   "scheduled-push": {
     label: "定時のお知らせ",
     hint: "話題の画面で決めた曜日・時刻に、ニュースの見出しを届けます。",

@@ -24,10 +24,6 @@ const BRIEFING_USAGE_MODEL = "claude-haiku-4-5";
 
 const db = new PrismaClient();
 
-// 朝の見通し（#79）のダミーの本文。ダッシュボードの「今日届いた通知」に出る。
-const BRIEFING_ANSWER =
-  "今日は10時から歯科の予約が入っています。日中は27度まで上がり、夕方から雨の予報なので折りたたみ傘があると安心です。部屋のCO2が1200ppmまで上がっているので、出かける前に換気をおすすめします。";
-
 const now = new Date();
 const daysAgo = (days) => new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
@@ -261,109 +257,6 @@ async function main() {
 
   const subscriptionCount = await db.pushSubscription.count({ where: { userId: user.id } });
   console.log(`[aide-bot] 通知の購読を投入しました: ${subscriptionCount}件`);
-
-  // 朝の見通し（#79）。抑制の記録（NotificationLog）も対で入れる。**日付の鍵は日本時間**で
-  // 作る（src/lib/day-key.ts の jstDayKey と同じ）。ずれると、シード投入した日に
-  // 実際の朝の見通しがもう1本届いてしまう。
-  const dedupeKey = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Tokyo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(now);
-
-  const briefingExists = await db.notificationLog.findUnique({
-    where: { userId_kind_dedupeKey: { userId: user.id, kind: "morning-briefing", dedupeKey } },
-    select: { id: true },
-  });
-
-  if (!briefingExists) {
-    const briefedAt = new Date(now.getTime());
-    briefedAt.setHours(7, 0, 0, 0);
-
-    // 見通しの生成も呼び出し1回ぶんとして数える（#51）。
-    await db.apiUsage.create({
-      data: {
-        userId: user.id,
-        feature: "briefing",
-        model: BRIEFING_USAGE_MODEL,
-        inputTokens: 4200,
-        outputTokens: 210,
-        cacheWriteTokens: 0,
-        cacheReadTokens: 0,
-        createdAt: new Date(briefedAt.getTime() + 1000),
-      },
-    });
-
-    await db.notificationLog.create({
-      data: {
-        userId: user.id,
-        kind: "morning-briefing",
-        dedupeKey,
-        title: "今日の見通し",
-        body: BRIEFING_ANSWER,
-        deliveredCount: PUSH_SUBSCRIPTION_SEEDS.length,
-        createdAt: new Date(briefedAt.getTime() + 2000),
-      },
-    });
-
-    console.log("[aide-bot] 朝の見通しを1件投入しました");
-  }
-
-  // ダッシュボード（#573）の「今日届いた通知」。朝の見通しだけだと、種類ごとの見た目（急ぎの赤）を
-  // 確かめられない。会話へは積まない（画面が読むのは NotificationLog だけ）。
-  for (const seed of [
-    { kind: "urgent-notice", key: `seed-urgent-${dedupeKey}`, title: "経費精算の締切", body: "本日18時締切の経費精算が未提出です。", share: 0.6 },
-    {
-      kind: "proactive-suggestion",
-      key: `seed-proactive-${dedupeKey}`,
-      title: "先回りの提案",
-      body: "19時過ぎから22時まで空いています。「いつかやりたいこと」の読書メモの整理はいかがでしょう。",
-      share: 0.9,
-    },
-  ]) {
-    // 日本時間の今日の0時から今までのあいだに置く（サーバーのタイムゾーンによらず「今日」に入る）。
-    const dayStartMs = new Date(`${dedupeKey}T00:00:00+09:00`).getTime();
-    const at = new Date(dayStartMs + (now.getTime() - dayStartMs) * seed.share);
-    await db.notificationLog.upsert({
-      where: { userId_kind_dedupeKey: { userId: user.id, kind: seed.kind, dedupeKey: seed.key } },
-      update: {},
-      create: {
-        userId: user.id,
-        kind: seed.kind,
-        dedupeKey: seed.key,
-        title: seed.title,
-        body: seed.body,
-        deliveredCount: PUSH_SUBSCRIPTION_SEEDS.length,
-        createdAt: at,
-      },
-    });
-  }
-
-  // 届いた通知（`/pushes`。#581）。きのう以前の行が無いと、日をまたいで並ぶか（ダッシュボードには出ないか）を
-  // 確かめられない。黙った日（本文が空）も1件入れ、一覧に出ないことを見る。鍵は日付で固定するので何度流しても増えない。
-  for (const seed of [
-    { daysAgo: 1, kind: "morning-briefing", title: "今日の見通し", body: "きのうの見通しのダミーです。10時から定例、午後は雨の予報でした。" },
-    { daysAgo: 1, kind: "urgent-notice", title: "宅配の再配達", body: "きのうの急ぎのダミーです。再配達の受付が19時まででした。", key: "seed-urgent-past" },
-    { daysAgo: 3, kind: "morning-briefing", title: "今日の見通し", body: "" },
-  ]) {
-    const pastAt = new Date(now.getTime() - seed.daysAgo * 24 * 60 * 60 * 1000);
-    const pastKey = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(pastAt);
-    const key = seed.key ? `${seed.key}-${pastKey}` : pastKey;
-    await db.notificationLog.upsert({
-      where: { userId_kind_dedupeKey: { userId: user.id, kind: seed.kind, dedupeKey: key } },
-      update: {},
-      create: {
-        userId: user.id,
-        kind: seed.kind,
-        dedupeKey: key,
-        title: seed.title,
-        body: seed.body,
-        deliveredCount: seed.body ? PUSH_SUBSCRIPTION_SEEDS.length : 0,
-        createdAt: new Date(`${pastKey}T${seed.kind === "urgent-notice" ? "15:30" : "07:00"}:00+09:00`),
-      },
-    });
-  }
 
   // 話題（#144）。同じURLは畳まれる。日付は投入日（日本時間）にしておく。
   const publishedOn = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(now);

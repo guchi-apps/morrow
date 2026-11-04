@@ -1,6 +1,6 @@
 "use client";
 
-import { Cpu, History, LayoutDashboard, Newspaper, Settings } from "lucide-react";
+import { Cpu, LayoutDashboard, Newspaper, Settings } from "lucide-react";
 import Link from "next/link";
 
 import { AppLogo } from "@/components/brand/app-icon";
@@ -11,8 +11,6 @@ type Props = {
   isDashboardActive: boolean;
   /** 設定の画面を開いているか（#46）。 */
   isSettingsActive: boolean;
-  /** 届いた通知の画面を開いているか（#581）。 */
-  isPushesActive: boolean;
   /** 話題の画面を開いているか（#144）。 */
   isTopicsActive: boolean;
   /** モデルの画面を開いているか（#349）。 */
@@ -33,7 +31,6 @@ type Props = {
 export function ConversationRail({
   isDashboardActive,
   isSettingsActive,
-  isPushesActive,
   isTopicsActive,
   isModelsActive,
   topicCount,
@@ -61,20 +58,6 @@ export function ConversationRail({
       <div className="min-h-0 flex-1" />
 
       <div className="border-t border-border">
-        {/* 送った通知の本文（#581）。ダッシュボードは今日の分だけなので、きのう以前はここで読む。 */}
-        <Link
-          href="/pushes"
-          onClick={onNavigate}
-          aria-current={isPushesActive ? "page" : undefined}
-          className={cn(
-            "mx-2.5 mt-2 flex items-center gap-1.5 rounded-[9px] px-2.5 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-            isPushesActive && "bg-rail-active shadow-[inset_2px_0_0_var(--accent)]",
-          )}
-        >
-          <History className="size-3.5 text-muted" aria-hidden="true" />
-          届いた通知
-        </Link>
-
         {/* 仕入れた話題（#144）。お知らせとは別の受け皿で、数字は「未読」ではなく溜まっている件数。
             用件ではないので、お知らせと違って数字を強調しない。 */}
         <Link

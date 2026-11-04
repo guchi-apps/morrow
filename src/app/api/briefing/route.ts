@@ -2,12 +2,13 @@ import { timingSafeEqual } from "node:crypto";
 
 import { NextResponse, after } from "next/server";
 
-import { runMorningBriefing } from "@/lib/briefing";
-import { runProactiveSuggestions } from "@/lib/proactive";
 import { runScheduledPushes } from "@/lib/scheduled-push";
 
 /**
- * 朝の見通しを起動する（#79）。**cronから叩かれる、利用者のいない経路。**
+ * 定時のお知らせを起動する。**cronから叩かれる、利用者のいない経路。**
+ *
+ * 以前は朝の見通し（#79）・先回りの提案（#325）もここから起動していたが、#675で廃止した。
+ * パスと `BRIEFING_TRIGGER_TOKEN` は、vpsのcrontabを変えずに済むよう名前のまま残している。
  *
  * 新しい常駐プロセスを足さないため、スケジューリングは外（`guchi-apps/vps` の
  * `cron/crontab.txt`）に任せ、ここはワンショットで走るだけにしてある。
@@ -58,22 +59,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "認証が必要です。" }, { status: 401 });
   }
 
-  const outcomes = await runMorningBriefing();
-
-  // 先回りの提案（#325）。**応答を待たせない**——判定を通ればCodexが最大180秒かかるため、
-  // 朝の見通しの結果を返した後（`after()`）で走らせる。判定の大半はDBを引くだけで戻る。
-  // 朝の見通しとは抑制の単位（種類・上限）を分けてあり、その1日1本の枠を消費しない。
-  after(async () => {
-    try {
-      const results = await runProactiveSuggestions();
-      for (const { userId, status, delivered, detail } of results) {
-        console.info(`[aide-bot] 先回りの提案: ${userId} ${status}（${delivered}台）${detail ? ` ${detail}` : ""}`);
-      }
-    } catch (error) {
-      console.error("[aide-bot] 先回りの提案に失敗した", error);
-    }
-  });
-
   // 定時のお知らせ（#344）。モデルを呼ばずDBを引くだけなので、応答の後（`after()`）で走らせる。
   after(async () => {
     try {
@@ -86,15 +71,5 @@ export async function POST(request: Request) {
     }
   });
 
-  // cronのログ（メール）に流れる想定なので、届いたかどうかが一目で分かる形にする。
-  // 本文そのものは返さない——ログに秘書の返答が丸ごと残るのは行き過ぎ。
-  return NextResponse.json({
-    ran: outcomes.length,
-    outcomes: outcomes.map(({ userId, status, delivered, detail }) => ({
-      userId,
-      status,
-      delivered,
-      ...(detail ? { detail } : {}),
-    })),
-  });
+  return NextResponse.json({ ran: true });
 }
