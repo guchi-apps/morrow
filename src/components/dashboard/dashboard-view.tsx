@@ -295,8 +295,8 @@ async function WeatherCard({
     dashboardDayWeather(userId, now, dayKey),
     // 今日の画面だけ、明日の1行を添える（めくった先の日では出さない）。
     offset === 0 ? dashboardDayWeather(userId, now, addDays(dayKey, 1)) : null,
-    // 明日以降の日だけ、前日の予報と並べて気温の前日比を出す（#665）。取れなければ差は出さない。
-    offset >= 1 ? dashboardDayWeather(userId, now, addDays(dayKey, -1)) : null,
+    // 今日以降の日は、前日の予報と並べて気温の前日比を出す（#665・#679）。取れなければ差は出さない。
+    offset >= 0 ?dashboardDayWeather(userId, now, addDays(dayKey, -1)) : null,
   ]);
   const homeName = weather.status === "ok" ? (weather.location?.name ?? null) : null;
 
