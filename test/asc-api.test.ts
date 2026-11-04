@@ -41,7 +41,10 @@ describe("pickInternalGroup", () => {
 });
 
 describe("pickApiCreatedDevCertificates", () => {
-  const c = (id: string, name: string, certificateType: string) => ({ id, attributes: { name, certificateType } });
+  const c = (id: string, displayName: string, certificateType: string) => ({
+    id,
+    attributes: { displayName, name: `Apple Development: ${displayName}`, certificateType },
+  });
   it("API作成のDevelopment証明書だけを選ぶ（自分用・Distributionは残す）", () => {
     const picked = pickApiCreatedDevCertificates([
       c("1", "Created via API", "DEVELOPMENT"),
