@@ -1,6 +1,6 @@
 # メールを受信したタイミングで取得する方法の調査（#761）
 
-「Gmailのアプリのように、メールが来たらすぐ反映させられないか」の調査結果。**この文書は調査と方針案だけで、実装はまだ無い。**
+「Gmailのアプリのように、メールが来たらすぐ反映させられないか」の調査結果。**B（Gmailのpush通知）のMorrow側の受け口は#769で実装した**（下の「Bの実装（#769）」）。
 
 ## いまの仕組みと、遅れている箇所
 
@@ -56,3 +56,29 @@ IMAPの `IDLE` で接続を張り続け、新着が来たらサーバーから�
 3. **C は見送り。** 常駐させない方針を変えるほどの差が、追加アカウントに対しては無い。必要になったら改めて判断する
 
 後続: A は #768、B は #769 で起票した。
+
+## Bの実装（#769）
+
+#769で決めたこと: **受け口はMorrowに直接置く**（中身に秘密が無く、AIDE→Morrowの経路が要らない）。**JWTの検証は依存なし**（`node:crypto`）。
+
+- 受け口は `POST /api/mail/push`（`src/app/api/mail/push/route.ts`）。Pub/SubのOIDCトークンを `verifyPushToken()`（`src/lib/mail/gmail-push-core.ts`）で検証する。
+  署名（RS256。Googleの公開鍵は `google-jwks.ts` が `Cache-Control` の間だけ持ち回し、知らない `kid` のときだけ1分に1回まで取り直す）・
+  `iss`・`aud`（`GMAIL_PUSH_AUDIENCE`。既定は本番URL）・`exp`/`iat`（5分のずれを許す）・`email`（`GMAIL_PUSH_SERVICE_ACCOUNT`。確認済み）を見る。
+  **誰でもGoogle署名のIDトークンを任意の `aud` で作れるので、`email` の照合が本体。** `GMAIL_PUSH_SERVICE_ACCOUNT` が未設定なら401で閉じる
+- 認証を通った後は判定を `after()` で起こしてすぐ204を返す（Pub/Subは既定10秒で打ち切って再送する）。読めない本文も204で捨てる（2xx以外は再送され続ける）
+- 判定は `checkMailFromPush()`（`triage.ts`）。`emailAddress` と一致する利用者（いなければcronと同じ対象の全員。持ち主の照合は `listMail()`）の
+  `checkMailForUser()` を起こす。**判定中に届いた通知は捨てずに、終わってからもう1回だけ確かめる**（`rerunRequested`。重なった通知は1回にまとまる）
+- **黙って止まらないための見張り**: push通知を設定している環境で、15分ごとのcronがメインのアカウント（IDの接頭辞が無いか `main~`）の新着を判定したら
+  「pushで拾えなかった」と `console.warn` に残す（`warnIfPushMissed()`）。pushが届いていればその場で判定済みになり、cronの回には残らないため。
+  再起動の直後・判定の途中で止まった回にも出うる
+- `historyId` は使っていない（ログに出すだけ）。差分は従来どおり既読位置（`User.mailCheckedAt`）と `MailTriage` で取る
+
+### Morrowの外に残っている作業
+
+- **GCP（GmailのOAuthクライアントのプロジェクト）での設定**（人の作業）: Pub/Subのトピック作成と `gmail-api-push@system.gserviceaccount.com` への発行権限、
+  pushサブスクリプション（エンドポイント `https://aide-bot.gucchii.com/api/mail/push`・認証を有効にしてpush用のサービスアカウントとオーディエンスを指定）
+- **`GMAIL_PUSH_SERVICE_ACCOUNT` を本番の `.env` へ届ける**（`deploy.yml` の「Send environment variables」。秘密ではないので平文でよい）
+- **AIDEの `users.watch`（受信トレイ）と毎日のかけ直し・失敗のログ**（guchi-apps/aide側）
+
+手元では、`.env.local` に `GMAIL_PUSH_SERVICE_ACCOUNT` を入れて自前の鍵で署名したトークンを送ると、実際のGoogleの公開鍵を取りに行って `unknown_key` で401になる（ログに理由が出る）。
+署名の通る経路は `test/gmail-push.test.ts` が自前の鍵で確かめている。
