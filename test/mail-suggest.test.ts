@@ -72,19 +72,29 @@ describe("toolCallFor", () => {
     assert.match(String(a.args.memo), /\/mail\/m-1/);
   });
 
-  it("家計簿は金額・日付が無ければ送らない。あればmessageIdと確度を付ける", () => {
-    const missing = normalizeSuggestion("payment", { name: "n", amount: null, date: "2026-11-05" })!;
+  it("家計簿は支払先・金額・日付が無ければ送らない。あればplace・messageId・確度を付ける", () => {
+    const missing = normalizeSuggestion("payment", { place: "p", name: "n", amount: null, date: "2026-11-05" })!;
     assert.equal(toolCallFor(missing, mail, "u1").ok, false);
-    const ok = toolCallFor(normalizeSuggestion("payment", { name: "n", amount: 100, date: "2026-11-05" }, "", 0.8)!, mail, "u1");
+    // Asset Managerは place を必須にしている（#743）
+    const noPlace = toolCallFor(normalizeSuggestion("payment", { name: "n", amount: 100, date: "2026-11-05" })!, mail, "u1");
+    assert.deepEqual(noPlace, { ok: false, reason: "支払先を入力してください。" });
+    const blankPlace = normalizeSuggestion("payment", { place: "  ", name: "n", amount: 100, date: "2026-11-05" })!;
+    assert.ok(blankPlace.kind === "payment" && blankPlace.fields.place === null);
+    const ok = toolCallFor(normalizeSuggestion("payment", { place: "Aqua Voice", name: "n", amount: 100, date: "2026-11-05" }, "", 0.8)!, mail, "u1");
     assert.ok(ok.ok);
     assert.equal(ok.tool, "asset_manager_import_payment");
+    assert.equal(ok.args.place, "Aqua Voice");
+    assert.equal(ok.args.amount, 100);
     assert.equal(ok.args.gmailMessageId, "m-1");
     assert.equal(ok.args.confidence, 0.8);
   });
 
-  it("外貨建ては元の金額と通貨だけでも送れる。予定は日付が必須", () => {
-    const fx = normalizeSuggestion("payment", { name: "n", originalAmount: 9.99, originalCurrency: "usd", date: "2026-11-05" })!;
-    assert.ok(toolCallFor(fx, mail, "u1").ok);
+  it("外貨建ては円の金額が無ければ送らない（Asset Managerは amount 必須）。予定は日付が必須", () => {
+    const fx = normalizeSuggestion("payment", { place: "p", name: "n", originalAmount: 9.99, originalCurrency: "usd", date: "2026-11-05" })!;
+    assert.deepEqual(toolCallFor(fx, mail, "u1"), { ok: false, reason: "円の金額を入力してください。" });
+    const fxYen = toolCallFor(normalizeSuggestion("payment", { place: "p", name: "n", amount: 1500, originalAmount: 9.99, originalCurrency: "usd", date: "2026-11-05" })!, mail, "u1");
+    assert.ok(fxYen.ok);
+    assert.equal(fxYen.args.originalCurrency, "USD");
     assert.equal(toolCallFor(normalizeSuggestion("event", { title: "t" })!, mail, "u1").ok, false);
   });
 });
