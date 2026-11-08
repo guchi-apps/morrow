@@ -195,6 +195,11 @@ async function check(user: CheckUser, now: Date): Promise<MailCheckResult> {
       skipDuplicates: true,
     });
     if (delivered > 0) {
+      // 別プロセスが先に行を作っていても（skipDuplicates で読み飛ばされても）届けた印は付ける
+      await db.mailTriage.updateMany({
+        where: { userId: user.id, messageId: { in: needed.map((mail) => mail.id) }, notifiedAt: null },
+        data: { notifiedAt: now },
+      });
       // 記録には件名・差出人を残さない（メールの中身はAIDEにだけ置く）
       const dedupeKey = createHash("sha256").update(needed.map((mail) => mail.id).join(",")).digest("hex").slice(0, 40);
       await db.notificationLog

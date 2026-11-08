@@ -683,7 +683,7 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
   vpsの `cron/crontab.txt` は以前から `*/15` で `scripts/aide-bot-briefing.sh`（`/api/briefing`）を叩いているので、vps側の変更は要らなかった
 - 判定はCodex（用途「メールの判定」・機能 `mail`）。**渡すのは差出人・件名・冒頭（snippet。200字で切る）だけ**で、メッセージIDは `m1`…の仮番号にする
   （`triage-core.ts`・`test/mail-triage.test.ts`）。通知の種類がオフ・判定していない新着が無い回はCodexを呼ばない。基準は利用者が書く `User.mailCriteria`（空なら既定）
-- **同じメールは二度判定・二度通知しない**（`MailTriage` の利用者×メールID一意）。件名・差出人・本文はMorrowのDBに残さない（`NotificationLog` の本文も件数だけ）。
+- **同じメールは二度判定・二度通知しない**（`MailTriage` の利用者×メールID一意）。**ただし必要と判定した行は、通知の試行（`sendPushToUser()`）が終わってから作る**（#693。先に作ると、作成と送信のあいだで止まった回の通知が永久に失われる）。不要・枠あふれの行は先に作る。送信後・確定前に止まった回は、次の確認で再判定されて再通知されうる（取りこぼすより重複を選ぶ。再判定はCodexなので結果は変わりうる）。件名・差出人・本文はMorrowのDBに残さない（`NotificationLog` の本文も件数だけ）。
   初回は既読位置を置くだけで、溜まっている過去分は知らせない。返答が読めなかった回は何も記録せず次でやり直す
 - 開発DBのシードにメールのダミーは無い（メールはAIDEにしか無いため）。手元では、`initialize` 不要の小さなHTTPスタブ（`/api/mail/messages`・
   `/api/mail/messages/<id>`・`/api/mail/actions` に答えるだけ）を立てて `.env.local` の `AIDE_MAIL_API_URL`・`AIDE_MAIL_API_TOKEN` を向け、
