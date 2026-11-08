@@ -12,6 +12,7 @@ import type { RelayEvent } from "@/lib/hermes/stream-view";
 import { isAutoWriteTool, isProposeTool, knownToolKey, resultFailed } from "@/lib/hermes/tool-labels";
 import { registerTurn, releaseTurn } from "@/lib/hermes/turn-owners";
 import { readJsonObject } from "@/lib/json-body";
+import { mailContextFor } from "@/lib/mail/chat-context";
 import { isPushKindEnabled } from "@/lib/push/kinds-server";
 import { sendPushToUser } from "@/lib/push/subscriptions";
 
@@ -67,7 +68,9 @@ export async function POST(request: Request) {
 
   // 前の発言以降に実行・取り下げされた提案を、先頭に付けてHermesへ伝える（送れたら伝達済みにする）
   const notes = continuing ? await pendingHermesNotes(user.id, continuing) : { text: "", ids: [] };
-  const prompt = notes.text ? `${notes.text}\n\n${text}` : text;
+  // メールに触れる指示なら、検索して該当メールを先頭へ添える（#813。失敗してもターンは止めない）
+  const mailContext = await mailContextFor(user, text).catch(() => null);
+  const prompt = [notes.text, mailContext?.prompt, text].filter((part) => part).join("\n\n");
 
   let events: AsyncGenerator<BridgeEvent>;
   try {
@@ -97,6 +100,8 @@ export async function POST(request: Request) {
       };
       // Apacheなどのプロキシに切られないように、こちらからもコメント行を流す
       const heartbeat = setInterval(() => write(": ping\n\n"), HEARTBEAT_MS);
+
+      if (mailContext) write(sse({ type: "notice", data: { text: mailContext.label } }));
 
       let turnId: string | null = null;
       let currentSessionId = continuing ?? "";

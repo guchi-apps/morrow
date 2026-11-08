@@ -1,6 +1,6 @@
 import type { BridgeEvent, BridgeEventType } from "./contract.ts";
 import type { ProposalView } from "./proposal-core.ts";
-import { argLines, isAutoWriteTool, knownToolKey, resultFailed, toolLabel, type ArgLine } from "./tool-labels.ts";
+import { argLines, isAutoWriteTool, knownToolKey, resultFailed, toolHint, toolLabel, type ArgLine } from "./tool-labels.ts";
 
 /**
  * チャット画面の状態（#794。純粋）。ブリッジのイベント（MorrowのRoute Handlerが中継する）を、画面の並びへ畳み込む。
@@ -8,9 +8,13 @@ import { argLines, isAutoWriteTool, knownToolKey, resultFailed, toolLabel, type 
  */
 
 /** Morrowが中継で足すイベント。ブリッジの `propose` 道具の呼び出しを、保存した確認カードへ置き換えたもの。 */
-export type RelayEvent = BridgeEvent | { type: "proposal"; data: { proposal: ProposalView } };
+export type RelayEvent =
+  | BridgeEvent
+  | { type: "proposal"; data: { proposal: ProposalView } }
+  /** Morrowが発言へ添えたもの（受信メールの参照など。#813）を知らせる1行。 */
+  | { type: "notice"; data: { text: string } };
 
-export const RELAY_EVENT_TYPES: ReadonlySet<string> = new Set<BridgeEventType | "proposal">([
+export const RELAY_EVENT_TYPES: ReadonlySet<string> = new Set<BridgeEventType | "proposal" | "notice">([
   "turn",
   "message.delta",
   "tool.start",
@@ -20,6 +24,7 @@ export const RELAY_EVENT_TYPES: ReadonlySet<string> = new Set<BridgeEventType | 
   "message.complete",
   "error",
   "proposal",
+  "notice",
 ]);
 
 export type ChatItem =
@@ -30,6 +35,8 @@ export type ChatItem =
       id: number;
       name: string;
       label: string;
+      /** チップに添える短い手掛かり（検索語・読み込み先のドメイン・知らない道具の名前）。無ければ null。#814 */
+      hint: string | null;
       /** unknown: tool.completeを受けないままターンが終わった（中断・切断）。結果は分からない。 */
       status: "running" | "done" | "failed" | "unknown";
       /** 取り消せる書き込み（自動実行）。結果カードで出す。 */
@@ -143,7 +150,8 @@ export function applyEvent(state: ChatState, event: RelayEvent): ChatState {
         kind: "tool",
         id,
         name,
-        label: toolLabel(name),
+        label: toolLabel(name, event.data.args),
+        hint: toolHint(name, event.data.args),
         status: "running",
         auto,
         lines: auto ? argLines(event.data.args) : [],
@@ -161,6 +169,9 @@ export function applyEvent(state: ChatState, event: RelayEvent): ChatState {
       if (state.items.some((item) => item.kind === "proposal" && item.proposal.id === event.data.proposal.id)) return state;
       return push(closeAssistant(state), (id) => ({ kind: "proposal", id, proposal: event.data.proposal }));
     }
+
+    case "notice":
+      return addNotice(closeAssistant(state), "info", event.data.text);
 
     case "approval":
       return push(closeAssistant(state), (id) => ({

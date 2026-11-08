@@ -16,7 +16,7 @@ import {
   type ChatState,
   type RelayEvent,
 } from "@/lib/hermes/stream-view";
-import { argLines, isAutoWriteTool, isProposeTool, knownToolKey, resultFailed, toolLabel } from "@/lib/hermes/tool-labels";
+import { argLines, isAutoWriteTool, isProposeTool, knownToolKey, resultFailed, toolHint, toolLabel } from "@/lib/hermes/tool-labels";
 
 /** チャット画面の状態の畳み込み・道具の表示名・失敗の読み替え（#794）。 */
 
@@ -50,6 +50,31 @@ describe("イベントの畳み込み", () => {
     const assistants = state.items.filter((i) => i.kind === "assistant");
     assert.equal(assistants.length, 1);
     assert.equal(assistants[0].kind === "assistant" && assistants[0].text, "こんにちは。");
+  });
+
+  it("Hermes組み込みの道具は日本語名と手掛かりで出す（#814）", () => {
+    assert.equal(toolLabel("web_search"), "ウェブ検索");
+    assert.equal(toolHint("web_search", { query: "高槻市 天気" }), "「高槻市 天気」");
+    assert.equal(toolLabel("mcp_x_web_extract"), "ウェブページの読み取り");
+    // URLのパス・クエリは出さずドメインだけ
+    assert.equal(toolHint("web_extract", { urls: ["https://tenki.jp/forecast/6/30?q=secret"] }), "tenki.jp");
+    assert.equal(toolHint("tool_search", { queries: ["gmail search", "x"] }), "「gmail search」");
+    assert.equal(toolLabel("tool_describe"), "道具の使い方を確認");
+    // 知らない道具でも、URLのパス・クエリは手掛かりに出さない
+    assert.equal(toolHint("unknown_fetch", { url: "https://a.example/p?token=x" }), "unknown_fetch");
+    assert.equal(isAutoWriteTool("web_search"), false);
+  });
+
+  it("tool_callの中継は呼び先の名前で表示する。知らない道具は名前を添える", () => {
+    const args = JSON.stringify({ calls: [{ name: "desktop_project", arguments: { action: "list" } }] });
+    assert.equal(toolLabel("tool_call", args), "プロジェクトを確認");
+    assert.equal(toolLabel("tool_call", { calls: [{ name: "aide_weather" }] }), "天気の確認");
+    assert.equal(toolLabel("something_new"), "その他の操作");
+    assert.equal(toolHint("something_new", {}), "something_new");
+    assert.equal(toolHint("aide_schedule", {}), null);
+    const state = run([{ type: "tool.start", data: { name: "web_search", args: { query: "天気" } } }]);
+    const item = state.items[1];
+    assert.ok(item.kind === "tool" && item.label === "ウェブ検索" && item.hint === "「天気」");
   });
 
   it("途中の本文が無い回は、全文を1つの吹き出しにする。あれば足さない", () => {

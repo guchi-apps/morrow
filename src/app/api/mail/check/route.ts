@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth-user";
+import { invalidateMailList } from "@/lib/mail/list-cache";
 import { checkMailNow } from "@/lib/mail/triage";
 
 /**
@@ -21,6 +22,7 @@ export async function POST() {
   }
 
   const result = await checkMailNow(user.id);
+  invalidateMailList(user.id);
   const status = result.status === "not_owner" ? 403 : result.status === "failed" ? 502 : 200;
   return NextResponse.json({ result }, { status });
 }
