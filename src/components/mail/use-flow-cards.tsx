@@ -1,0 +1,105 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useCallback, useState } from "react";
+
+import { FlowSheet, type CardResult } from "@/components/mail/flow-sheet";
+import type { Suggestion } from "@/lib/mail/suggest-core";
+
+/**
+ * 提案の行（分析 #766・指示 #784）の状態と、押したときのハーフモーダル（`FlowSheet`）。1通のメールの画面に1つ。
+ *
+ * **状態は行ごとの識別子をキーに持つ**（#784の計画レビュー）。以前は種類（payment など）をキーにしていたため、
+ * 分析と指示の返事に同じ種類の行が出ると、登録結果・実行中・開いている行が互いに上書きされた。
+ * 識別子は呼び出し側が付ける（分析は `a-<n>`、指示は `c<返事の番号>-<n>`）。二重登録は `/apply` の冪等キー・`gmailMessageId` が止める。
+ */
+
+export type FlowRow = { card: Suggestion; recommended: boolean };
+
+export function useFlowCards(mailId: string) {
+  const router = useRouter();
+  const [rows, setRows] = useState<Record<string, FlowRow>>({});
+  const [outcomes, setOutcomes] = useState<Record<string, CardResult>>({});
+  const [running, setRunning] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+
+  /** `prefix` で始まる行を消して入れ直す（分析し直したとき）。結果の表示も消す。 */
+  const replace = useCallback((prefix: string, next: Record<string, FlowRow>) => {
+    const keep = <T,>(record: Record<string, T>) => Object.fromEntries(Object.entries(record).filter(([id]) => !id.startsWith(prefix)));
+    setRows((current) => ({ ...keep(current), ...next }));
+    setOutcomes((current) => keep(current));
+  }, []);
+
+  function edit(rowId: string, key: string, value: string) {
+    setRows((current) => {
+      const row = current[rowId];
+      if (!row) return current;
+      const { card } = row;
+      const fields = { ...card.fields } as Record<string, unknown>;
+      if (key === "amount" || key === "day") {
+        const n = value.trim() === "" ? null : Number(value.replace(/[,，]/g, ""));
+        fields[key] = n !== null && Number.isFinite(n) ? (card.kind === "subscription" && key === "amount" ? n : Math.round(n)) : null;
+      } else {
+        fields[key] = value === "" && key !== "title" && key !== "name" && key !== "memo" ? null : value;
+      }
+      return { ...current, [rowId]: { ...row, card: { ...card, fields } as Suggestion } };
+    });
+  }
+
+  /** サブスク一覧を開いたことを控えに残す（#750）。登録できたかは分からないので「開いた」として残る。失敗しても開くのは止めない。 */
+  function recordOpened(card: Suggestion) {
+    fetch("/api/mail/flow/subscription", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: mailId, fields: card.fields }),
+      keepalive: true,
+    })
+      .then(() => router.refresh())
+      .catch(() => {});
+  }
+
+  async function run(rowId: string, card: Suggestion) {
+    setRunning(rowId);
+    try {
+      const response = await fetch("/api/mail/flow/apply", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: mailId, kind: card.kind, fields: card.fields, confidence: card.confidence }),
+      });
+      const data = (await response.json().catch(() => null)) as { message?: string; error?: string; status?: string; labeled?: boolean } | null;
+      if (!response.ok) {
+        setOutcomes((o) => ({ ...o, [rowId]: { text: data?.error ?? `実行できませんでした（HTTP ${response.status}）。`, error: true, done: false } }));
+        return;
+      }
+      const failed = data?.status === "failed";
+      setOutcomes((o) => ({
+        ...o,
+        [rowId]: { text: `${data?.message ?? "実行しました。"}${data?.labeled ? "「処理済み」ラベルを付けました。" : ""}`, error: failed, done: !failed },
+      }));
+      // 登録した内容の欄（#750）と「処理済み」ラベルを更新する
+      if (!failed) router.refresh();
+    } catch {
+      setOutcomes((o) => ({ ...o, [rowId]: { text: "実行できませんでした（通信できませんでした）。", error: true, done: false } }));
+    } finally {
+      setRunning(null);
+    }
+  }
+
+  const openRow = open ? rows[open] : undefined;
+  const sheet = (
+    <FlowSheet
+      card={openRow?.card ?? null}
+      recommended={openRow?.recommended ?? false}
+      outcome={open ? outcomes[open] : undefined}
+      running={open !== null && running === open}
+      onEdit={(_kind, key, value) => open && edit(open, key, value)}
+      onRun={(card) => open && void run(open, card)}
+      onOpenSubscription={recordOpened}
+      onClose={() => setOpen(null)}
+    />
+  );
+
+  return { rows, outcomes, replace, setOpen, sheet };
+}
+
+export type FlowCards = ReturnType<typeof useFlowCards>;

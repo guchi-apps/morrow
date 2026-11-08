@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import type { Server } from "node:http";
+import { createServer as createHttpServer, request as httpRequest, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, describe, it } from "node:test";
 
 import { authorize, bearerMatches, forwardedClient, parseAllowedIps } from "../hermes-bridge/auth.ts";
 import { HermesRpcError, type HermesEvent, type HermesLink, type HermesServerRequest } from "../hermes-bridge/hermes-link.ts";
+import { createHistoryReader, HistoryNotFoundError, projectHistory, type HistoryReader } from "../hermes-bridge/history.ts";
 import { TurnLimiter } from "../hermes-bridge/limits.ts";
 import { createBridgeServer } from "../hermes-bridge/server.ts";
 import { allowedChoices } from "../hermes-bridge/turn.ts";
@@ -131,12 +132,13 @@ after(() => {
   }
 });
 
-async function startBridge(connect: () => Promise<HermesLink>, overrides: { token?: string | undefined; allowedIps?: string[]; turnTimeoutMs?: number } = {}) {
+async function startBridge(connect: () => Promise<HermesLink>, overrides: { token?: string | undefined; allowedIps?: string[]; turnTimeoutMs?: number; history?: HistoryReader } = {}) {
   const server = createBridgeServer({
     token: "token" in overrides ? overrides.token : TOKEN,
     allowedIps: overrides.allowedIps ?? [CLIENT_IP],
     connect,
     turnTimeoutMs: overrides.turnTimeoutMs,
+    history: overrides.history,
     heartbeatMs: 30,
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -533,5 +535,175 @@ describe("提案用のMCP（morrow_propose_action）", () => {
 
     const unknown = await post({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "other" } });
     assert.equal(unknown.json?.error.code, -32602);
+  });
+});
+
+describe("履歴の絞り込み（#752）", () => {
+  it("利用者とHermesの発言だけを残し、道具は名前だけ・システム注記や推論は返さない", () => {
+    const rows = [
+      {
+        id: 1,
+        role: "user",
+        content: "明日の予定は？",
+        api_content: "明日の予定は？\n\n[System note: ...]",
+        timestamp: 1794145887.768,
+        message_uid: "u1",
+      },
+      {
+        id: 2,
+        role: "assistant",
+        content: "",
+        tool_calls: JSON.stringify([{ id: "c1", type: "function", function: { name: "aide_schedule", arguments: '{"days":1}' } }]),
+        codex_reasoning_items: '[{"encrypted_content":"secret"}]',
+        reasoning: "考えた中身",
+        timestamp: 1794145888,
+      },
+      { id: 3, role: "tool", tool_name: "aide_schedule", content: '{"events":[{"title":"歯医者"}]}', timestamp: 1794145889 },
+      { id: 4, role: "assistant", content: "10時に歯医者です。", timestamp: 1794145890 },
+      { id: 5, role: "assistant", content: "要約", display_kind: "compaction_summary" },
+      { id: 6, role: "system", content: "システム" },
+      { id: 7, role: "user", content: [{ type: "text", text: "ありがとう" }, { type: "image_url", image_url: "data:..." }] },
+      { id: 8, role: "assistant", content: "   " },
+    ];
+    const { messages, truncated } = projectHistory(rows, 50);
+    assert.equal(truncated, false);
+    assert.deepEqual(messages, [
+      { role: "user", text: "明日の予定は？", at: 1794145887768 },
+      { role: "assistant", text: "", at: 1794145888000, tools: ["aide_schedule"] },
+      { role: "assistant", text: "10時に歯医者です。", at: 1794145890000 },
+      { role: "user", text: "ありがとう", at: null },
+    ]);
+    const serialized = JSON.stringify(messages);
+    for (const leaked of ["System note", "secret", "考えた中身", "days", "歯医者\"}"]) assert.equal(serialized.includes(leaked), false, leaked);
+  });
+
+  it("直近limit件だけを返し、落とした分があれば truncated", () => {
+    const rows = Array.from({ length: 5 }, (_, i) => ({ role: i % 2 ? "assistant" : "user", content: `m${i}` }));
+    const { messages, truncated } = projectHistory(rows, 2);
+    assert.deepEqual(messages.map((m) => m.text), ["m3", "m4"]);
+    assert.equal(truncated, true);
+    assert.deepEqual(projectHistory("not-an-array", 5), { messages: [], truncated: false });
+  });
+});
+
+/** HermesのRESTの代わり。受けたリクエストを記録し、決めた応答を返す。 */
+async function startFakeHermesRest(handler: (path: string) => { status: number; body: unknown }) {
+  const seen: { path: string; token: string | undefined }[] = [];
+  const server = createHttpServer((req, res) => {
+    const token = req.headers["x-hermes-session-token"];
+    seen.push({ path: req.url ?? "", token: typeof token === "string" ? token : undefined });
+    const { status, body } = handler(req.url ?? "");
+    res.writeHead(status, { "content-type": "application/json" });
+    res.end(JSON.stringify(body));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  servers.push(server);
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, seen };
+}
+
+describe("HermesのRESTから履歴を読む（#752）", () => {
+  it("sourceがmorrowのセッションだけ読み、トークンを付け、多めに・新しい側から読む", async () => {
+    const hermes = await startFakeHermesRest((path) => {
+      if (path === "/api/sessions/s-morrow") return { status: 200, body: { id: "s-morrow", source: "morrow", title: "疎通確認" } };
+      if (path.startsWith("/api/sessions/s-morrow/messages")) {
+        return { status: 200, body: { messages: [{ role: "user", content: "やあ" }, { role: "assistant", content: "ことり" }] } };
+      }
+      return { status: 404, body: { detail: "not found" } };
+    });
+    const read = createHistoryReader({ url: hermes.url, token: "hermes-token", timeoutMs: 2_000 });
+    const body = await read("s-morrow", 10);
+    assert.deepEqual(body, {
+      sessionId: "s-morrow",
+      title: "疎通確認",
+      hasMore: false,
+      messages: [
+        { role: "user", text: "やあ", at: null },
+        { role: "assistant", text: "ことり", at: null },
+      ],
+    });
+    assert.deepEqual(hermes.seen.map((r) => r.token), ["hermes-token", "hermes-token"]);
+    assert.equal(hermes.seen[1].path, "/api/sessions/s-morrow/messages?limit=41&order=latest&inline_images=false");
+  });
+
+  it("Morrow以外のセッション（Discordなど）は中身を読まずに「無い」と同じ扱い", async () => {
+    const hermes = await startFakeHermesRest((path) =>
+      path === "/api/sessions/s-discord" ? { status: 200, body: { id: "s-discord", source: "discord" } } : { status: 404, body: {} },
+    );
+    const read = createHistoryReader({ url: hermes.url, token: "t", timeoutMs: 2_000 });
+    await assert.rejects(read("s-discord", 10), HistoryNotFoundError);
+    await assert.rejects(read("missing", 10), HistoryNotFoundError);
+    // `..` はURLで畳まれて別のRESTを指すので、Hermesへ送らずに断る
+    await assert.rejects(read("..", 10), HistoryNotFoundError);
+    assert.equal(hermes.seen.some((r) => !r.path.startsWith("/api/sessions/")), false);
+    assert.equal(hermes.seen.some((r) => r.path.includes("/messages")), false);
+  });
+
+  it("読んだページが一杯なら hasMore", async () => {
+    const rows = Array.from({ length: 9 }, () => ({ role: "tool", content: "x" }));
+    const hermes = await startFakeHermesRest((path) =>
+      path.includes("/messages") ? { status: 200, body: { messages: rows } } : { status: 200, body: { source: "morrow" } },
+    );
+    const body = await createHistoryReader({ url: hermes.url, token: "t", timeoutMs: 2_000 })("s1", 2);
+    assert.equal(body.hasMore, true);
+    assert.deepEqual(body.messages, []);
+    assert.equal(body.title, null);
+  });
+});
+
+describe("GET /sessions/<id>/messages（#752）", () => {
+  const sample: HistoryReader = async (sessionId, limit) => {
+    if (sessionId === "missing") throw new HistoryNotFoundError("無い");
+    if (sessionId === "broken") throw new Error("Hermesが500");
+    return { sessionId, title: null, hasMore: false, messages: [{ role: "user", text: `limit=${limit}`, at: 1 }] };
+  };
+
+  it("履歴を返し、既定は50件", async () => {
+    const { client } = await startBridge(simpleChat(), { history: sample });
+    const body = await client.history("stored-1");
+    assert.deepEqual(body.messages, [{ role: "user", text: "limit=50", at: 1 }]);
+    assert.equal((await client.history("stored-1", { limit: 500 })).messages[0].text, "limit=100");
+  });
+
+  it("無い・Morrow以外は no_session、Hermesの失敗は hermes_down", async () => {
+    const { client } = await startBridge(simpleChat(), { history: sample });
+    await assert.rejects(client.history("missing"), (error: unknown) => error instanceof HermesError && error.kind === "no_session");
+    await assert.rejects(client.history("broken"), (error: unknown) => error instanceof HermesError && error.kind === "hermes_down");
+  });
+
+  it("`..` などパスを畳む値は、履歴の読み取りまで届かない", async () => {
+    const asked: string[] = [];
+    const spy: HistoryReader = async (sessionId, limit) => {
+      asked.push(sessionId);
+      return sample(sessionId, limit);
+    };
+    const { baseUrl } = await startBridge(simpleChat(), { history: spy });
+    const { port } = new URL(baseUrl);
+    // fetchはURLを畳んでしまうので、生のパスのまま送る
+    const rawStatus = (path: string) =>
+      new Promise<number>((resolve, reject) => {
+        const req = httpRequest(
+          { host: "127.0.0.1", port, path, headers: { authorization: `Bearer ${TOKEN}`, "x-forwarded-for": CLIENT_IP } },
+          (res) => {
+            res.resume();
+            resolve(res.statusCode ?? 0);
+          },
+        );
+        req.on("error", reject);
+        req.end();
+      });
+    for (const path of ["/sessions/../messages", "/sessions/%2E%2E/messages", "/sessions/.%2e/messages", "/sessions/./messages"]) {
+      assert.notEqual(await rawStatus(path), 200, path);
+    }
+    assert.deepEqual(asked, []);
+  });
+
+  it("limit・sessionIdが不正なら400、認証が無ければ401", async () => {
+    const { baseUrl } = await startBridge(simpleChat(), { history: sample });
+    const headers = { authorization: `Bearer ${TOKEN}`, "x-forwarded-for": CLIENT_IP };
+    for (const path of ["/sessions/s1/messages?limit=0", "/sessions/s1/messages?limit=101", "/sessions/s1/messages?limit=abc", "/sessions/a%2Fb/messages"]) {
+      assert.equal((await fetch(baseUrl + path, { headers })).status, 400, path);
+    }
+    assert.equal((await fetch(`${baseUrl}/sessions/s1/messages`, { headers: { "x-forwarded-for": CLIENT_IP } })).status, 401);
+    assert.equal((await fetch(`${baseUrl}/sessions/s1/messages`, { method: "POST", headers })).status, 404);
   });
 });

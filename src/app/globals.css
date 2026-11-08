@@ -23,6 +23,20 @@
   /* 天気の「降らない見込み」（#586）。雨（topic）・降るかも（accent）と見分ける落ち着いた緑。 */
   --fair: #3f7a52;
   --fair-surface: #e7f3eb;
+  /* メールのアカウントの色（#789）。8pxの丸でも見分けられるよう、色相と明るさを離してある。
+     メイン＝珊瑚（accentと同じ）・フォーマル＝青・サブ＝ティール・その他＝紫。チップの文字は地に対して読める濃さ。 */
+  --account-coral: #c8503c;
+  --account-coral-surface: #fbe7e2;
+  --account-coral-text: #b2432f;
+  --account-blue: #2563eb;
+  --account-blue-surface: #e3ecfd;
+  --account-blue-text: #1d4ed8;
+  --account-teal: #0d9488;
+  --account-teal-surface: #dcf3f0;
+  --account-teal-text: #0f766e;
+  --account-violet: #7c3aed;
+  --account-violet-surface: #efe7fd;
+  --account-violet-text: #6d28d9;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -43,6 +57,18 @@
     --topic-surface: #1b2530;
     --fair: #8fd1a4;
     --fair-surface: #14241a;
+    --account-coral: #ff8262;
+    --account-coral-surface: #3d1f18;
+    --account-coral-text: #ff9a7f;
+    --account-blue: #7aa2ff;
+    --account-blue-surface: #18223a;
+    --account-blue-text: #9bbaff;
+    --account-teal: #2dd4bf;
+    --account-teal-surface: #0f2a27;
+    --account-teal-text: #5eead4;
+    --account-violet: #b79bff;
+    --account-violet-surface: #251c3a;
+    --account-violet-text: #c9b3ff;
   }
 }
 
@@ -63,6 +89,18 @@
   --color-topic-surface: var(--topic-surface);
   --color-fair: var(--fair);
   --color-fair-surface: var(--fair-surface);
+  --color-account-coral: var(--account-coral);
+  --color-account-coral-surface: var(--account-coral-surface);
+  --color-account-coral-text: var(--account-coral-text);
+  --color-account-blue: var(--account-blue);
+  --color-account-blue-surface: var(--account-blue-surface);
+  --color-account-blue-text: var(--account-blue-text);
+  --color-account-teal: var(--account-teal);
+  --color-account-teal-surface: var(--account-teal-surface);
+  --color-account-teal-text: var(--account-teal-text);
+  --color-account-violet: var(--account-violet);
+  --color-account-violet-surface: var(--account-violet-surface);
+  --color-account-violet-text: var(--account-violet-text);
 }
 
 /*

@@ -102,18 +102,21 @@ export function spansMailAccounts(ids: string[]): boolean {
   return new Set(ids.map((id) => mailAccountKeyOf(id))).size > 1;
 }
 
-/** チップ・タブの色の種類。鍵だけで決める（表示名・出現順に依存しない）。 */
-export const MAIL_ACCOUNT_TONES = ["gray", "blue", "green", "rose"] as const;
+/** チップ・タブ・丸印の色の種類。鍵だけで決める（表示名・出現順に依存しない）。 */
+export const MAIL_ACCOUNT_TONES = ["coral", "blue", "teal", "violet"] as const;
 export type MailAccountTone = (typeof MAIL_ACCOUNT_TONES)[number];
 
+/** 鍵で固定する色（#760・#789）。灰寄りの色同士は8pxの丸で見分けられなかったので、色相の離れた色だけを使う。 */
+const FIXED_ACCOUNT_TONES: Record<string, MailAccountTone> = {
+  [MAIN_ACCOUNT_KEY]: "coral",
+  formal: "blue",
+  sub: "teal",
+};
+
 export function mailAccountTone(key: string): MailAccountTone {
-  // メイン＝オレンジ・サブ＝灰・フォーマル＝青で固定（#760）。他の鍵は残りの3色からハッシュで決める
-  if (key === MAIN_ACCOUNT_KEY) return "rose";
-  if (key === "sub") return "gray";
-  if (key === "formal") return "blue";
-  let hash = 0;
-  for (const char of key) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return MAIL_ACCOUNT_TONES[hash % (MAIL_ACCOUNT_TONES.length - 1)]!;
+  if (Object.hasOwn(FIXED_ACCOUNT_TONES, key)) return FIXED_ACCOUNT_TONES[key]!;
+  // 固定していない鍵は紫（4色目）。アカウントが4つ以上になったら固定の表へ足す
+  return "violet";
 }
 
 /**

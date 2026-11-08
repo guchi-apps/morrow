@@ -174,6 +174,7 @@ export async function startConnection(params: {
     state,
     challenge,
     resource: url,
+    scopes: findPreset(url)?.scopes,
   });
 }
 

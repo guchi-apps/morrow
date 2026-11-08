@@ -194,6 +194,8 @@ export function buildAuthorizeUrl(params: {
   state: string;
   challenge: string;
   resource: string;
+  /** 求めるscope（#788）。空・未指定なら付けない（接続先の既定に任せる）。 */
+  scopes?: readonly string[];
 }): string {
   const url = new URL(params.authorizationEndpoint);
   url.searchParams.set("response_type", "code");
@@ -203,6 +205,7 @@ export function buildAuthorizeUrl(params: {
   url.searchParams.set("code_challenge", params.challenge);
   url.searchParams.set("code_challenge_method", "S256");
   url.searchParams.set("resource", params.resource);
+  if (params.scopes && params.scopes.length > 0) url.searchParams.set("scope", params.scopes.join(" "));
   return url.toString();
 }
 
