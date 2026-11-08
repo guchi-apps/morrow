@@ -74,7 +74,7 @@ export async function cachedMailList<T extends Page, F extends { ok: false }>(
       .then((result) => {
         if (result.ok && !result.value.partial && generation(userId) === startGen) {
           if (s.entries.size >= MAX_ENTRIES) s.entries.delete(s.entries.keys().next().value as string);
-          s.entries.set(key, { value: result.value, at: Date.now(), gen: startGen });
+          s.entries.set(key, { value: result.value, at: now, gen: startGen });
         }
         return result;
       })
