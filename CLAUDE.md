@@ -785,7 +785,7 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 - **`partial`（一部のアカウントが読めない）を「メールが無い」と読ませない。** 一覧は赤い帯で知らせ、新着確認は既読位置（`User.mailCheckedAt`）を進めない
 - 本文のHTMLは加工されていないので、`sandbox="allow-popups allow-popups-to-escape-sandbox"`（`allow-scripts`・`allow-same-origin` なし）の
   `iframe srcdoc` に閉じ込め、内側のCSPで外部画像を「画像を表示」まで止める（`mailSrcdoc()`）
-- **新着確認（`src/lib/mail/triage.ts`）の起点は、15分ごとのcron（`/api/briefing` の `after()`）と画面の「いま確認」（`POST /api/mail/check`。1分あける）。**
+- **新着確認（`src/lib/mail/triage.ts`）の起点は、メール専用のcron口 `POST /api/mail/cron`（#768。vpsから2〜3分ごと。認証は`/api/briefing`と同じBearer）・15分ごとの`/api/briefing`の`after()`（重複しても`running`で1本）・画面の「いま確認」（`POST /api/mail/check`。1分あける）。**
   vpsの `cron/crontab.txt` は以前から `*/15` で `scripts/aide-bot-briefing.sh`（`/api/briefing`）を叩いているので、vps側の変更は要らなかった。
   **受信から通知までを速くする方法（間隔の短縮・Gmailのpush通知・IMAP IDLE）の調査は `docs/mail-realtime.md`**（#761。本番のメインはGmail APIで、IMAPは追加アカウントだけ）
 - **メインのGmailはpush通知（`users.watch`＋Pub/Sub）でも起こす**（#769。受け口 `POST /api/mail/push`・判定は `checkMailFromPush()`）。OIDCトークンは依存なしで検証し（`gmail-push-core.ts`）、
