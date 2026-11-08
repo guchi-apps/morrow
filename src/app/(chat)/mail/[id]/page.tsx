@@ -4,6 +4,7 @@ import { MailAccountChip } from "@/components/mail/mail-account-chip";
 import { MailBackLink } from "@/components/mail/mail-back-link";
 import { MailBody } from "@/components/mail/mail-body";
 import { MailSummary } from "@/components/mail/mail-summary";
+import { MailFlowRecords } from "@/components/mail/mail-flow-records";
 import { MailSuggest } from "@/components/mail/mail-suggest";
 import { MailDetailActions } from "@/components/mail/mail-detail-actions";
 import { mailFullTime, sizeLabel } from "@/components/mail/mail-format";
@@ -12,6 +13,7 @@ import { jstTimeLabel } from "@/lib/day-key";
 import { getMail } from "@/lib/mail/aide-client";
 import { safeMailBack } from "@/lib/mail/back-path";
 import { MAIL_FAILURE_MESSAGES, isMailMessageId, mailAccountKeyOf } from "@/lib/mail/contract";
+import { flowRecordsFor } from "@/lib/mail/flow-record";
 import { neededTriages } from "@/lib/mail/triage";
 
 export const dynamic = "force-dynamic";
@@ -47,9 +49,10 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
 
   // 本文と判定は同時に取る（#699。以前は本文→一覧→判定の順に1本ずつ待っていた）。
   // 判定はDBだけなので、本文が取れなかった回に引いても害は無い。
-  const [result, triages] = await Promise.all([
+  const [result, triages, flowRecords] = await Promise.all([
     isMailMessageId(id) ? getMail(user, id) : Promise.resolve({ ok: false, kind: "not_found", message: null } as const),
     neededTriages(user.id, [id]),
+    flowRecordsFor(user.id, id),
   ]);
   const triage = result.ok ? triages.get(id) : undefined;
 
@@ -78,6 +81,8 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
                 <MailSummary id={message.id} />
 
                 <MailSuggest id={message.id} />
+
+                <MailFlowRecords records={flowRecords.map((r) => ({ ...r, createdAt: flowTimeLabel(r.createdAt) }))} />
 
                 {triage && (
                   <p className="rounded-[10px] bg-accent-surface px-3 py-2.5 text-xs leading-relaxed">
@@ -138,4 +143,11 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
       </div>
     </div>
   );
+}
+
+/** 登録日時（日本時間）。「11/8 14:32」の形。 */
+function flowTimeLabel(at: Date): string {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(at);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("month")}/${get("day")} ${get("hour")}:${get("minute")}`;
 }

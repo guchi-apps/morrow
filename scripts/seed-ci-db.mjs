@@ -323,6 +323,16 @@ async function main() {
     ],
   });
   console.log("[aide-bot] 天気の登録地点を2件投入しました");
+
+  // メールから登録した内容の控え（#750）のダミー。メール本体はAIDEにあるので、存在しないIDでも画面に出るのは詳細を開いたときだけ。
+  await db.mailFlowRecord.deleteMany({ where: { userId: user.id } });
+  await db.mailFlowRecord.createMany({
+    data: [
+      { userId: user.id, messageId: "seed-mail-1", kind: "payment", summary: "東京電力 / 8,420円 / 11/5", status: "done", contentKey: "seed-payment" },
+      { userId: user.id, messageId: "seed-mail-1", kind: "task", summary: "契約更新の書類を出す / 期限 11/20", status: "done", contentKey: "seed-task" },
+      { userId: user.id, messageId: "seed-mail-1", kind: "subscription", summary: "動画配信 / 1,290円 / 毎月", status: "opened", contentKey: "seed-sub" },
+    ],
+  });
 }
 
 main()
