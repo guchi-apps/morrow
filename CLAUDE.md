@@ -810,6 +810,7 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 
 ### メール詳細の操作と要約（#717）
 
+- **本文を開いた時点で未読なら自動で既読にする**（#835。`MailDetailActions` のeffect。開いたメールごとに1回だけで、成功の表示は出さず失敗だけ赤字。「未読に戻す」を押しても再度は既読にしない）
 - **本文の画面の操作は「既読／未読に戻す」と「アーカイブ（アーカイブ済みなら受信トレイへ戻す）」だけ**（`mail-detail-actions.tsx`）。スター・ラベル・ゴミ箱は使わないので出さない。サーバー側の `star`／`label-*`／`trash`（`aide-client`・`/api/mail/actions`・契約）は一覧が使うので残してある。ラベル名のための一覧取得も詳細からは外した（「処理済み」ラベルの自動付与〔#689〕はサーバー側で一覧を引くので残る）
 - **要約は#766で提案と1回のAI呼び出しにまとめた**（下の「メールのAI分析」）。「📝 要約する」ボタン・`POST /api/mail/flow/summary`・`summary.ts`・用途「メールの要約」（`mail_summary`）は消した。`summary-core.ts` には要約の決まりごと（`SUMMARY_RULES`）と返答の検証（`parseSummaryReply()`）だけが残る。使用量の機能名 `mail_summary` は過去の記録の名前としてだけ残す
 
