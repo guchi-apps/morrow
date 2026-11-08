@@ -30,7 +30,8 @@ export type ChatItem =
       id: number;
       name: string;
       label: string;
-      status: "running" | "done" | "failed";
+      /** unknown: tool.completeを受けないままターンが終わった（中断・切断）。結果は分からない。 */
+      status: "running" | "done" | "failed" | "unknown";
       /** 取り消せる書き込み（自動実行）。結果カードで出す。 */
       auto: boolean;
       lines: ArgLine[];
@@ -85,8 +86,8 @@ function closeAssistant(state: ChatState): ChatState {
 export function endTurn(state: ChatState): ChatState {
   const items = state.items.map((item): ChatItem => {
     if (item.kind === "assistant" && !item.done) return { ...item, done: true };
-    // 終わったのに「実行中」のまま残さない。結果は分からないので失敗にはせず、完了扱いにもしない
-    if (item.kind === "tool" && item.status === "running") return { ...item, status: "done" };
+    // 終わったのに「実行中」のまま残さない。結果は分からないので、成功（done）にも失敗にもせず unknown にする
+    if (item.kind === "tool" && item.status === "running") return { ...item, status: "unknown" };
     return item;
   });
   return { ...state, items, running: false, turnId: null };
