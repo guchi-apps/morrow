@@ -8,33 +8,43 @@ import { ACCOUNT_TONE_CLASS } from "./mail-account-chip";
 
 type Props = {
   accounts: MailAccount[];
-  /** 絞り込み中のアカウントの鍵。null は「すべて」。 */
-  current: string | null;
-  /** 切り替え先のURLを作る（検索語・表示は引き継ぎ、ページ位置とラベルは捨てる）。 */
-  hrefFor: (accountKey: string | null) => string;
+  /** いま表示しているアカウントの鍵（複数選択。#829）。 */
+  selected: string[];
+  /** そのチップを押した後の一覧のURL（検索語・表示は引き継ぎ、ページ位置とラベルは捨てる）。 */
+  hrefFor: (accountKey: string) => string;
   /** 取得できなかったアカウントの名前（鍵ではなく表示名）。 */
   failedNames: string[];
 };
 
-/** アカウントで絞る（#711）。複数アカウントのときだけ出す。 */
-export function MailAccountTabs({ accounts, current, hrefFor, failedNames }: Props) {
-  const items: { key: string | null; name: string }[] = [{ key: null, name: "すべて" }, ...accounts];
+/**
+ * アカウントで絞る（#711・#829）。複数アカウントのときだけ出す。各チップは独立したオン／オフで、
+ * 最後の1つはオフにできない（押しても同じ画面）。
+ */
+export function MailAccountTabs({ accounts, selected, hrefFor, failedNames }: Props) {
   return (
     <nav aria-label="アカウント" className="flex flex-nowrap items-center gap-1 overflow-x-auto text-[0.6875rem] [scrollbar-width:none] sm:gap-1.5 sm:text-xs [&::-webkit-scrollbar]:hidden">
       <span className="mr-0.5 shrink-0 whitespace-nowrap text-[0.625rem] text-muted sm:text-[0.6875rem]">アカウント</span>
-      {items.map((item) => {
-        const on = item.key === current;
+      {accounts.map((item) => {
+        const on = selected.includes(item.key);
+        const onlyOne = on && selected.length === 1;
         return (
           <Link
-            key={item.key ?? "all"}
+            key={item.key}
             href={hrefFor(item.key)}
-            aria-current={on ? "page" : undefined}
+            aria-pressed={on}
+            aria-disabled={onlyOne ? true : undefined}
             className={cn(
               "shrink-0 whitespace-nowrap rounded-full border px-2 py-1 transition-colors sm:px-3 sm:py-1.5",
               on ? "border-foreground bg-foreground text-background" : "border-border bg-surface hover:bg-rail-active",
             )}
           >
-            {item.key && <i className={cn("mr-1 inline-block size-[6px] sm:mr-1.5 sm:size-[7px] rounded-full align-[1px]", ACCOUNT_TONE_CLASS[mailAccountTone(item.key)].dot)} />}
+            {on ? (
+              <span aria-hidden="true" className="mr-1">
+                ✓
+              </span>
+            ) : (
+              <i className={cn("mr-1 inline-block size-[6px] sm:mr-1.5 sm:size-[7px] rounded-full align-[1px]", ACCOUNT_TONE_CLASS[mailAccountTone(item.key)].dot)} />
+            )}
             {item.name}
           </Link>
         );
