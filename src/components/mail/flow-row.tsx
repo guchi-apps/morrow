@@ -1,6 +1,7 @@
 "use client";
 
 import { KIND_META } from "@/components/mail/flow-sheet";
+import { itemsTotal } from "@/lib/mail/payment-receipt";
 import type { Suggestion } from "@/lib/mail/suggest-core";
 import { cn } from "@/lib/utils";
 
@@ -46,7 +47,13 @@ function cardPreview(card: Suggestion): string {
   const day = (value: string | null) => (value ? `${Number(value.slice(5, 7))}/${Number(value.slice(8, 10))}` : null);
   const parts: (string | null)[] =
     card.kind === "payment"
-      ? [card.fields.place, card.fields.name, card.fields.amount !== null ? `${card.fields.amount.toLocaleString("ja-JP")}円` : null, day(card.fields.date)]
+      ? [
+          card.fields.place,
+          // 品目に分かれていれば件数（#781）。合計が無ければ品目の合計
+          card.fields.items.length > 1 ? `${card.fields.items.length}品目` : card.fields.items[0]?.name || card.fields.name,
+          (card.fields.amount ?? itemsTotal(card.fields.items)) !== null ? `${(card.fields.amount ?? itemsTotal(card.fields.items))!.toLocaleString("ja-JP")}円` : null,
+          day(card.fields.date),
+        ]
       : card.kind === "subscription"
         ? [card.fields.name, card.fields.amount !== null ? `${card.fields.amount.toLocaleString("ja-JP")}${card.fields.currency === "USD" ? "ドル" : "円"}` : null, card.fields.cycle === "YEARLY" ? "毎年" : "毎月"]
         : card.kind === "task"

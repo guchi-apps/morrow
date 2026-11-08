@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { itemsTotal } from "@/lib/mail/payment-receipt";
 import type { FlowOutcome, Suggestion } from "@/lib/mail/suggest-core";
 
 /**
@@ -25,7 +26,10 @@ export function summarizeSuggestion(suggestion: Suggestion): string {
   switch (suggestion.kind) {
     case "payment": {
       const f = suggestion.fields;
-      return join([f.place ?? f.name, f.place ? f.name : null, f.amount !== null ? `${f.amount.toLocaleString("ja-JP")}円` : null, md(f.date)]);
+      // 品目に分かれていれば、品名の代わりに先頭の品目と件数（#781）。金額が無ければ品目の合計
+      const label = f.items.length > 0 ? `${f.items[0]!.name}${f.items.length > 1 ? ` ほか${f.items.length - 1}件` : ""}` : f.name || null;
+      const total = f.amount ?? itemsTotal(f.items);
+      return join([f.place ?? label, f.place ? label : null, total !== null ? `${total.toLocaleString("ja-JP")}円` : null, md(f.date)]);
     }
     case "subscription": {
       const f = suggestion.fields;

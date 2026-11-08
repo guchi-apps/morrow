@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { parseSchedule } from "@/lib/dashboard/parse";
+import { paymentBlocker, type PaymentItem } from "@/lib/mail/payment-receipt";
 import type { SubscriptionFields } from "@/lib/mail/subscription-link";
 import { flattenText } from "@/lib/mail/triage-core";
 
@@ -32,15 +33,22 @@ const MEMO_LIMIT = 500;
 const LOCATION_LIMIT = 100;
 const PLACE_LIMIT = 100;
 export const SUGGEST_MAX = 3;
+/** 品目の件数の上限（Asset Managerは100件まで受ける。メール1通の明細として現実的な範囲に絞る）。 */
+export const PAYMENT_ITEMS_MAX = 30;
 
 export type PaymentFields = {
-  /** 支払先（店名・サービス提供元）。Asset Managerの取り込みで必須（#743）。読み取れないときはnull。 */
+  /** 支払先（店名・サービス提供元）。読み取れないときはnull（確認待ちのレシートなのでAsset Managerで直す。#781）。 */
   place: string | null;
+  /** 1行にまとめたときの品名。品目（`items`）があれば空でもよい。 */
   name: string;
-  /** 円建ての金額（整数）。読み取れないときはnull。 */
+  /** 円建ての合計（整数）。読み取れないときはnull（品目があればAsset Managerが品目の合計にする）。 */
   amount: number | null;
-  /** `YYYY-MM-DD`。読み取れないときはnull。 */
+  /** 購入日 `YYYY-MM-DD`。読み取れないときはnull。 */
   date: string | null;
+  /** 購入時刻 `HH:MM`。本文に印字されているときだけ（#781）。 */
+  time: string | null;
+  /** 品目ごとの明細（#781）。分かれていなければ空。 */
+  items: PaymentItem[];
   usage: string | null;
   originalAmount: number | null;
   originalCurrency: string | null;
@@ -109,8 +117,9 @@ export const SUGGEST_RULES: readonly string[] = [
   "reason は候補の理由を日本語で80文字以内",
   "confidence は 0〜1。本文から確かに読み取れたものだけ高くする",
   "本文に書かれていない値は推測しない。読み取れない項目は null にする（金額・日付・時刻を埋め合わせない）",
-  "payment の amount は円建ての整数。外貨建てなら円へ換算せず amount を null にして originalAmount・originalCurrency（ISO 4217）に元の金額を入れる。date は購入日（YYYY-MM-DD）で、メールの受信日を使わない",
+  "payment の amount は円建ての合計（整数）。外貨建てなら円へ換算せず amount を null にして originalAmount・originalCurrency（ISO 4217）に元の金額を入れる。date は購入日（YYYY-MM-DD）で、メールの受信日を使わない。time は購入時刻（HH:MM）が本文に書かれているときだけ入れ、無ければ null",
   "payment の place は支払先（店名・サービスの提供元。例: Amazon・関西電力）、name は品目（例: 電気料金・○○プラン 1か月）。place が本文から分からなければ null",
+  "payment の items は、注文確認・レシートのように品目が分かれて金額が書かれているときだけ、1品目1行で name・amount（値引き後の円の整数）・quantity（数量。分からなければ null）を入れる。送料・手数料も金額があれば1行にする。品目ごとの金額が分からなければ items は空配列にして name にまとめる",
   "subscription の amount は1回あたりの請求額（円なら整数）、currency は JPY か USD、cycle は MONTHLY か YEARLY、day は請求日（1〜31）、startDate は契約開始日（YYYY-MM-DD）。読み取れない項目は null",
   "task の title は「何をするか」が分かる短い題名。due は期限（YYYY-MM-DD）が本文にあるときだけ。memo に要点を1〜2文",
   "event の date は YYYY-MM-DD、startTime・endTime は HH:MM（両方分かるときだけ。分からなければ両方 null で終日）",
@@ -126,7 +135,17 @@ export const SUGGEST_EXAMPLE = {
       kind: "payment",
       reason: "理由",
       confidence: 0.9,
-      fields: { place: "支払先", name: "品目", amount: 1000, date: "2026-11-05", usage: null, originalAmount: null, originalCurrency: null },
+      fields: {
+        place: "支払先",
+        name: "品目",
+        amount: 1000,
+        date: "2026-11-05",
+        time: null,
+        items: [{ name: "品目", amount: 1000, quantity: 1 }],
+        usage: null,
+        originalAmount: null,
+        originalCurrency: null,
+      },
     },
     {
       kind: "subscription",
@@ -144,18 +163,41 @@ export const SUGGEST_EXAMPLE = {
   ],
 };
 
+function paymentItems(value: unknown): PaymentItem[] {
+  if (!Array.isArray(value)) return [];
+  const items: PaymentItem[] = [];
+  for (const entry of value) {
+    const row = record(entry);
+    if (!row) continue;
+    const name = text(row.name, TITLE_LIMIT);
+    // 金額の読めない品目は落とす（推測で埋めない。品目の追加はAsset Managerの画面でできる）
+    if (name === "" || typeof row.amount !== "number" || !Number.isSafeInteger(row.amount) || row.amount < 1) continue;
+    const quantity = typeof row.quantity === "number" && Number.isFinite(row.quantity) && row.quantity > 0 ? row.quantity : null;
+    items.push({ name, amount: row.amount, quantity });
+    if (items.length >= PAYMENT_ITEMS_MAX) break;
+  }
+  return items;
+}
+
 function paymentFields(raw: Record<string, unknown>): PaymentFields | null {
   const name = text(raw.name, TITLE_LIMIT);
-  if (name === "") return null;
+  const place = optionalText(raw.place, PLACE_LIMIT);
+  const items = paymentItems(raw.items);
+  // 品名・支払先・品目のどれも無ければ何の支払いか分からない
+  if (name === "" && place === null && items.length === 0) return null;
   const amount = typeof raw.amount === "number" && Number.isInteger(raw.amount) && raw.amount >= 1 ? raw.amount : null;
   const originalAmount = typeof raw.originalAmount === "number" && raw.originalAmount > 0 ? raw.originalAmount : null;
   const currency = typeof raw.originalCurrency === "string" && /^[A-Za-z]{3}$/.test(raw.originalCurrency) ? raw.originalCurrency.toUpperCase() : null;
   const usage = optionalText(raw.usage, 32);
+  const date = validDate(raw.date);
   return {
-    place: optionalText(raw.place, PLACE_LIMIT),
+    place,
     name,
     amount,
-    date: validDate(raw.date),
+    date,
+    // 日付の無い時刻は使わない
+    time: date ? validTime(raw.time) : null,
+    items,
     usage,
     originalAmount: originalAmount !== null && currency !== null ? originalAmount : null,
     originalCurrency: originalAmount !== null && currency !== null ? currency : null,
@@ -291,26 +333,28 @@ export function toolCallFor(suggestion: Suggestion, mail: MailRef, userId: strin
       args: { title, date, ...(startTime && endTime ? { startTime, endTime } : {}), ...(location ? { location } : {}) },
     };
   }
-  const { place, name, amount, date, usage, originalAmount, originalCurrency } = suggestion.fields;
-  // Asset Managerの取り込み（/api/receipts/import）は place・amount（円の整数）を必須にしている（#743）。
-  // 送ってから断られるより、ここで足りない欄を示す。
-  if (!place) return { ok: false, reason: "支払先を入力してください。" };
-  if (amount === null) return { ok: false, reason: originalAmount !== null ? "円の金額を入力してください。" : "金額を入力してください。" };
-  if (!date) return { ok: false, reason: "日付を入力してください。" };
+  const { place, name, amount, date, time, items, usage, originalAmount, originalCurrency } = suggestion.fields;
+  // 取り込みは常に確認待ちで止める（`review: true`。#781）。品目・カテゴリ・メモ・確定はAsset Managerのレシート編集画面で行うので、
+  // 支払先・金額が読み取れなくても送る（asset-manager#1216）。購入日と名前の手掛かりだけはAsset Managerが必須にしている
+  const blocker = paymentBlocker(suggestion.fields);
+  if (blocker || !date) return { ok: false, reason: blocker ?? "購入日がありません。" };
   return {
     ok: true,
     tool: "asset_manager_import_payment",
     args: {
       gmailMessageId: mail.messageId,
-      date,
-      place,
-      name,
-      amount,
+      date: time ? `${date}T${time}` : date,
+      ...(place ? { place } : {}),
+      // Asset Managerは品目が無いとき name を必須にしている（支払先へは落とさない）。品名が無ければ支払先を品名にする
+      ...(name ? { name } : items.length === 0 && place ? { name: place } : {}),
+      ...(amount !== null ? { amount } : {}),
+      ...(items.length > 0 ? { items: items.map((item) => ({ name: item.name, amount: item.amount, ...(item.quantity !== null ? { quantity: item.quantity } : {}) })) } : {}),
       ...(usage ? { usage } : {}),
       ...(originalAmount !== null && originalCurrency ? { originalAmount, originalCurrency } : {}),
       rawSubject: flattenText(mail.subject, SUBJECT_LIMIT),
       rawSender: flattenText(mail.from, FROM_LIMIT),
       confidence: suggestion.confidence,
+      review: true,
     },
   };
 }
@@ -341,15 +385,22 @@ export function findExistingEvent(
   return found ? "exists" : "none";
 }
 
-export type FlowOutcome = { status: "done" | "duplicate" | "pending" | "failed"; message: string };
+export type FlowOutcome = {
+  status: "done" | "duplicate" | "pending" | "failed";
+  message: string;
+  /** 家計簿だけ: Asset Managerのレシートのid（作った・取り込み済みのレシートを開くのに使う。#781） */
+  receiptId?: number;
+};
 
 /** 道具の結果（JSON）を画面に出す文へ読み替える。形が読めないものは「失敗」に倒す。 */
 export function readToolOutcome(kind: SuggestKind, json: Record<string, unknown>): FlowOutcome {
   if (kind === "payment") {
     const status = json.status;
-    if (status === "imported") return { status: "done", message: "家計簿へ取り込みました。" };
-    if (status === "pendingReview") return { status: "pending", message: "取り込みました（Asset Managerで確認待ちです）。" };
-    if (status === "duplicate") return { status: "duplicate", message: "取り込み済みです。" };
+    const receiptId = typeof json.receiptId === "number" && Number.isSafeInteger(json.receiptId) && json.receiptId > 0 ? json.receiptId : undefined;
+    const withId = receiptId !== undefined ? { receiptId } : {};
+    if (status === "imported") return { status: "done", message: "家計簿へ取り込みました。", ...withId };
+    if (status === "pendingReview") return { status: "pending", message: "確認待ちのレシートを作りました。Asset Managerで品目・カテゴリを直して確定してください。", ...withId };
+    if (status === "duplicate") return { status: "duplicate", message: "取り込み済みのレシートがあります。", ...withId };
     if (status === "ignored") return { status: "failed", message: "Asset Managerが対象外と判断しました。" };
     const reason = typeof json.reason === "string" ? flattenText(json.reason, 120) : "";
     return { status: "failed", message: reason ? `取り込めませんでした（${reason}）。` : "取り込めませんでした。" };

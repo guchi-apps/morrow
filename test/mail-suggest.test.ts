@@ -9,6 +9,7 @@ import {
   readToolOutcome,
   toolCallFor,
 } from "@/lib/mail/suggest-core";
+import { paymentBlocker, receiptUrl } from "@/lib/mail/payment-receipt";
 import { subscriptionLink, type SubscriptionFields } from "@/lib/mail/subscription-link";
 
 /** メールの提案（#689）のうち、DB・ネットワークに触れない部分。 */
@@ -71,36 +72,94 @@ describe("toolCallFor", () => {
     assert.match(String(a.args.memo), /\/mail\/m-1/);
   });
 
-  it("家計簿は支払先・金額・日付が無ければ送らない。あればplace・messageId・確度を付ける", () => {
-    const missing = normalizeSuggestion("payment", { place: "p", name: "n", amount: null, date: "2026-11-05" })!;
-    assert.equal(toolCallFor(missing, mail, "u1").ok, false);
-    // Asset Managerは place を必須にしている（#743）
-    const noPlace = toolCallFor(normalizeSuggestion("payment", { name: "n", amount: 100, date: "2026-11-05" })!, mail, "u1");
-    assert.deepEqual(noPlace, { ok: false, reason: "支払先を入力してください。" });
-    const blankPlace = normalizeSuggestion("payment", { place: "  ", name: "n", amount: 100, date: "2026-11-05" })!;
-    assert.ok(blankPlace.kind === "payment" && blankPlace.fields.place === null);
+  it("家計簿は常に確認待ち（review: true）で送り、支払先・金額が読み取れなくても送る（#781）", () => {
     const ok = toolCallFor(normalizeSuggestion("payment", { place: "Aqua Voice", name: "n", amount: 100, date: "2026-11-05" }, "", 0.8)!, mail, "u1");
     assert.ok(ok.ok);
     assert.equal(ok.tool, "asset_manager_import_payment");
+    assert.equal(ok.args.review, true);
     assert.equal(ok.args.place, "Aqua Voice");
     assert.equal(ok.args.amount, 100);
     assert.equal(ok.args.gmailMessageId, "m-1");
     assert.equal(ok.args.confidence, 0.8);
+    assert.equal("items" in ok.args, false);
+    // 支払先・金額が無くてもAsset Managerの画面で直す。送らない項目は引数から外す（AIDEは additionalProperties: false）
+    const partial = toolCallFor(normalizeSuggestion("payment", { name: "n", amount: null, date: "2026-11-05" })!, mail, "u1");
+    assert.ok(partial.ok);
+    assert.equal("place" in partial.args, false);
+    assert.equal("amount" in partial.args, false);
+    const blankPlace = normalizeSuggestion("payment", { place: "  ", name: "n", amount: 100, date: "2026-11-05" })!;
+    assert.ok(blankPlace.kind === "payment" && blankPlace.fields.place === null);
   });
 
-  it("外貨建ては円の金額が無ければ送らない（Asset Managerは amount 必須）。予定は日付が必須", () => {
-    const fx = normalizeSuggestion("payment", { place: "p", name: "n", originalAmount: 9.99, originalCurrency: "usd", date: "2026-11-05" })!;
-    assert.deepEqual(toolCallFor(fx, mail, "u1"), { ok: false, reason: "円の金額を入力してください。" });
-    const fxYen = toolCallFor(normalizeSuggestion("payment", { place: "p", name: "n", amount: 1500, originalAmount: 9.99, originalCurrency: "usd", date: "2026-11-05" })!, mail, "u1");
-    assert.ok(fxYen.ok);
-    assert.equal(fxYen.args.originalCurrency, "USD");
+  it("家計簿は購入日が無ければ送らない（Asset Managerが必須にしている）", () => {
+    const noDate = toolCallFor(normalizeSuggestion("payment", { place: "p", name: "n", amount: 100 })!, mail, "u1");
+    assert.equal(noDate.ok, false);
+  });
+
+  it("品目は1品目1行で送り、品名が無くても品目があれば送る。時刻は日付に付ける", () => {
+    const s = normalizeSuggestion("payment", {
+      place: "Amazon.co.jp",
+      name: "",
+      amount: 2388,
+      date: "2026-11-07",
+      time: "14:32",
+      items: [
+        { name: "キッチンペーパー", amount: 698, quantity: 1 },
+        { name: "単3電池 8本", amount: 1280, quantity: null },
+        { name: "読めない", amount: "約500円" },
+        { name: "", amount: 100 },
+        { name: "配送料", amount: 410 },
+      ],
+    })!;
+    assert.ok(s.kind === "payment");
+    assert.deepEqual(s.fields.items, [
+      { name: "キッチンペーパー", amount: 698, quantity: 1 },
+      { name: "単3電池 8本", amount: 1280, quantity: null },
+      { name: "配送料", amount: 410, quantity: null },
+    ]);
+    const call = toolCallFor(s, mail, "u1");
+    assert.ok(call.ok);
+    assert.equal(call.args.date, "2026-11-07T14:32");
+    assert.equal("name" in call.args, false);
+    assert.deepEqual(call.args.items, [
+      { name: "キッチンペーパー", amount: 698, quantity: 1 },
+      { name: "単3電池 8本", amount: 1280 },
+      { name: "配送料", amount: 410 },
+    ]);
+  });
+
+  it("時刻は不正な値と日付の無いときは使わない。品名・支払先・品目のどれも無ければ候補にしない", () => {
+    const bad = normalizeSuggestion("payment", { name: "n", date: "2026-11-07", time: "25:00" })!;
+    assert.ok(bad.kind === "payment" && bad.fields.time === null);
+    const noDate = normalizeSuggestion("payment", { name: "n", time: "10:00" })!;
+    assert.ok(noDate.kind === "payment" && noDate.fields.time === null);
+    assert.equal(normalizeSuggestion("payment", { name: " ", amount: 100, date: "2026-11-07", items: [] }), null);
+    assert.ok(normalizeSuggestion("payment", { place: "店", date: "2026-11-07" }));
+  });
+
+  it("外貨建てで円の金額が無くても送り、元の金額を付ける。予定は日付が必須", () => {
+    const fx = toolCallFor(normalizeSuggestion("payment", { place: "p", name: "n", originalAmount: 9.99, originalCurrency: "usd", date: "2026-11-05" })!, mail, "u1");
+    assert.ok(fx.ok);
+    assert.equal(fx.args.originalCurrency, "USD");
+    assert.equal("amount" in fx.args, false);
     assert.equal(toolCallFor(normalizeSuggestion("event", { title: "t" })!, mail, "u1").ok, false);
+  });
+
+  it("品名も品目も無ければ支払先を品名にする（Asset Managerは品目が無いと name 必須）", () => {
+    const call = toolCallFor(normalizeSuggestion("payment", { place: "店", date: "2026-11-05" })!, mail, "u1");
+    assert.ok(call.ok);
+    assert.equal(call.args.name, "店");
   });
 });
 
 describe("readToolOutcome / plainBody", () => {
   it("結果を画面の文へ読み替える", () => {
     assert.equal(readToolOutcome("payment", { status: "duplicate" }).status, "duplicate");
+    // レシートのidを読む（作ったレシート・取り込み済みのレシートを開く。#781）。読めないidは載せない
+    assert.equal(readToolOutcome("payment", { status: "pendingReview", receiptId: 42 }).receiptId, 42);
+    assert.equal(readToolOutcome("payment", { status: "duplicate", receiptId: 7 }).receiptId, 7);
+    assert.equal("receiptId" in readToolOutcome("payment", { status: "pendingReview", receiptId: "42" }), false);
+    assert.equal("receiptId" in readToolOutcome("payment", { status: "pendingReview", receiptId: -1 }), false);
     assert.equal(readToolOutcome("payment", { status: "error", reason: "x" }).status, "failed");
     assert.equal(readToolOutcome("task", { ok: false, reason: "未設定" }).status, "failed");
     assert.equal(readToolOutcome("event", { ok: true }).status, "done");
@@ -109,6 +168,20 @@ describe("readToolOutcome / plainBody", () => {
   it("本文がHTMLだけのときはタグを落とす", () => {
     assert.equal(plainBody(null, "<p>こんにちは<script>x</script></p>").trim(), "こんにちは");
     assert.equal(plainBody("text", "<p>html</p>"), "text");
+  });
+});
+
+describe("payment-receipt（#781）", () => {
+  it("レシートのURLは正の整数のidだけ", () => {
+    assert.equal(receiptUrl(42), "https://asset.gucchii.com/receipts/42");
+    assert.equal(receiptUrl("42"), null);
+    assert.equal(receiptUrl(0), null);
+    assert.equal(receiptUrl(1.5), null);
+  });
+  it("作れない理由は購入日と、名前の手掛かりの欠け", () => {
+    assert.equal(paymentBlocker({ place: "p", name: "", date: "2026-11-07", items: [] }), null);
+    assert.match(paymentBlocker({ place: "p", name: "n", date: null, items: [] }) ?? "", /購入日/);
+    assert.match(paymentBlocker({ place: null, name: "", date: "2026-11-07", items: [] }) ?? "", /支払先・品目/);
   });
 });
 

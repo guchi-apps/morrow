@@ -10,6 +10,20 @@ test("支払いの要約は支払先・金額・日付", () => {
   assert.equal(summarizeSuggestion(s), "東京電力 / 電気代 / 8,420円 / 11/5");
 });
 
+test("品目に分かれた支払いは先頭の品目と件数、金額が無ければ品目の合計（#781）", () => {
+  const s = normalizeSuggestion("payment", {
+    place: "Amazon",
+    name: "",
+    date: "2026-11-07",
+    items: [
+      { name: "電池", amount: 1280 },
+      { name: "配送料", amount: 410 },
+    ],
+  });
+  assert.ok(s);
+  assert.equal(summarizeSuggestion(s), "Amazon / 電池 ほか1件 / 1,690円 / 11/7");
+});
+
 test("読み取れない項目は省く", () => {
   const s = normalizeSuggestion("task", { title: "書類を出す", due: null, memo: "" });
   assert.ok(s);

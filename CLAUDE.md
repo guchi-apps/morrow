@@ -820,7 +820,7 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 - **開いた時点で自動で `POST /api/mail/flow/analyze` を叩き、要約と提案を1回のCodexで作る**（`analyze-core.ts`・`analyze.ts`・`test/mail-analyze.test.ts`）。以前は「要約する」「このメールをどうする？」の2つのボタンで別々に呼んでいた。プロンプトは `SUMMARY_RULES`・`SUGGEST_KIND_RULES`・`SUGGEST_RULES`・`SUGGEST_EXAMPLE` を並べて組み立て、返答は既存の `parseSummaryReply()`・`parseSuggestReply()` に通す
 - **結果は利用者×メールIDで30分だけプロセス内のメモリに持つ**（上限100件。DB・ログには残さない。再起動で消える）。開き直すたびにサブスク枠を使わないため。「↻ 分析し直す」（`refresh: true`）で取り直す。**覚えた結果を返すときも毎回 `getMail()` で持ち主を照合する**
 - Codexは利用者ごとに同時1件。同じメールの要求が重なれば走っている1回を共有し、別のメールは429（`busy`）。画面は5秒ごとに取り直す（前のメールの分析は画面を離れても最後まで走り、記憶に入る）
-- **提案の行には入力欄を出さない。** 押すと `FlowSheet`（`<dialog>` の `showModal()`。下から出るハーフモーダル。幅560pxまで）に読み取った値を入れて出し、直して登録する（登録の経路は `/apply` のまま）。下に記録の持ち主のアプリを開くリンク（`app-links.ts`。DaySpanのタスク・カレンダー、Asset Managerの家計簿連携）を置くが、**入力値は引き継がない**（受け側の口が各アプリに無い）
+- **提案の行には入力欄を出さない。** 押すと `FlowSheet`（`<dialog>` の `showModal()`。下から出るハーフモーダル。幅560pxまで）に読み取った値を入れて出し、直して登録する（登録の経路は `/apply` のまま。家計簿だけは入力欄を持たずAsset Managerで入力する。#781）。下に記録の持ち主のアプリを開くリンク（`app-links.ts`。DaySpanのタスク・カレンダー、Asset Managerの家計簿連携）を置くが、**入力値は引き継がない**（受け側の口が各アプリに無い）
 - 行の「登録済み」は、その画面で登録できた回と、ページが読む控え（`MailFlowRecord`。#750）の `opened` 以外から出す。サブスクの主ボタンは今どおり「一覧を開いた」を控えに残す（登録済みとは出さない）
 
 ### メール本文への指示（#784）
@@ -834,7 +834,11 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 - **本文全体をCodexへ渡す**（新着確認は件名・差出人・冒頭だけ）。開いたメールだけ・6千字まで・DBには保存しない。本文はデータとして読ませ、返答は固定の形で検証する
 - **値は承認後にサーバーで検証し直す**（`normalizeSuggestion()`）。読み取れない金額・日付はnullのまま画面で空欄＋「要確認」にし、**推測で埋めない**
 - **書き込みは `callWriteToolJson()`（`direct-call.ts`）の許可リスト3本だけ**（`aide_create_task`・`aide_create_event`・`asset_manager_import_payment`）。`callToolJson()` の書き込み拒否は変えていない。**道具を足すときはこのリストと `suggest-core.ts` の検証を揃える**
-- **Asset Managerの取り込み（`/api/receipts/import`）は `place`（支払先）と `amount`（円の整数）が必須**（#743。asset-managerの `lib/payment-import.ts`）。AIDEの道具の入力定義では任意に見えるが、送らないと「place は必須です」で断られる。`toolCallFor()` は送る前に支払先・円の金額の欠けを止める（外貨建てでも円の金額を入れさせる）
+- **家計簿はMorrowで入力させず、Asset Managerのレシート編集画面で入力する**（#781）。シートは読み取った値（支払先・日時・品目と金額・合計）を見せるだけで入力欄を持たない。主ボタン「Asset Managerで入力する ↗」が `review: true` で**確認待ちのレシート**を作り（分類・信頼度によらず確定も家計簿への登録もしない）、返った `receiptId` の `https://asset.gucchii.com/receipts/<id>` を開く。品目の追加・分割、カテゴリ（AI分類）、メモ、確定はAsset Managerで行う。契約の正は asset-manager#1216（`lib/payment-import.ts`）と aide#832（`asset_manager_import_payment`）
+  - **`review: true` なら `place`・`amount` は省ける**（#743の「必須」は確認待ちでない取り込みだけ）。**省けないのは購入日と、名前の手掛かり（`name`・`place`・`items` のどれか）**で、`paymentBlocker()`（`payment-receipt.ts`。画面とサーバーで共有）が欠けを止める。**品目も品名も無ければ支払先を `name` に入れて送る**（Asset Managerは品目が無いと `name` を必須にし、`place` へは落とさない）。AIDEは `additionalProperties: false` なので、無い値は引数ごと外す
+  - **品目は `items`（`name`・`amount`＝値引き後の円の整数・`quantity`）**。品目ごとに分類される。合計が `amount` と合わなくても断られない（確認待ちになるだけ）。時刻が本文にあれば `date` を `YYYY-MM-DDTHH:mm` にする（受信日時を使わない）
+  - **押した瞬間に空のタブを開き、作り終わってからそこをレシートの画面へ向ける**（後から `window.open` するとポップアップとして止められる）。失敗・idが返らなければ空のタブを閉じる。**iOSの殻は新しいウインドウを作らない**ので、作り終わってから画面ごと移る（殻がAsset Managerアプリへ渡す。#744）。どちらでも開けなかった回のためにシートに「Asset Managerでレシートを開く ↗」を残す
+  - 取り込み済みのメールでもう一度押すと `duplicate`＋`receiptId` が返り、同じレシートが開く
 - 実行の前に `getMail()` で持ち主を照合する。タスクは同じメール・同じ内容なら同じ `idempotencyKey`、家計簿は `gmailMessageId` で二重取り込みが `duplicate` になる
 - 流した後、利用者が作った「処理済み」ラベルがあれば付ける（`DONE_LABEL_NAME`。自動作成しない）
 - **サブスク登録（#709）はMorrow内で完結させない。** 提案の種類 `subscription` は、読み取った値（名称・金額・通貨・周期・請求日・開始日だけ。本文・差出人は載せない）をクエリに載せて `https://asset.gucchii.com/subscriptions` を開くリンク（`subscription-link.ts`）で、`asset_manager_create_subscription` は呼ばない。**受け側（クエリで登録フォームを埋める口）は未実装で別Issue**。それまでは一覧が開くだけ **ボタンは「Asset Managerのサブスク一覧を開く」と表記し、登録できたかのように読ませない**（受け側が未実装の間は一覧が開くだけで、入力は引き継がれない。画面にもその旨を添える。#734）。
