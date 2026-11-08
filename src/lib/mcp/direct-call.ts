@@ -1,6 +1,7 @@
 import { listConnectedServers, type ConnectedServer } from "@/lib/mcp/connections";
 import { findPreset } from "@/lib/mcp/presets";
 import { readMcpBody } from "@/lib/mcp/rpc-body";
+import { toolErrorReason } from "@/lib/mcp/tool-error";
 
 /**
  * MCPの道具をモデルを通さずに1本呼ぶ（#573）。
@@ -20,7 +21,6 @@ const PROTOCOL_VERSION = "2025-06-18";
 const REQUEST_TIMEOUT_MS = 8_000;
 /** 書き込みの `tools/call` だけ長く待つ（Asset Managerの判定が重い回がある。`initialize` 等は8秒のまま。#709）。 */
 const WRITE_CALL_TIMEOUT_MS = 30_000;
-const REASON_LIMIT = 120;
 
 export class McpCallError extends Error {
   /** 道具が `isError` で返した、画面に出してよい短い理由（`reason`）。無ければnull。本文・スタックは含めない。 */
@@ -159,24 +159,6 @@ export async function previewDeleteEvent(
   );
 }
 
-/** `isError` の結果から、画面に出してよい短い `reason` だけを取る（本文・スタックは出さない）。 */
-function errorReason(result: Record<string, unknown>): string | null {
-  const structured = result.structuredContent;
-  let record: unknown = structured;
-  if (!record || typeof record !== "object") {
-    const content = Array.isArray(result.content) ? result.content : [];
-    const text = content.find((item): item is { text: string } => !!item && typeof (item as { text?: unknown }).text === "string")?.text;
-    try {
-      record = text ? JSON.parse(text) : null;
-    } catch {
-      record = null;
-    }
-  }
-  const reason = record && typeof record === "object" ? (record as { reason?: unknown }).reason : null;
-  if (typeof reason !== "string") return null;
-  const flat = reason.replace(/[\u0000-\u001f\u007f\s]+/g, " ").trim();
-  return flat === "" ? null : flat.slice(0, REASON_LIMIT);
-}
 
 async function callTool(
   server: ConnectedServer,
@@ -208,7 +190,7 @@ async function callTool(
   const result = resultOf(call.message, server.label);
 
   if (result.isError === true) {
-    const reason = errorReason(result);
+    const reason = toolErrorReason(result);
     throw new McpCallError(`${tool} が失敗を返しました${reason ? `: ${reason}` : ""}`, reason);
   }
 

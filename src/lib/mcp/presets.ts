@@ -56,6 +56,15 @@ export type McpPreset = {
    * 未設定（undefined）の接続先は従来どおり名指しだけで止める。
    */
   readTools?: string[];
+  /**
+   * 認可のときに求めるOAuthのscope（#788）。接続先が道具ごとに権限を分けている場合に要る。
+   *
+   * AIDEは `tasks:write` などを付与していないトークンでは該当の道具を断る（`requiredScopes`）。
+   * 求めずに繋ぐとscopeが空のトークンになり、メールの提案の「タスクを作る」（`aide_create_task`）が
+   * 必ず失敗していた。**Morrowのサーバーが実際に呼ぶ道具の分だけ**を挙げる（広げない）。
+   * scopeはトークンの更新では変わらないので、ここを変えたら利用者の繋ぎ直しが要る。
+   */
+  scopes?: string[];
 };
 
 export const MCP_PRESETS: McpPreset[] = [
@@ -63,6 +72,8 @@ export const MCP_PRESETS: McpPreset[] = [
     id: "aide",
     label: "AIDE",
     url: "https://aide.gucchii.com/mcp",
+    // メールの提案の「タスクを作る」（`aide_create_task`。#689・#788）。予定・家計簿・天気などはscope不要。
+    scopes: ["tasks:write"],
     description: "資産と固定費・部屋の状態・VPSとサブPCの稼働・今日の見通し・開発状況",
     provides: [
       "いまの室温・湿度・CO2（aide_room_sensors）とエアコンの運転状態（aide_aircon_status）",
