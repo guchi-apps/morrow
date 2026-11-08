@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useEffect, useRef } from "react";
 
 import type { MailAction } from "@/lib/mail/contract";
 
@@ -17,6 +18,7 @@ type Props = {
 
 /**
  * 本文の画面の操作（#683・#717）。既読／未読とアーカイブ（アーカイブ済みなら受信トレイへ戻す）だけ。
+ * 開いた時点で未読なら自動で既読にする（#835）。
  * スター・ラベル・ゴミ箱は使わないので出さない（サーバー側の操作そのものは一覧・契約のために残してある）。
  */
 export function MailDetailActions({ id, unread, inInbox, inTrash, back }: Props) {
@@ -27,6 +29,16 @@ export function MailDetailActions({ id, unread, inInbox, inTrash, back }: Props)
       if (leaves.has(action)) router.push(back);
     },
   });
+
+  // 開いたら自動で既読にする（#835）。開いたメールごとに1回だけ。あとで「未読に戻す」を押しても
+  // 再び既読にしない（refの印はこの画面を開いている間だけ持つ）。失敗は赤字で知らせ、再試行はしない
+  const autoRead = useRef<string | null>(null);
+  useEffect(() => {
+    if (!unread || autoRead.current === id) return;
+    autoRead.current = id;
+    void apply("read", [id], null, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   const button =
     "rounded-[9px] border border-border bg-surface px-3 py-1.5 text-xs transition-colors hover:bg-rail-active disabled:opacity-50";

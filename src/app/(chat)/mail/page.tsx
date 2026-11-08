@@ -5,10 +5,11 @@ import { redirect } from "next/navigation";
 import { MailAccountTabs } from "@/components/mail/mail-account-tabs";
 import { MailCheckButton } from "@/components/mail/mail-check-button";
 import { MailCriteriaForm } from "@/components/mail/mail-criteria-form";
+import { MailLearnedRules } from "@/components/mail/mail-learned-rules";
 import { elapsedLabel } from "@/components/mail/mail-format";
 import { MailRows } from "@/components/mail/mail-rows";
 import { getCurrentUser } from "@/lib/auth-user";
-import { jstTimeLabel } from "@/lib/day-key";
+import { jstDayKey, jstTimeLabel } from "@/lib/day-key";
 import { listMailForPage } from "@/lib/mail/aide-client";
 import {
   MAIL_FAILURE_MESSAGES,
@@ -30,6 +31,7 @@ import { onlyInbox } from "@/lib/mail/archived-memory";
 import { flowKindsFor } from "@/lib/mail/flow-record";
 import { neededTriages } from "@/lib/mail/triage";
 import { DEFAULT_MAIL_CRITERIA } from "@/lib/mail/triage-core";
+import { normalizeLearnedRules } from "@/lib/mail/learn-core";
 import { cn } from "@/lib/utils";
 
 // メールは開くたびにAIDEから取る（Morrowは保存しない）。
@@ -118,6 +120,9 @@ export default async function MailPage({ searchParams }: Props) {
     return `/mail${params.size > 0 ? `?${params}` : ""}`;
   })();
 
+  // メールに付けた印から学んだ傾向（#833）
+  const learnedRules = normalizeLearnedRules(user.mailLearnedRules, jstDayKey(now));
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[900px] flex-col gap-3.5 px-3.5 py-4 md:px-7 md:py-6">
@@ -149,10 +154,14 @@ export default async function MailPage({ searchParams }: Props) {
               <path d="m9 18 6-6-6-6" />
             </svg>
             <span className="text-[0.8125rem] font-bold">お知らせする基準</span>
-            <span className="ml-auto text-[0.6875rem] text-muted">{user.mailCriteria ? "設定済み・変更する" : "既定の基準・変更する"}</span>
+            <span className="ml-auto text-right text-[0.6875rem] text-muted">
+              {user.mailCriteria ? "設定済み" : "既定の基準"}
+              {learnedRules.length > 0 ? `・学習した傾向 ${learnedRules.length}件` : "・変更する"}
+            </span>
           </summary>
-          <div className="border-t border-border px-4 py-3.5">
+          <div className="flex flex-col gap-3.5 border-t border-border px-4 py-3.5">
             <MailCriteriaForm initial={user.mailCriteria} defaultCriteria={DEFAULT_MAIL_CRITERIA} />
+            <MailLearnedRules initial={learnedRules} />
           </div>
         </details>
 

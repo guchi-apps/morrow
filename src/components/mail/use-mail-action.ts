@@ -44,7 +44,13 @@ export function useMailAction(options: { after?: (action: MailAction) => void } 
   const [queued, setQueued] = useState(archiveQueue.pending());
   useEffect(() => archiveQueue.subscribe(setQueued), []);
 
-  async function apply(action: MailAction, ids: string[], labelId: string | null = null): Promise<boolean> {
+  async function apply(
+    action: MailAction,
+    ids: string[],
+    labelId: string | null = null,
+    // 自動の既読（#835）など、利用者が押していない操作では成功の表示を出さない（失敗は出す）
+    quiet = false,
+  ): Promise<boolean> {
     setPending(true);
     setNotice(null);
     try {
@@ -55,7 +61,7 @@ export function useMailAction(options: { after?: (action: MailAction) => void } 
       }
       if (action === "archive") rememberArchived(ids);
       else if (action === "inbox") forgetArchived(ids);
-      setNotice({ text: result.done, error: false });
+      if (!quiet) setNotice({ text: result.done, error: false });
       options.after?.(action);
       router.refresh();
       return true;

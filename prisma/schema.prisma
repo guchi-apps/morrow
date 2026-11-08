@@ -45,6 +45,9 @@ model User {
   /// メールの新着確認の既読位置（#683）。これ以降に受信したものを新着として判定する。nullは一度も確認していない
   /// （初回は位置を置くだけで、溜まっている過去分は通知しない）。一覧が `partial` の回は進めない。
   mailCheckedAt DateTime?
+  /// メールに付けた印（知らせる／知らせない）からAIが読み取った傾向（#833）。`learn-core.ts` の `LearnedRule[]`。
+  /// 判定のプロンプトへ基準と並べて入る。**件名・本文は持たず、傾向の文だけ**。nullは未学習。
+  mailLearnedRules Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -58,6 +61,7 @@ model User {
   weatherPlaces     WeatherPlace[]
   topics            Topic[]
   mailTriages       MailTriage[]
+  mailFeedbacks     MailFeedback[]
   mailFlowRecords   MailFlowRecord[]
   mailLinks         MailLink[]
   hermesProposals   HermesProposal[]
@@ -403,6 +407,26 @@ model MailTriage {
 
   @@unique([userId, messageId])
   @@index([userId, createdAt])
+}
+
+// --- メールに付けた印（#833） ---
+// メール本文の画面で「今後このようなメールを 知らせる／知らせない」を押した印。押した状態を画面に出すためだけに持ち、
+// 学習の中身（傾向の文）は `User.mailLearnedRules` にある。件名・差出人・本文は持たない。
+
+model MailFeedback {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// AIDEのメッセージID。
+  messageId String  @db.VarChar(320)
+  /// true＝知らせる、false＝知らせない。
+  notify    Boolean
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, messageId])
 }
 
 // --- メールから登録した内容の控え（#750） ---
