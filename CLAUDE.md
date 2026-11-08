@@ -244,6 +244,16 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
   使ったトークン量は#133から `ApiUsage` へ記録している（費用が付かないだけ）
 - 旧実装そのものを戻す場合だけ履歴（PR #574より前）から拾う。窓口のチャットを新設するときは、旧実装を土台にせず設計し直す
 
+### Hermes Agentへの経路と認証（#726。設計のみ・未実装）
+
+**経路と認証の設計を確定しただけで、チャット画面・ブリッジ・Morrow側のクライアントはまだ無い**（実行役のHermesはいまもDiscord連携だけ）。
+詳細は `docs/hermes-route.md`。実装・設定を足すときはまずそこを読む。
+
+- **VPS→subpcの順向きで、tailnet越しにsubpc上の中継（ブリッジ）を叩く。** Hermes（`hermes -p morrow serve --isolated`）もブリッジも127.0.0.1に閉じ、外へ出すのは `tailscale serve` の専用ポートだけ
+- **Hermesへ直接繋がない。** tailscale serveはHostヘッダーを書き換えず、ループバックにバインドしたHermesはHost違いを400で弾く（2026-11-08実測）。またHermesのトークンは設定の書き換えまでできる管理者権限なので、VPSへ置かない
+- 認証は共有トークン `MORROW_HERMES_BRIDGE_TOKEN`（正は1Password・Morrowはissue-deckの共有トークンから）＋送信元のtailnet IPの照合。ブラウザへは何も渡さない
+- 「届かない」「Hermesが落ちている」「会話が無い」を分けて出す（#214）。送れなかった指示は溜めずに入力欄へ戻す
+
 ### 秘書の人格（#226）
 
 **人格の正は `src/lib/persona.ts`。** 「身元の一文」（`SECRETARY_INTRO`）と「話し方の決まり」
