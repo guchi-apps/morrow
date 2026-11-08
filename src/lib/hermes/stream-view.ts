@@ -8,9 +8,13 @@ import { argLines, isAutoWriteTool, knownToolKey, resultFailed, toolLabel, type 
  */
 
 /** Morrowが中継で足すイベント。ブリッジの `propose` 道具の呼び出しを、保存した確認カードへ置き換えたもの。 */
-export type RelayEvent = BridgeEvent | { type: "proposal"; data: { proposal: ProposalView } };
+export type RelayEvent =
+  | BridgeEvent
+  | { type: "proposal"; data: { proposal: ProposalView } }
+  /** Morrowが発言へ添えたもの（受信メールの参照など。#813）を知らせる1行。 */
+  | { type: "notice"; data: { text: string } };
 
-export const RELAY_EVENT_TYPES: ReadonlySet<string> = new Set<BridgeEventType | "proposal">([
+export const RELAY_EVENT_TYPES: ReadonlySet<string> = new Set<BridgeEventType | "proposal" | "notice">([
   "turn",
   "message.delta",
   "tool.start",
@@ -20,6 +24,7 @@ export const RELAY_EVENT_TYPES: ReadonlySet<string> = new Set<BridgeEventType | 
   "message.complete",
   "error",
   "proposal",
+  "notice",
 ]);
 
 export type ChatItem =
@@ -161,6 +166,9 @@ export function applyEvent(state: ChatState, event: RelayEvent): ChatState {
       if (state.items.some((item) => item.kind === "proposal" && item.proposal.id === event.data.proposal.id)) return state;
       return push(closeAssistant(state), (id) => ({ kind: "proposal", id, proposal: event.data.proposal }));
     }
+
+    case "notice":
+      return addNotice(closeAssistant(state), "info", event.data.text);
 
     case "approval":
       return push(closeAssistant(state), (id) => ({
