@@ -72,3 +72,31 @@ export const FLOW_STATUS_LABELS: Record<FlowRecordStatus, string> = {
   duplicate: "登録済み（重複を検出）",
   opened: "一覧を開いた（登録は未確認）",
 };
+
+/**
+ * 提案の行の印の材料（#821）。家計簿（payment）の pending（確認待ちレシートを作った）と duplicate（取り込み済みのレシートがある）は、
+ * Asset Managerで確定したかをMorrowは知らないので、どちらも「登録済み」にしない。完了（done）の控えが同じ種類にあれば登録済みが勝つ。
+ * duplicate は確定済みの場合もあるため、「確認待ち」とは言わず「取り込み済み」と出す。
+ */
+export type ReceiptState = "pending" | "duplicate";
+
+export function flowRowStates(records: { kind: string; status: string }[]): { registeredKinds: string[]; receiptState: ReceiptState | null } {
+  const registeredKinds = new Set<string>();
+  let receiptState: ReceiptState | null = null;
+  for (const r of records) {
+    if (r.status === "opened") continue;
+    if (r.kind === "payment" && (r.status === "pending" || r.status === "duplicate")) {
+      if (r.status === "pending" || receiptState === null) receiptState = r.status;
+      continue;
+    }
+    if (r.status === "pending") continue;
+    registeredKinds.add(r.kind);
+  }
+  return { registeredKinds: [...registeredKinds], receiptState: registeredKinds.has("payment") ? null : receiptState };
+}
+
+/** 控えの一覧に出す状態の文。家計簿の重複は確定済みとは限らないので「登録済み」と書かない。 */
+export function flowStatusLabel(kind: string, status: string): string | undefined {
+  if (kind === "payment" && status === "duplicate") return "取り込み済み（確定はAsset Managerで確認）";
+  return FLOW_STATUS_LABELS[status as FlowRecordStatus];
+}
