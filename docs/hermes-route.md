@@ -4,7 +4,7 @@
 前提は #725 の技術検証の結論（`hermes -p morrow serve --isolated` の WebSocket `/api/ws` を使う）。
 チャット画面（#728）・操作の範囲と承認（#727）はこの経路の上に作る。
 
-**状態: 設計のみ。コード・設定はまだ無い**（実装と手作業は末尾の後続Issue）。
+**状態: ブリッジ（`hermes-bridge/`）とMorrow側のクライアント（`src/lib/hermes/`）は #737 で実装済み。** チャット画面（#728）と、subpc側の設定・トークン登録・疎通確認（#738。手作業）はまだ。
 DiscordのHermes（default profile）との境界・通知の重複は `docs/hermes-discord.md`（#729）。
 
 ## 結論
@@ -79,8 +79,9 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 - Hermesのトークン（`HERMES_DASHBOARD_SESSION_TOKEN`）はsubpcの中だけ。起動時に乱数で作り、
   Hermesとブリッジの両方のunitへ同じ値を渡す（1Passwordには置かない。外へ出ないので正を持つ必要が無い）
 - Node標準の `http`・`WebSocket`（Node 22以降）で足り、依存は増えない
-- **置き場の推奨**: コードはmorrow（契約の型・テストをMorrow側のクライアントと共有するため）、
-  systemdのunit・`tailscale serve` の設定はsubpcリポジトリ（VOICEVOXと同じ扱い）。実装Issueで確定する
+- **置き場（#737で確定）**: コードはmorrowの `hermes-bridge/`（契約の型は `src/lib/hermes/contract.ts` を相対importで共有）、
+  systemdのunit・`tailscale serve` の設定はsubpcリポジトリ（VOICEVOXと同じ扱い）。起動は `pnpm hermes-bridge`（`hermes-bridge/README.md`）
+- **宛先 `HERMES_BRIDGE_URL`（#737で確定）**: GitHub変数 `vars.HERMES_BRIDGE_URL` を `deploy.yml` が `.env` へ渡す（tailnet名をGitに入れない）。未登録だと空になり、クライアントは `not_configured`
 
 ## 認証
 
@@ -138,7 +139,7 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 
 ## 必要な作業
 
-### 実装（#737）
+### 実装（#737。済み）
 
 1. ブリッジ（上のAPI・認証・制限）とテスト
 2. Morrowのクライアント（`src/lib/hermes/`。`sharedTokenOrEnv()`・状態の区別・SSEの中継）

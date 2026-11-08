@@ -116,6 +116,7 @@ ios/scripts/remote-upload-testflight.sh    # Mac で main を取り込み、Test
 
 ### 外部リンク・通信失敗・ダイアログ
 
+- **`https://asset.gucchii.com/…` はAsset ManagerのiOSアプリへ渡す**（#744。`AppConfig.assetManagerAppURL`。`assetmanager://open?path=<パス>`。受け側は asset-manager#1212）。アプリが無い・開けないときは `open` の完了ハンドラの失敗でSafariへ落とす。ホスト・スキーム（`asset.gucchii.com`・`assetmanager`）は asset-manager の `ios/AssetManager/AppConfig.swift` と手で揃える（別リポジトリのため自動照合なし）
 - Morrowと同一オリジン（スキーム・ホスト・ポート）だけをWebView内で開き、他はSafariで開く（`AppConfig.isAppURL`）。外へ渡すのは `http`・`https`・`mailto` だけ（`AppConfig.canOpenExternally`。`tel:`・`sms:`・独自スキームは確認なしで他アプリを起動しうるので無視する。#465）
 - 通信できない・5xx のときは `ConnectionErrorView` が理由と「再読み込み」を出す。回線が戻れば自動で読み直す。再接続後はサーバーの履歴がそのまま読める（送信中に切れた発言は、再読み込み後の履歴に残っているかで確認する）
 - `alert` / `confirm` は `WKUIDelegate` で実装（無いと確認が常に「キャンセル」になる）

@@ -179,7 +179,7 @@ export function FlowSheet({ card, recommended, outcome, running, onEdit, onRun, 
               >
                 {meta.run}
               </a>
-              <p className="text-[0.6875rem] text-muted">入力欄の内容は引き継がれません。一覧が開くだけなので、登録はAsset Manager側で行ってください。</p>
+              <p className="text-[0.6875rem] text-muted">入力欄の内容は引き継がれません。Asset Managerのサブスク画面が開くだけなので（iPhoneのMorrowアプリではAsset Managerアプリで開きます）、登録はAsset Manager側で行ってください。</p>
             </>
           ) : (
             <>

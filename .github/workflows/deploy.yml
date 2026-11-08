@@ -201,6 +201,8 @@ jobs:
       ISSUE_DECK_URL: ${{ vars.APP_BASE_URL }}
       NOTION_API_TOKEN: ${{ secrets.NOTION_API_TOKEN }}
       TASK_API_TOKEN: ${{ secrets.TASK_API_TOKEN }}
+      # Hermesブリッジの宛先（#737）。tailnet名を含むのでGitには入れず、GitHub変数で渡す。シークレットではない
+      HERMES_BRIDGE_URL: ${{ vars.HERMES_BRIDGE_URL }}
 
     steps:
       - name: Checkout code
@@ -270,6 +272,7 @@ jobs:
           ISSUE_DECK_URL: ${{ env.ISSUE_DECK_URL }}
           NOTION_API_TOKEN: ${{ env.NOTION_API_TOKEN }}
           TASK_API_TOKEN: ${{ env.TASK_API_TOKEN }}
+          HERMES_BRIDGE_URL: ${{ env.HERMES_BRIDGE_URL }}
         run: |
           set -euo pipefail
           # マイグレーション専用ユーザー（SHARED_DB_MIGRATE_*）が未設定なら通常ユーザーで流す。
@@ -285,7 +288,7 @@ jobs:
           for name in DATABASE_URL MIGRATE_DATABASE_URL NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY \
             ALLOWED_GOOGLE_EMAILS VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY APNS_KEY_ID APNS_TEAM_ID APNS_KEY_P8 \
             BRIEFING_TRIGGER_TOKEN SHARED_TOKEN_API_SECRET ISSUE_DECK_URL \
-            NOTION_API_TOKEN TASK_API_TOKEN; do
+            NOTION_API_TOKEN TASK_API_TOKEN HERMES_BRIDGE_URL; do
             case "${!name}" in
               *$'\n'*) echo "::error::${name} が改行を含むためgateへ送れません"; exit 1 ;;
             esac
@@ -317,6 +320,9 @@ jobs:
             # Notionのタスク管理API・MCP（#373）。空だと /api/tasks とタスクのMCPツールが503で閉じたままになる。
             printf '%s\n' "NOTION_API_TOKEN=${NOTION_API_TOKEN}"
             printf '%s\n' "TASK_API_TOKEN=${TASK_API_TOKEN}"
+            # Hermesブリッジの宛先（#737）。空だとチャット（#728）は「接続の設定に問題があります」で止まる。
+            # トークン MORROW_HERMES_BRIDGE_TOKEN は共有トークンAPIから実行時に取るので配らない。
+            printf '%s\n' "HERMES_BRIDGE_URL=${HERMES_BRIDGE_URL}"
           } | ssh -p "${SSH_PORT}" "${USERNAME}@${HOST}" env
 
       - name: Deploy and restart

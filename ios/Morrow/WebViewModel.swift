@@ -190,6 +190,13 @@ final class WebViewModel: NSObject, ObservableObject {
 
     private func openExternally(_ url: URL) {
         guard AppConfig.canOpenExternally(url) else { return }
+        // Asset Managerは専用のiOSアプリへ渡す（#744）。入っていない・開けないときは従来どおりSafari
+        if let appURL = AppConfig.assetManagerAppURL(for: url) {
+            UIApplication.shared.open(appURL, options: [:]) { success in
+                if !success { UIApplication.shared.open(url) }
+            }
+            return
+        }
         UIApplication.shared.open(url)
     }
 
