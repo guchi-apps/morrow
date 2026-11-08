@@ -23,6 +23,8 @@ type Props = {
   userLabel: string;
   userEmail: string | null;
   appVersion: string;
+  /** 上部の情報カード（#719）。 */
+  infoSlot?: React.ReactNode;
   onNavigate?: () => void;
 };
 
@@ -42,27 +44,33 @@ export function ConversationRail({
   userLabel,
   userEmail,
   appVersion,
+  infoSlot,
   onNavigate,
 }: Props) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-rail">
-      <div className="flex flex-col gap-3.5 px-4 pb-3.5 pt-4">
-        <AppLogo className="text-xl" />
-
-        <Link
-          href="/"
-          onClick={onNavigate}
-          aria-current={isDashboardActive ? "page" : undefined}
-          className="flex items-center justify-center gap-1.5 rounded-[10px] bg-accent px-3 py-2.5 text-[0.8125rem] font-medium text-accent-foreground transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-        >
-          <LayoutDashboard className="size-3.5" aria-hidden="true" />
-          今日
-        </Link>
+      <div className="flex flex-col gap-3.5 pb-3.5 pt-4">
+        <AppLogo className="px-4 text-xl" />
+        {infoSlot}
       </div>
 
       <div className="min-h-0 flex-1" />
 
       <div className="border-t border-border">
+        {/* ホーム（旧・今日。#719）。指の届く下のリンク列の先頭に置く。 */}
+        <Link
+          href="/"
+          onClick={onNavigate}
+          aria-current={isDashboardActive ? "page" : undefined}
+          className={cn(
+            "mx-2.5 mt-2 flex items-center gap-1.5 rounded-[9px] px-2.5 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+            isDashboardActive && "bg-rail-active shadow-[inset_2px_0_0_var(--accent)]",
+          )}
+        >
+          <LayoutDashboard className="size-3.5 text-muted" aria-hidden="true" />
+          ホーム
+        </Link>
+
         {/* 天気（#695）。登録した地点の1日の予報。 */}
         <Link
           href="/weather"

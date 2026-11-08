@@ -15,6 +15,8 @@ type Props = {
   userLabel: string;
   userEmail: string | null;
   appVersion: string;
+  /** メニュー上部の情報カード（#719）。 */
+  infoSlot?: React.ReactNode;
   children: React.ReactNode;
 };
 
@@ -41,6 +43,7 @@ export function ChatShell({
   userLabel,
   userEmail,
   appVersion,
+  infoSlot,
   children,
 }: Props) {
   const pathname = usePathname();
@@ -60,7 +63,7 @@ export function ChatShell({
   const isMail = pathname === "/mail" || pathname.startsWith("/mail/");
   const isWeather = pathname === "/weather";
   const heading = isDashboard
-    ? "今日"
+    ? "ホーム"
     : isSettings
       ? "設定"
       : isTopics
@@ -121,6 +124,7 @@ export function ChatShell({
           userLabel={userLabel}
           userEmail={userEmail}
           appVersion={appVersion}
+          infoSlot={infoSlot}
         />
       </aside>
 
@@ -158,6 +162,7 @@ export function ChatShell({
               userLabel={userLabel}
               userEmail={userEmail}
               appVersion={appVersion}
+          infoSlot={infoSlot}
               onNavigate={() => setDrawerOpen(false)}
             />
             <button
