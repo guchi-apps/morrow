@@ -5,6 +5,7 @@ import { ChatShell } from "@/components/chat/chat-shell";
 import { MenuInfo } from "@/components/chat/menu-info";
 import { APP_VERSION } from "@/lib/app-version";
 import { getCurrentUser } from "@/lib/auth-user";
+import { countPendingProposals } from "@/lib/hermes/proposals";
 import { recentTopicCount } from "@/lib/topics";
 
 export default async function ChatLayout({ children }: { children: React.ReactNode }) {
@@ -19,11 +20,16 @@ export default async function ChatLayout({ children }: { children: React.ReactNo
   const now = new Date();
 
   // 溜まっている話題の件数（#144）。`count` 1本なので待ち時間はほとんど足さない。
-  const topicCount = await recentTopicCount(user.id, now);
+  const [topicCount, pendingProposalCount] = await Promise.all([
+    recentTopicCount(user.id, now),
+    // Hermesの確認待ちの件数（#794）。左メニューのバッジ。`count` 1本
+    countPendingProposals(user.id, now),
+  ]);
 
   return (
     <ChatShell
       topicCount={topicCount}
+      pendingProposalCount={pendingProposalCount}
       userLabel={user.name ?? user.email ?? "ログイン中"}
       userEmail={user.email}
       appVersion={APP_VERSION}

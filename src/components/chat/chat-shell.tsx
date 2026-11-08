@@ -12,6 +12,8 @@ import { useVisualViewportFit } from "./use-visual-viewport";
 type Props = {
   /** 溜まっているニュースの件数（#144）。一覧の下に出す。 */
   topicCount: number;
+  /** Hermesの確認待ちの件数（#794）。 */
+  pendingProposalCount: number;
   userLabel: string;
   userEmail: string | null;
   appVersion: string;
@@ -40,6 +42,7 @@ type Props = {
  */
 export function ChatShell({
   topicCount,
+  pendingProposalCount,
   userLabel,
   userEmail,
   appVersion,
@@ -62,6 +65,7 @@ export function ChatShell({
   const isModels = pathname === "/models";
   const isMail = pathname === "/mail" || pathname.startsWith("/mail/");
   const isWeather = pathname === "/weather";
+  const isChat = pathname === "/chat";
   const heading = isDashboard
     ? "ホーム"
     : isSettings
@@ -74,7 +78,9 @@ export function ChatShell({
             ? "メール"
             : isWeather
               ? "天気"
-              : "Morrow";
+              : isChat
+                ? "チャット"
+                : "Morrow";
 
   // 開いたドロワーは、閉じるボタン・スクリム・中のリンク（onNavigate）で閉じる。
   // pathnameの変化をuseEffectで見て閉じる形にはしない——描画のたびにsetStateが走る。
@@ -119,6 +125,8 @@ export function ChatShell({
           isTopicsActive={isTopics}
           isMailActive={isMail}
           isWeatherActive={isWeather}
+          isChatActive={isChat}
+          pendingProposalCount={pendingProposalCount}
           isModelsActive={isModels}
           topicCount={topicCount}
           userLabel={userLabel}
@@ -157,6 +165,8 @@ export function ChatShell({
               isTopicsActive={isTopics}
           isMailActive={isMail}
           isWeatherActive={isWeather}
+          isChatActive={isChat}
+          pendingProposalCount={pendingProposalCount}
               isModelsActive={isModels}
               topicCount={topicCount}
               userLabel={userLabel}

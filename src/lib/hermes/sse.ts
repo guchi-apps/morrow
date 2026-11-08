@@ -20,7 +20,8 @@ const KNOWN_TYPES: ReadonlySet<BridgeEventType> = new Set<BridgeEventType>([
   "error",
 ]);
 
-export function parseSseBlock(block: string): BridgeEvent | null {
+/** 種類を絞って1ブロックを読む。ブラウザ向けの中継（#794。`proposal` を足した種類）も同じ読み方をする。 */
+export function parseSseBlockOf<T extends { type: string }>(block: string, known: ReadonlySet<string>): T | null {
   let type = "";
   const dataLines: string[] = [];
   for (const line of block.split(/\r?\n/)) {
@@ -28,18 +29,29 @@ export function parseSseBlock(block: string): BridgeEvent | null {
     if (line.startsWith("event:")) type = line.slice(6).trim();
     else if (line.startsWith("data:")) dataLines.push(line.slice(5).replace(/^ /, ""));
   }
-  if (!KNOWN_TYPES.has(type as BridgeEventType) || dataLines.length === 0) return null;
+  if (!known.has(type) || dataLines.length === 0) return null;
   try {
     const data: unknown = JSON.parse(dataLines.join("\n"));
     if (typeof data !== "object" || data === null) return null;
-    return { type, data } as BridgeEvent;
+    return { type, data } as unknown as T;
   } catch {
     return null;
   }
 }
 
+export function parseSseBlock(block: string): BridgeEvent | null {
+  return parseSseBlockOf<BridgeEvent>(block, KNOWN_TYPES);
+}
+
 /** バイト列のストリームを、空行で区切ったブロックごとに `BridgeEvent` へ読み替える。 */
-export async function* readBridgeEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<BridgeEvent> {
+export function readBridgeEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<BridgeEvent> {
+  return readSseEvents<BridgeEvent>(body, KNOWN_TYPES);
+}
+
+export async function* readSseEvents<T extends { type: string }>(
+  body: ReadableStream<Uint8Array>,
+  known: ReadonlySet<string>,
+): AsyncGenerator<T> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -52,11 +64,11 @@ export async function* readBridgeEvents(body: ReadableStream<Uint8Array>): Async
       while ((boundary = /\r?\n\r?\n/.exec(buffer))) {
         const block = buffer.slice(0, boundary.index);
         buffer = buffer.slice(boundary.index + boundary[0].length);
-        const event = parseSseBlock(block);
+        const event = parseSseBlockOf<T>(block, known);
         if (event) yield event;
       }
     }
-    const rest = parseSseBlock(buffer);
+    const rest = parseSseBlockOf<T>(buffer, known);
     if (rest) yield rest;
   } finally {
     reader.releaseLock();
