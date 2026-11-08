@@ -788,6 +788,8 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 - **新着確認（`src/lib/mail/triage.ts`）の起点は、15分ごとのcron（`/api/briefing` の `after()`）と画面の「いま確認」（`POST /api/mail/check`。1分あける）。**
   vpsの `cron/crontab.txt` は以前から `*/15` で `scripts/aide-bot-briefing.sh`（`/api/briefing`）を叩いているので、vps側の変更は要らなかった。
   **受信から通知までを速くする方法（間隔の短縮・Gmailのpush通知・IMAP IDLE）の調査は `docs/mail-realtime.md`**（#761。本番のメインはGmail APIで、IMAPは追加アカウントだけ）
+- **メインのGmailはpush通知（`users.watch`＋Pub/Sub）でも起こす**（#769。受け口 `POST /api/mail/push`・判定は `checkMailFromPush()`）。OIDCトークンは依存なしで検証し（`gmail-push-core.ts`）、
+  **`email` を `GMAIL_PUSH_SERVICE_ACCOUNT` と照合するのが本体**（未設定なら401で閉じる）。cronは取りこぼしの保険で、cronがメインの新着を判定したら「pushで拾えなかった」とログに出す。詳細は `docs/mail-realtime.md`
 - 判定はCodex（用途「メールの判定」・機能 `mail`）。**渡すのは差出人・件名・冒頭（snippet。200字で切る）だけ**で、メッセージIDは `m1`…の仮番号にする
   （`triage-core.ts`・`test/mail-triage.test.ts`）。通知の種類がオフ・判定していない新着が無い回はCodexを呼ばない。基準は利用者が書く `User.mailCriteria`（空なら既定）
 - **同じメールは二度判定・二度通知しない**（`MailTriage` の利用者×メールID一意）。**ただし必要と判定した行は、通知の試行（`sendPushToUser()`）が終わってから作る**（#693。先に作ると、作成と送信のあいだで止まった回の通知が永久に失われる）。不要・枠あふれの行は先に作る。送信後・確定前に止まった回は、次の確認で再判定されて再通知されうる（取りこぼすより重複を選ぶ。再判定はCodexなので結果は変わりうる）。件名・差出人・本文はMorrowのDBに残さない（`NotificationLog` の本文も件数だけ）。
