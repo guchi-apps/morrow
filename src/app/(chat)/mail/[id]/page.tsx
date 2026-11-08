@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
+import { MailAccountChip } from "@/components/mail/mail-account-chip";
 import { MailBackLink } from "@/components/mail/mail-back-link";
 import { MailBody } from "@/components/mail/mail-body";
 import { MailSuggest } from "@/components/mail/mail-suggest";
@@ -10,7 +11,7 @@ import { getCurrentUser } from "@/lib/auth-user";
 import { jstTimeLabel } from "@/lib/day-key";
 import { getMail, listMail, type MailUser } from "@/lib/mail/aide-client";
 import { safeMailBack } from "@/lib/mail/back-path";
-import { MAIL_FAILURE_MESSAGES, isMailMessageId } from "@/lib/mail/contract";
+import { MAIL_FAILURE_MESSAGES, isMailMessageId, mailAccountKeyOf } from "@/lib/mail/contract";
 import { neededTriages } from "@/lib/mail/triage";
 
 export const dynamic = "force-dynamic";
@@ -122,7 +123,9 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
                       {message.account && (
                         <>
                           <dt className="text-muted">アカウント</dt>
-                          <dd>{message.account}</dd>
+                          <dd>
+                            <MailAccountChip accountKey={mailAccountKeyOf(message.id) ?? message.account} name={message.account} />
+                          </dd>
                         </>
                       )}
                     </dl>
