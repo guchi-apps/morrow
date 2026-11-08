@@ -1,9 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { MailAction } from "@/lib/mail/contract";
+
+import { createSerialQueue } from "./action-queue";
+
+// 画面で1本だけ持つ列。スワイプのアーカイブはここを通して1通ずつ流す（#767）
+const archiveQueue = createSerialQueue();
 
 export type MailActionNotice = { text: string; error: boolean };
 
@@ -34,6 +39,8 @@ export function useMailAction(options: { after?: (action: MailAction) => void } 
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<MailActionNotice | null>(null);
+  const [queued, setQueued] = useState(archiveQueue.pending());
+  useEffect(() => archiveQueue.subscribe(setQueued), []);
 
   async function apply(action: MailAction, ids: string[], labelId: string | null = null): Promise<boolean> {
     setPending(true);
@@ -59,25 +66,28 @@ export function useMailAction(options: { after?: (action: MailAction) => void } 
    */
   async function archiveRow(id: string, unread: boolean): Promise<boolean> {
     setNotice(null);
-    let markedRead = false;
-    if (unread) {
-      const read = await send("read", [id], null);
-      if (!read.ok) {
-        setNotice({ text: read.error, error: true });
+    return archiveQueue.enqueue(async () => {
+      let markedRead = false;
+      if (unread) {
+        const read = await send("read", [id], null);
+        if (!read.ok) {
+          setNotice({ text: read.error, error: true });
+          return false;
+        }
+        markedRead = true;
+      }
+      const archived = await send("archive", [id], null);
+      if (!archived.ok) {
+        setNotice({ text: markedRead ? `${archived.error}（既読にはしました）` : archived.error, error: true });
+        if (markedRead) router.refresh();
         return false;
       }
-      markedRead = true;
-    }
-    const archived = await send("archive", [id], null);
-    if (!archived.ok) {
-      setNotice({ text: markedRead ? `${archived.error}（既読にはしました）` : archived.error, error: true });
-      if (markedRead) router.refresh();
-      return false;
-    }
-    setNotice({ text: archived.done, error: false });
-    router.refresh();
-    return true;
+      setNotice({ text: archived.done, error: false });
+      // 取り直しは列が空になった最後の1回だけ（途中で取り直すとAIDEへの要求が重なる）
+      if (archiveQueue.pending() <= 1) router.refresh();
+      return true;
+    });
   }
 
-  return { apply, archiveRow, pending, notice };
+  return { apply, archiveRow, pending, notice, queued };
 }
