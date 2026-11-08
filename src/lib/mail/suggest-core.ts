@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { SECRETARY_INTRO } from "@/lib/persona";
 
+import { parseSchedule } from "@/lib/dashboard/parse";
 import { flattenText } from "@/lib/mail/triage-core";
 
 /**
@@ -286,6 +287,32 @@ export function toolCallFor(suggestion: Suggestion, mail: MailRef, userId: strin
       confidence: suggestion.confidence,
     },
   };
+}
+
+/**
+ * 予定の作成（`aide_create_event`）には冪等キーを渡す口が無い（AIDE側の引数は固定）ため、作る前に同じ日の予定を引き、
+ * 同じタイトル・同じ時刻の予定がすでにあれば作らない。応答を取りこぼした後の再試行・別タブからの二重実行を止める。
+ * `status` が `unreadable` のときは「あるかどうか分からない」ので、呼び出し側は作らずに断る。
+ */
+export function findExistingEvent(
+  scheduleJson: unknown,
+  args: { title?: unknown; startTime?: unknown; endTime?: unknown },
+): "exists" | "none" | "unreadable" {
+  const view = parseSchedule(scheduleJson);
+  if (view.status !== "ok" || view.partial || view.googleDisconnected) return "unreadable";
+  const norm = (v: string) => v.normalize("NFKC").replace(/\s+/g, " ").trim();
+  const title = typeof args.title === "string" ? norm(args.title) : "";
+  const start = typeof args.startTime === "string" ? args.startTime : null;
+  const end = typeof args.endTime === "string" ? args.endTime : null;
+  const found = view.items.some(
+    (item) =>
+      item.kind === "event" &&
+      item.outcome !== "CANCELED" &&
+      norm(item.title) === title &&
+      item.start === start &&
+      item.end === end,
+  );
+  return found ? "exists" : "none";
 }
 
 export type FlowOutcome = { status: "done" | "duplicate" | "pending" | "failed"; message: string };
