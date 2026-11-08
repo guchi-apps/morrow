@@ -4,9 +4,10 @@ import { Star } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
-import { senderName, type MailAction, type MailLabel, type MailSummary } from "@/lib/mail/contract";
+import { mailAccountKeyOf, senderName, type MailAction, type MailLabel, type MailSummary } from "@/lib/mail/contract";
 import { cn } from "@/lib/utils";
 
+import { MailAccountChip } from "./mail-account-chip";
 import { mailTimeLabel } from "./mail-format";
 import { MailNotice } from "./mail-notice";
 import { leaveMailPane } from "./mail-transition";
@@ -19,6 +20,8 @@ type Props = {
   labels: MailLabel[];
   supportsLabels: boolean;
   inTrash: boolean;
+  /** 複数アカウントを混ぜて見せているとき、行にアカウントのチップを出し、別アカウントとの同時選択を止める。 */
+  showAccount: boolean;
   /** 「◯分前」などの基準（サーバーで決めて渡す）。 */
   nowMs: number;
   /** 本文から一覧へ戻るときのURL。 */
@@ -33,13 +36,21 @@ const BULK: { action: MailAction; label: string }[] = [
 ];
 
 /** 一覧の行とまとめての操作（#683）。選んだメールに既読・アーカイブ・ラベル・ゴミ箱をまとめて当てる。 */
-export function MailRows({ messages, labels, supportsLabels, inTrash, nowMs, back }: Props) {
+export function MailRows({ messages, labels, supportsLabels, inTrash, showAccount, nowMs, back }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // 押した行（#699）。本文の画面へ移るまでの一瞬、押したことが分かるよう色を付ける
   const [opening, setOpening] = useState<string | null>(null);
   const { apply, pending, notice } = useMailAction({ after: () => setSelected(new Set()) });
   const now = new Date(nowMs);
-  const userLabels = labels.filter((label) => label.type === "user");
+  const ids = [...selected];
+  // 選択中のアカウント。AIDEは複数アカウントにまたがる操作を1件も変更せず断るので、同じアカウントの行だけ選べるようにする
+  const selectedKey = showAccount && ids.length > 0 ? mailAccountKeyOf(ids[0]!) : null;
+  const lockedOut = (id: string) => selectedKey !== null && mailAccountKeyOf(id) !== selectedKey;
+  const selectedName = selectedKey ? (messages.find((m) => mailAccountKeyOf(m.id) === selectedKey)?.account ?? selectedKey) : null;
+  // ラベルも `<鍵>~` 付き。選んだ行のアカウントのものだけ付けられる
+  const userLabels = labels.filter(
+    (label) => label.type === "user" && (selectedKey === null || mailAccountKeyOf(label.id) === selectedKey),
+  );
 
   function toggle(id: string) {
     setSelected((current) => {
@@ -50,13 +61,14 @@ export function MailRows({ messages, labels, supportsLabels, inTrash, nowMs, bac
     });
   }
 
-  const ids = [...selected];
-
   return (
     <div className="flex flex-col gap-2.5">
       {selected.size > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 rounded-[10px] bg-topic-surface px-2.5 py-2 text-xs">
-          <b className="mr-1 text-topic">{selected.size}通を選択中</b>
+          <b className="mr-1 text-topic">
+            {selectedName ? `${selectedName}・` : ""}
+            {selected.size}通を選択中
+          </b>
           {BULK.map(({ action, label }) => (
             <button key={action} type="button" disabled={pending} onClick={() => apply(action, ids)} className={bulkButton}>
               {label}
@@ -90,12 +102,19 @@ export function MailRows({ messages, labels, supportsLabels, inTrash, nowMs, bac
           <button type="button" onClick={() => setSelected(new Set())} className="ml-auto text-[0.6875rem] text-muted underline">
             選択を外す
           </button>
+          {selectedKey && (
+            <span className="basis-full text-[0.6875rem] text-muted">
+              別のアカウントのメールは同時に選べません（薄く表示）。アカウントごとに選び直してください。
+            </span>
+          )}
         </div>
       )}
       <MailNotice notice={notice} />
 
       <ul className="overflow-hidden rounded-xl border border-border bg-surface">
         {messages.map((message) => {
+          const locked = lockedOut(message.id);
+          const accountKey = showAccount ? mailAccountKeyOf(message.id) : null;
           const href = `/mail/${encodeURIComponent(message.id)}?back=${encodeURIComponent(back)}`;
           return (
             <li
@@ -103,11 +122,13 @@ export function MailRows({ messages, labels, supportsLabels, inTrash, nowMs, bac
               className={cn(
                 "flex items-start gap-2.5 border-t border-border px-3 py-2.5 transition-colors first:border-t-0 md:items-center md:px-3.5",
                 opening === message.id ? "bg-accent-surface" : "hover:bg-rail",
+                locked && "opacity-45",
               )}
             >
               <input
                 type="checkbox"
                 checked={selected.has(message.id)}
+                disabled={locked}
                 onChange={() => toggle(message.id)}
                 aria-label={`${senderName(message.from)}「${message.subject}」を選ぶ`}
                 className="mt-1 size-4 shrink-0 accent-[var(--topic)] md:mt-0"
@@ -131,7 +152,7 @@ export function MailRows({ messages, labels, supportsLabels, inTrash, nowMs, bac
                 </span>
                 <span className="line-clamp-2 min-w-0 text-xs text-muted md:line-clamp-1 md:text-[0.8125rem]">
                   {message.notified && <Chip className="bg-accent-surface text-accent">お知らせ済み</Chip>}
-                  {message.account && <Chip className="bg-topic-surface text-topic">{message.account}</Chip>}
+                  {accountKey && <MailAccountChip accountKey={accountKey} name={message.account ?? accountKey} className="mr-1.5" />}
                   <span className={cn("text-foreground", message.unread ? "font-bold" : "font-medium")}>
                     {message.subject || "（件名なし）"}
                   </span>

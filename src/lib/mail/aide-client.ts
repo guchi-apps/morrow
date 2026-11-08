@@ -1,6 +1,7 @@
 import { forgetSharedToken, sharedTokenOrEnv } from "@/lib/shared-token";
 
 import {
+  isMailAccountKey,
   isMailOwner,
   parseMailActionResponse,
   parseMailFailure,
@@ -86,6 +87,8 @@ function notOwner(user: MailUser, label: string): MailOutcome<never> {
 export type MailListQuery = {
   view?: MailViewKey;
   labelId?: string | null;
+  /** 複数アカウント時、このアカウントだけを取る（AIDEの `acct`）。 */
+  account?: string | null;
   q?: string;
   pageToken?: string | null;
   /** UNIX時刻（ミリ秒）。そのページのうち、受信がこれ以降のものだけ。 */
@@ -96,6 +99,7 @@ export async function listMail(user: MailUser, query: MailListQuery = {}): Promi
   const params = new URLSearchParams();
   if (query.labelId) params.set("label", query.labelId);
   else if (query.view && query.view !== "inbox") params.set("view", query.view);
+  if (query.account && isMailAccountKey(query.account)) params.set("acct", query.account);
   if (query.q) params.set("q", query.q.slice(0, 200));
   if (query.pageToken) params.set("page", query.pageToken);
   if (query.since != null) params.set("since", String(Math.max(0, Math.floor(query.since))));
