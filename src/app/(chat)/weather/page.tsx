@@ -2,6 +2,7 @@ import { Search } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { RainRadar } from "@/components/dashboard/rain-radar";
 import { PlaceActions } from "@/components/weather/place-actions";
 import { HourlyStrip, WeatherIcon, YesterdayNote } from "@/components/weather/hourly-strip";
 import { getCurrentUser } from "@/lib/auth-user";
@@ -14,7 +15,7 @@ import { OPEN_METEO_ATTRIBUTION, forecastAt } from "@/lib/weather/open-meteo";
 import { placeDayFrom, type PlaceDay } from "@/lib/weather/place-day";
 import { MAX_WEATHER_PLACES, placeFromQuery, weatherHref, type WeatherPlaceInput } from "@/lib/weather/place-input";
 import { listWeatherPlaces } from "@/lib/weather/places-store";
-import { describeWeatherCode, type Forecast } from "@/lib/weather/rain-check";
+import { describeWeatherCode, roundCoordinate, type Forecast } from "@/lib/weather/rain-check";
 
 // 予報は時間とともに変わるので、ビルド時の値を配らない。
 export const dynamic = "force-dynamic";
@@ -24,8 +25,10 @@ export const metadata = { title: "天気" };
 type Query = Record<string, string | string[] | undefined>;
 
 const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value);
+// 選んだ地点はURL経由で小数2桁に丸まっている一方、自宅はAIDEの生の座標のまま来る（#754）。
+// 厳密一致だと自宅だけ一致せず、一覧の強調・「自宅」表示が外れるので、丸めてから比べる。
 const sameSpot = (a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) =>
-  a.latitude === b.latitude && a.longitude === b.longitude;
+  roundCoordinate(a.latitude) === roundCoordinate(b.latitude) && roundCoordinate(a.longitude) === roundCoordinate(b.longitude);
 const temp = (value: number | null) => (value === null ? "—" : `${Math.round(value)}°`);
 
 /**
@@ -241,6 +244,13 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
                     <p className="text-[0.6875rem] text-muted">
                       青い地は降水確率50%以上。灰色は過ぎた時間。横にスクロールできます。{OPEN_METEO_ATTRIBUTION}
                     </p>
+                    {offset === 0 ? (
+                      <RainRadar key={keyOf(selected)} latitude={selected.latitude} longitude={selected.longitude} centerLabel={selected.name} />
+                    ) : (
+                      <p className="border-t border-border pt-2.5 text-xs text-muted">
+                        雨雲レーダーは今日の表示のときだけ出ます（実況と約15時間先までの予報のため）。
+                      </p>
+                    )}
                   </>
                 )}
               </>

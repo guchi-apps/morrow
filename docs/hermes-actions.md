@@ -4,7 +4,18 @@ Morrowのチャット（#728）からHermes Agent（subpc）へ指示したと�
 方針は #724（Morrowは窓口・Hermesは実行役・台帳の書き換えはハブ〔AIDE〕経由）、経路は `docs/hermes-route.md`（#726）、
 Hermesの口の実測は #725 のコメント。
 
-**状態: 設計のみ。コード・設定はまだ無い**（実装は末尾の後続Issue）。
+**状態: 提案の受け口・承認待ちの行・実行API・確認カード部品は #748 で実装済み。** ブリッジ（#737）とチャット画面（#728）、profileの設定は未実装（末尾の後続）。
+
+### 実装の置き場（#748）
+
+- 純粋な部分（検証・引数組み立て・結果の読み替え・伝言）: `src/lib/hermes/proposal-core.ts`（`test/hermes-proposal.test.ts`）。サーバー側: `proposals.ts`
+- テーブル `HermesProposal`（承認待ち・記録）・`HermesActionLog`（自動の書き込みの成否）。画面側は `GET /api/hermes/proposals`・`POST …/[id]/execute|cancel`・`src/components/hermes/proposal-card.tsx`
+- #737・#728は `ingestStreamToolStart()`（`tool.start`）・`recordAutoAction()`（`tool.complete`）・`pendingHermesNotes()` / `markNotesReported()`（次の発言の先頭）を呼ぶ
+- 状態は `pending`・`executing`・`done`・`cancelled`・`expired`・`failed` と、**`unknown`（結果不明）**。引数は承認待ち・実行中・結果不明の間だけ持ち、確定で消す
+- **重複防止は道具ごとに違うので、冪等キー1本では揃えない。** 家計簿＝`gmailMessageId`必須（無ければ要確認で実行不可）・予定削除＝`title`一致・サブスク登録＝`duplicateCandidates`。この3つだけ結果不明のとき同じ入力で再試行する。料金改定・契約更新・解約の記録は手段が無いので自動では再試行せず、利用者に確かめさせる（`RETRY_SAFE`）。`idempotencyKey` 列には `morrow-hermes-<提案ID>` を持つが、どの道具の引数にも渡していない（AIDEの入力定義に無い）
+- 予定削除は提案を取り込む時点で `previewDeleteEvent()`（`dryRun: true` をリテラル固定）で実物を引く。取れなければ実行させない
+- **未実測**: MCPの道具の `tool.start` に引数が丸ごと載るか。載らない場合の経路（ブリッジが呼び出しを受けた時点で流す）は #737 で決める。`update_subscription` の `endDate`／`memo` を null にして消す操作と、`labels` の置き換えは取り込まない
+- 期限切れ・実行中のまま止まった行の結果不明化・90日の削除は `/api/briefing` の `after()`（`sweepProposals()`）
 
 ## 結論
 
@@ -117,6 +128,11 @@ Morrowのprofileでは**持たせない**（`platform_toolsets` から外す）�
 | `command_allowlist` | 空 | defaultの許可（`execute_code` 等）を `--clone` で持ち込まない |
 
 - `--clone` で作るとdefaultの `command_allowlist`・MCPの設定を写すので、作った後に上の値へ直す（#738の手作業）
+- **`--clone` で写るもの**（Hermes v0.22.5 `hermes_cli/profiles.py`。#729）: `config.yaml`・`.env`・`SOUL.md`・`memories/MEMORY.md`・`memories/USER.md`・
+  スキル・プラグイン。**写らないもの**: cron（`jobs.json`）・セッション（`state.db`・`sessions`）・Discord/Slackのボットトークンとplatformの設定
+  （`--clone-channels` を付けない限り）。**`--clone-channels` は付けない**（付けると同じDiscordボットへ繋ぎ、二重に応答する）
+- **作成後に `memories/MEMORY.md`・`memories/USER.md` を空にする。** Discordの会話由来の記憶が初期値として入り、以後は同期されない
+  （記憶は共有しない。`docs/hermes-discord.md`）。口調を揃えるための `SOUL.md` は残してよい
 - 提案用の道具（次の節）を受け持つMCPサーバーをもう1つ足す
 
 ## 取り消せない書き込みの提案と確認

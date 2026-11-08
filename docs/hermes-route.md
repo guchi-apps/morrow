@@ -5,6 +5,7 @@
 チャット画面（#728）・操作の範囲と承認（#727）はこの経路の上に作る。
 
 **状態: ブリッジ（`hermes-bridge/`）とMorrow側のクライアント（`src/lib/hermes/`）は #737 で実装済み。** チャット画面（#728）と、subpc側の設定・トークン登録・疎通確認（#738。手作業）はまだ。
+DiscordのHermes（default profile）との境界・通知の重複は `docs/hermes-discord.md`（#729）。
 
 ## 結論
 

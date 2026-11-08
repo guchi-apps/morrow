@@ -92,7 +92,16 @@ function TileImage({
   );
 }
 
-export function RainRadar({ latitude, longitude }: { latitude: number; longitude: number }) {
+export function RainRadar({
+  latitude,
+  longitude,
+  centerLabel = "現在地",
+}: {
+  latitude: number;
+  longitude: number;
+  /** 地図の中心の点の読み上げ名（天気ページでは選んだ地点の名前を渡す）。 */
+  centerLabel?: string;
+}) {
   const [frames, setFrames] = useState<RadarFrame[] | null>(null);
   const [hasForecast, setHasForecast] = useState(true);
   const [hasLongRange, setHasLongRange] = useState(true);
@@ -264,7 +273,7 @@ export function RainRadar({ latitude, longitude }: { latitude: number; longitude
           </div>
         ))}
         <span
-          aria-label="現在地"
+          aria-label={centerLabel}
           className="absolute top-1/2 left-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-[2.5px] border-white bg-accent shadow-[0_0_0_1px_rgba(0,0,0,0.25),0_1px_4px_rgba(0,0,0,0.4)]"
         />
         <span

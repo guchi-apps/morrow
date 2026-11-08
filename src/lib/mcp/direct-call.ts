@@ -115,6 +115,50 @@ export async function callWriteToolJson(
   return callTool(server, tool, args, WRITE_CALL_TIMEOUT_MS);
 }
 
+/**
+ * Hermesの提案（#748）を利用者が承認したあとだけ、Morrowのサーバーが呼ぶ書き込みの許可リスト。
+ * メール用（上）とは型を分けてあり、広げても `callWriteToolJson()` の3本は変わらない。
+ * `docs/hermes-actions.md` の「取り消せない書き込み」の表と揃える。
+ */
+export const HERMES_WRITE_TOOLS = [
+  "aide_delete_event",
+  "asset_manager_import_payment",
+  "asset_manager_create_subscription",
+  "asset_manager_add_subscription_price",
+  "asset_manager_update_subscription",
+  "asset_manager_record_subscription_cancellation",
+] as const;
+export type HermesWriteTool = (typeof HERMES_WRITE_TOOLS)[number];
+
+export async function callHermesWriteToolJson(
+  server: ConnectedServer,
+  tool: HermesWriteTool,
+  args: Record<string, unknown>,
+): Promise<ToolJson> {
+  if (!(HERMES_WRITE_TOOLS as readonly string[]).includes(tool)) {
+    throw new McpCallError(`${tool} は許可していない書き込みの道具です`);
+  }
+  // 予定の削除は、承認の前の確認（`previewDeleteEvent()`）と同じ道具。ここでは**実行用**なので dryRun を持ち込ませない。
+  if ("dryRun" in args) throw new McpCallError("実行用の呼び出しに dryRun は渡せません");
+  return callTool(server, tool, args, WRITE_CALL_TIMEOUT_MS);
+}
+
+/**
+ * 予定の削除の**確認だけ**（`dryRun: true`）。削除はしない。`dryRun` はここでリテラルに固定してあり、
+ * 引数からは上書きできない（付け忘れると承認の前に予定が消えるため、実行用の入口と分けた）。
+ */
+export async function previewDeleteEvent(
+  server: ConnectedServer,
+  target: { eventId: string; calendarId: string; title: string },
+): Promise<ToolJson> {
+  return callTool(
+    server,
+    "aide_delete_event",
+    { eventId: target.eventId, calendarId: target.calendarId, title: target.title, dryRun: true },
+    WRITE_CALL_TIMEOUT_MS,
+  );
+}
+
 /** `isError` の結果から、画面に出してよい短い `reason` だけを取る（本文・スタックは出さない）。 */
 function errorReason(result: Record<string, unknown>): string | null {
   const structured = result.structuredContent;
