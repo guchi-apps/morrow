@@ -17,7 +17,7 @@
 
 ### A. 確認の間隔を縮める（ポーリングのまま）
 
-メール専用の起動口（例: `POST /api/mail/cron`。認証は `/api/briefing` と同じBearer）を足し、vpsのcrontabから2〜5分ごとに叩く。`/api/briefing` 自体の間隔は変えない（定時のお知らせなど他の処理を巻き込まない）。
+メール専用の起動口 `POST /api/mail/cron`（#768で実装。認証は `/api/briefing` と同じBearer。`/api/briefing` 側の確認は`running`で重複しても害が無いので残す）を足し、vpsのcrontabから2〜5分ごとに叩く。`/api/briefing` 自体の間隔は変えない（定時のお知らせなど他の処理を巻き込まない）。
 
 - 遅れ: 最大で間隔ぶん（2分なら最大2分）＋判定時間
 - **Gmailも追加のIMAPアカウントも同じ仕組みで速くなる**
