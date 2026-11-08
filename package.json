@@ -15,6 +15,7 @@
     "version": "node ios/scripts/sync-version.mjs && git add ios/Morrow.xcodeproj/project.pbxproj",
     "test:unit": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./test/register-alias.mjs --test \"test/**/*.test.ts\"",
     "postinstall": "prisma generate",
+    "hermes-bridge": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON hermes-bridge/server.ts",
     "env:init": "cp -n .env.local.example .env.local && echo '.env.local を編集してください（DB / Supabase / 許可メール）'",
     "db:setup": "bash scripts/setup-db.sh",
     "db:migrate:dev": "prisma migrate dev",

@@ -266,9 +266,10 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
   使ったトークン量は#133から `ApiUsage` へ記録している（費用が付かないだけ）
 - 旧実装そのものを戻す場合だけ履歴（PR #574より前）から拾う。窓口のチャットを新設するときは、旧実装を土台にせず設計し直す
 
-### Hermes Agentへの経路と認証（#726。設計のみ・未実装）
+### Hermes Agentへの経路と認証（#726・#737）
 
-**経路と認証の設計を確定しただけで、チャット画面・ブリッジ・Morrow側のクライアントはまだ無い**（実行役のHermesはいまもDiscord連携だけ）。
+**ブリッジ（`hermes-bridge/`）とMorrow側のクライアント（`src/lib/hermes/`）は#737で実装した。チャット画面（#728）・subpc側の設定と疎通確認（#738。手作業）はまだ**（実行役のHermesはいまもDiscord連携だけ）。
+クライアントの失敗は `HermesError.kind`（`unreachable`／`hermes_down`／`rejected`／`not_configured`／`no_session`…）で区別する。使用量は `recordHermesTurnUsage()`（`feature: hermes_chat`）で1ターン1行。ブリッジはパラメータプロパティを使わない（Nodeの型剥がしで動かすため）。
 詳細は `docs/hermes-route.md`。実装・設定を足すときはまずそこを読む。
 
 - **VPS→subpcの順向きで、tailnet越しにsubpc上の中継（ブリッジ）を叩く。** Hermes（`hermes -p morrow serve --isolated`）もブリッジも127.0.0.1に閉じ、外へ出すのは `tailscale serve` の専用ポートだけ
