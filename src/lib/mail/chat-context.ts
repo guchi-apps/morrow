@@ -13,6 +13,7 @@ import {
   type ContextMail,
   type MailContext,
 } from "@/lib/mail/chat-context-core";
+import { acquireMailCodex } from "@/lib/mail/codex-lock";
 import { MAIL_FAILURE_MESSAGES } from "@/lib/mail/contract";
 import { plainBody } from "@/lib/mail/suggest-core";
 
@@ -31,6 +32,10 @@ const QUERY_TIMEOUT_MS = 60_000;
 export async function mailContextFor(user: MailUser, text: string): Promise<MailContext | null> {
   if (!mentionsMail(text)) return null;
 
+  // メールのAI（分析・指示）と同じく、Codexは利用者ごとに同時1件（`codex-lock.ts`）。走っていれば検索せず、その旨を伝える
+  const release = acquireMailCodex(user.id, { kind: "chat", key: "hermes-chat" });
+  if (!release) return formatMailFailure("メールのAIが別の処理を実行中のため検索できなかった。少し待って頼み直してもらう");
+
   let query: string;
   try {
     const result = await runCodexRecorded({
@@ -48,6 +53,8 @@ export async function mailContextFor(user: MailUser, text: string): Promise<Mail
   } catch (error) {
     console.error("[aide-bot] メールの検索条件を作れなかった", error instanceof Error ? error.message : error);
     return formatMailFailure("検索条件を作れなかった");
+  } finally {
+    release();
   }
 
   try {
