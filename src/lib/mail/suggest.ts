@@ -119,7 +119,7 @@ export async function applyFlow(user: MailUser, messageId: string, suggestion: S
     }
   } catch (error) {
     console.error(`[aide-bot] メールの処理（${call.tool}）に失敗した`, error instanceof Error ? error.message : error);
-    return { ok: false, kind: "failed", message: "実行できませんでした。予定は登録済みの可能性があります。確認してから試してください。" };
+    return { ok: false, kind: "failed", message: call.tool === "aide_create_event" ? "実行できませんでした。予定は登録済みの可能性があります。確認してから試してください。" : "実行できませんでした。時間をおいて試してください。" };
   } finally {
     if (lockKey) applying.delete(lockKey);
   }
