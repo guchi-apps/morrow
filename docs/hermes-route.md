@@ -70,6 +70,7 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 | `POST /turns` `{sessionId?, text, title?}` | `session.create`（無ければ）/ `session.resume` → `prompt.submit` | 応答はSSE。`message.delta`・`tool.start`/`tool.complete`・`approval`・`clarify`・`message.complete`（`usage` 付き）をそのまま種類別に流す |
 | `POST /turns/<id>/approval` `{requestId, choice}` | `approval` リクエストへの回答 | `once`・`deny` だけを通す（`always`・`session` は400。`docs/hermes-actions.md`） |
 | `POST /turns/<id>/interrupt` | `session.interrupt` | |
+| `GET /sessions/<id>/messages?limit=N` | REST `GET /api/sessions/{id}`（`source` の照合）→ `/api/sessions/{id}/messages?order=latest&inline_images=false` | #752。直近N件（既定50・上限100）。下の「会話の履歴」 |
 
 - 接続ごとに `client.capabilities {server_requests:true}` を送る（送らないと承認が聞かれずに取り下げられる。#725）
 - `session.create` の `source` は `morrow` に固定する（Hermes側の一覧で見分けるため）
@@ -82,6 +83,18 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 - **置き場（#737で確定）**: コードはmorrowの `hermes-bridge/`（契約の型は `src/lib/hermes/contract.ts` を相対importで共有）、
   systemdのunit・`tailscale serve` の設定はsubpcリポジトリ（VOICEVOXと同じ扱い）。起動は `pnpm hermes-bridge`（`hermes-bridge/README.md`）
 - **宛先 `HERMES_BRIDGE_URL`（#737で確定）**: GitHub変数 `vars.HERMES_BRIDGE_URL` を `deploy.yml` が `.env` へ渡す（tailnet名をGitに入れない）。未登録だと空になり、クライアントは `not_configured`
+
+## 会話の履歴（#752）
+
+画面を開き直したときに前のやり取りを見せるため、ブリッジが履歴を返す（`hermes-bridge/history.ts`）。Morrowは受け取って表示するだけで、**保存しない**（`docs/hermes-actions.md`「実行の記録」）。
+**画面への表示は未実装**（チャット画面の #728 は実装せずにクローズした。表示はチャット画面を作るIssueで、Morrowの `hermesClient().history()` を呼ぶ）。
+
+- **`source` が `morrow` のセッションだけ返す。** Discord（default profile）など他のセッションは、無いときと同じ404（`no_session`）で、中身も有無も見せない
+- **WebSocketの `session.resume`＋`session.history` は使わない。** 読むだけでHermesに生きたセッションができる。RESTは読み取りだけで副作用が無い（同じ `X-Hermes-Session-Token`）
+- **返すのは発言者（`user`／`assistant`）・本文・時刻と、Hermesの発言で呼んだ道具の名前だけ**（`HistoryMessage`。`src/lib/hermes/contract.ts`）。Hermesの行には `api_content`（モデルへ渡したシステム注記入りの本文）・暗号化された推論・道具の引数と結果が載る（2026-11-08に実物の `morrow` profileで確認）ので、許可リストで拾う。道具の結果の行（`role: tool`）・`display_kind` 付きの行（圧縮の要約など）は落とす
+- **確認カードの状態は入れない。** 正はMorrowのDB（`HermesProposal`）で、画面が突き合わせる
+- 道具の結果の行を落とすので、Hermesからは表示件数の4倍＋1件を読む。読んだページが一杯・絞った結果が件数を超えたら `hasMore`（これより前があるかもしれない）
+- 失敗は他の経路と同じ: 無い・Morrow以外は404 `no_session`、HermesのRESTに届かない・5xxは503 `hermes_down`。Morrow側は応答の形を `parseHistoryBody()` で確かめ、1件でも違えば `bad_response`
 
 ## 認証
 

@@ -62,6 +62,35 @@ export interface TurnRequestBody {
   title?: string;
 }
 
+/**
+ * 会話の履歴の1件（#752。`GET /sessions/<id>/messages`）。表示に要る項目だけで、道具は名前だけ（引数・結果は持たない）。
+ * 確認カードの状態はMorrowのDB（`HermesProposal`）が正なので、ここには入れない。
+ */
+export interface HistoryMessage {
+  role: "user" | "assistant";
+  text: string;
+  /** 発言の時刻（epochミリ秒）。Hermesが持っていなければ null。 */
+  at: number | null;
+  /** Hermesの発言で呼んだ道具の名前（呼んだ順）。無ければ項目ごと無い。 */
+  tools?: string[];
+}
+
+export interface HistoryBody {
+  sessionId: string;
+  title: string | null;
+  /** 古い順。直近 `limit` 件まで。 */
+  messages: HistoryMessage[];
+  /** これより前の発言があるかもしれない（返していない分がある）。 */
+  hasMore: boolean;
+}
+
+/** 履歴の既定件数と上限。 */
+export const HISTORY_DEFAULT_LIMIT = 50;
+export const HISTORY_MAX_LIMIT = 100;
+
+/** ブリッジが受け付けるセッションidの形（`POST /turns` の `sessionId` と同じ）。 */
+export const SESSION_ID_PATTERN = /^[\w.:-]{1,128}$/;
+
 export interface HealthBody {
   bridge: "ok";
   hermes: "ok" | "down";
