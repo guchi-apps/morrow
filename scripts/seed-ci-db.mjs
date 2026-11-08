@@ -333,6 +333,49 @@ async function main() {
       { userId: user.id, messageId: "seed-mail-1", kind: "subscription", summary: "動画配信 / 1,290円 / 毎月", status: "opened", contentKey: "seed-sub" },
     ],
   });
+
+  // Hermesの提案（#748）のダミー。承認待ち（要確認の欄あり）・実行済み・期限切れを1件ずつ。実行はAIDE接続が要るので押しても通らない。
+  await db.hermesProposal.deleteMany({ where: { userId: user.id } });
+  const inOneHour = new Date(Date.now() + 60 * 60 * 1000);
+  await db.hermesProposal.createMany({
+    data: [
+      {
+        userId: user.id,
+        sessionId: "seed-session",
+        callId: "seed-call-1",
+        tool: "asset_manager_import_payment",
+        status: "pending",
+        expiresAt: inOneHour,
+        idempotencyKey: "morrow-hermes-seed-1",
+        args: {
+          values: { gmailMessageId: "seed-mail-1", place: "関西電力", name: "電気料金 10月分", amount: null, date: "2026-11-05", usage: null, originalAmount: null, originalCurrency: null, confidence: 0.6 },
+          summary: "電気料金の請求を家計簿へ登録",
+          preview: null,
+          previewFailed: false,
+        },
+      },
+      {
+        userId: user.id,
+        sessionId: "seed-session",
+        callId: "seed-call-2",
+        tool: "aide_delete_event",
+        status: "done",
+        expiresAt: inOneHour,
+        idempotencyKey: "morrow-hermes-seed-2",
+        outcome: "deleted",
+      },
+      {
+        userId: user.id,
+        sessionId: "seed-session",
+        callId: "seed-call-3",
+        tool: "asset_manager_create_subscription",
+        status: "expired",
+        expiresAt: new Date(Date.now() - 60 * 1000),
+        idempotencyKey: "morrow-hermes-seed-3",
+      },
+    ],
+  });
+  console.log("[aide-bot] Hermesの提案のダミーを3件投入しました");
 }
 
 main()

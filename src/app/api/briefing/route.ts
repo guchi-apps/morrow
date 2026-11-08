@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 
 import { NextResponse, after } from "next/server";
 
+import { sweepProposals } from "@/lib/hermes/proposals";
 import { runMailChecks } from "@/lib/mail/triage";
 import { runScheduledPushes } from "@/lib/scheduled-push";
 
@@ -86,6 +87,18 @@ export async function POST(request: Request) {
       }
     } catch (error) {
       console.error("[aide-bot] メールの確認に失敗した", error);
+    }
+  });
+
+  // Hermesの提案（#748）。期限切れ・実行中のまま止まった行を進め、90日を過ぎた記録を消す。独立に走らせる。
+  after(async () => {
+    try {
+      const { expired, stale, purged } = await sweepProposals();
+      if (expired + stale + purged > 0) {
+        console.info(`[aide-bot] Hermesの提案: 期限切れ${expired}・結果不明へ${stale}・削除${purged}`);
+      }
+    } catch (error) {
+      console.error("[aide-bot] Hermesの提案の掃除に失敗した", error);
     }
   });
 
