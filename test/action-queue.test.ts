@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createSerialQueue } from "../src/components/mail/action-queue.ts";
+import { createRefreshGate, createSerialQueue } from "../src/components/mail/action-queue.ts";
 
 test("操作は同時に走らず、積んだ順に1つずつ流れる", async () => {
   const queue = createSerialQueue();
@@ -21,6 +21,23 @@ test("操作は同時に走らず、積んだ順に1つずつ流れる", async (
   assert.deepEqual(log, ["start:a", "end:a", "start:b", "end:b", "start:c", "end:c"]);
   assert.deepEqual(results.map((r) => r.status), ["fulfilled", "rejected", "fulfilled"]);
   assert.equal(queue.pending(), 0);
+});
+
+test("最後の1通が失敗しても、先に成功があれば取り直しの判定が立つ", () => {
+  const gate = createRefreshGate();
+  gate.markSucceeded(); // a
+  assert.equal(gate.shouldRefresh(3), false);
+  gate.markSucceeded(); // b
+  assert.equal(gate.shouldRefresh(2), false);
+  // c は失敗（markSucceeded なし）。列の最後なので判定が立つ
+  assert.equal(gate.shouldRefresh(1), true);
+  // 印は戻る
+  assert.equal(gate.shouldRefresh(1), false);
+});
+
+test("成功が1通もなければ取り直さない", () => {
+  const gate = createRefreshGate();
+  assert.equal(gate.shouldRefresh(1), false);
 });
 
 test("待ち件数が通知される", async () => {

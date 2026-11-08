@@ -1,4 +1,25 @@
 /**
+ * 一覧の取り直しを「列が空になる最後のタスクの終了時に、1通でも成功していれば1回」に絞る判定（#767）。
+ * 最後の1通が失敗しても、先に成功した分が一覧に反映されるようにする。
+ */
+export function createRefreshGate() {
+  let succeeded = false;
+  return {
+    /** 一覧に反映すべき変更が1通でも通った。 */
+    markSucceeded() {
+      succeeded = true;
+    },
+    /** タスクの終了時に呼ぶ。`pendingCount` は自分を含む待ち件数。取り直すべきなら真を返し、印を戻す。 */
+    shouldRefresh(pendingCount: number): boolean {
+      if (pendingCount > 1) return false;
+      const result = succeeded;
+      succeeded = false;
+      return result;
+    },
+  };
+}
+
+/**
  * メールの整理操作を1通ずつ順番に流すキュー（#767）。
  *
  * 連続スワイプで「事前照合→操作→一覧の再取得」が同時にAIDEへ飛ぶと、重なりで断られて赤い帯が出た。

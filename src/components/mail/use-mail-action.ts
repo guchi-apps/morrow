@@ -5,10 +5,11 @@ import { useEffect, useState } from "react";
 
 import type { MailAction } from "@/lib/mail/contract";
 
-import { createSerialQueue } from "./action-queue";
+import { createRefreshGate, createSerialQueue } from "./action-queue";
 
 // 画面で1本だけ持つ列。スワイプのアーカイブはここを通して1通ずつ流す（#767）
 const archiveQueue = createSerialQueue();
+const refreshGate = createRefreshGate();
 
 export type MailActionNotice = { text: string; error: boolean };
 
@@ -68,24 +69,29 @@ export function useMailAction(options: { after?: (action: MailAction) => void } 
     setNotice(null);
     return archiveQueue.enqueue(async () => {
       let markedRead = false;
-      if (unread) {
-        const read = await send("read", [id], null);
-        if (!read.ok) {
-          setNotice({ text: read.error, error: true });
+      try {
+        if (unread) {
+          const read = await send("read", [id], null);
+          if (!read.ok) {
+            setNotice({ text: read.error, error: true });
+            return false;
+          }
+          markedRead = true;
+          refreshGate.markSucceeded();
+        }
+        const archived = await send("archive", [id], null);
+        if (!archived.ok) {
+          setNotice({ text: markedRead ? `${archived.error}（既読にはしました）` : archived.error, error: true });
           return false;
         }
-        markedRead = true;
+        refreshGate.markSucceeded();
+        setNotice({ text: archived.done, error: false });
+        return true;
+      } finally {
+        // 取り直しは列が空になった最後の1回だけ（途中で取り直すとAIDEへの要求が重なる）。
+        // 最後の1通が失敗しても、先に成功した分を一覧へ反映する
+        if (refreshGate.shouldRefresh(archiveQueue.pending())) router.refresh();
       }
-      const archived = await send("archive", [id], null);
-      if (!archived.ok) {
-        setNotice({ text: markedRead ? `${archived.error}（既読にはしました）` : archived.error, error: true });
-        if (markedRead) router.refresh();
-        return false;
-      }
-      setNotice({ text: archived.done, error: false });
-      // 取り直しは列が空になった最後の1回だけ（途中で取り直すとAIDEへの要求が重なる）
-      if (archiveQueue.pending() <= 1) router.refresh();
-      return true;
     });
   }
 
