@@ -280,6 +280,16 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
 - Hermesの `approval` には `once`・`deny` だけを出す（`always`・`session` は出さず、ブリッジでも受け付けない）。通知からは直接承認しない（チャットを開くだけ）
 - 記録は「誰が・いつ・どの道具・結果・対象id・冪等キー」だけ。提案の値は承認待ちの間だけ持ち、確定したら消す
 
+### Hermesの提案の受け口と承認の実行（#748）
+
+取り消せない書き込み6本（予定削除・家計簿登録・サブスク4本）の提案を受けて、確認カードの承認後にMorrowのサーバーが実行する。詳細は `docs/hermes-actions.md`。
+
+- 実行できる道具の正は `HERMES_PROPOSAL_TOOLS`（`proposal-core.ts`）と `HERMES_WRITE_TOOLS`（`direct-call.ts`）。**この2つとdocsの表を揃える**（`test/hermes-proposal.test.ts` が2つの一致を見る）。メール用 `MAIL_FLOW_WRITE_TOOLS` とは別の入口
+- `pending → executing` を `updateMany` の件数で1回だけ進めた側が実行する。**引数は承認待ち・実行中・結果不明の間だけDBに持ち**、確定したら消す（金額・相手先をMorrowに残さない）
+- 重複防止は道具ごと。**冪等キー1本を前提にしない**。手段の無い道具は結果不明のとき自動再試行しない
+- `dryRun` は確認用の `previewDeleteEvent()` だけが持つ。実行用は `dryRun` を断る
+- 通知の種類・チャット画面への組み込みは未実装（#728・#737）
+
 ### 秘書の人格（#226）
 
 **人格の正は `src/lib/persona.ts`。** 「身元の一文」（`SECRETARY_INTRO`）と「話し方の決まり」

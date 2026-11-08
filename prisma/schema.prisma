@@ -58,6 +58,8 @@ model User {
   weatherPlaces     WeatherPlace[]
   topics            Topic[]
   mailTriages       MailTriage[]
+  hermesProposals   HermesProposal[]
+  hermesActionLogs  HermesActionLog[]
 }
 
 // --- APIの消費量（#51） ---
@@ -402,4 +404,57 @@ model MailTriage {
 
   @@unique([userId, messageId])
   @@index([userId, createdAt])
+}
+
+// --- Hermes Agentの提案と実行の記録（#748。設計は docs/hermes-actions.md） ---
+// 取り消せない書き込みは、Hermesが提案だけを出し、利用者が確認カードで承認したらMorrowのサーバーが実行する。
+// **提案の引数（値）は `args` に、承認待ち・実行中・結果不明の間だけ持つ。** 成功・取り下げ・期限切れ・確定した失敗で消す
+// （金額・相手先・予定の内容をMorrowに残さない）。残すのは誰が・いつ・どの道具・結果の種類・対象idだけ。
+
+model HermesProposal {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Hermesのセッションid。
+  sessionId String @db.VarChar(128)
+  /// ストリームの道具呼び出しのid。同じ `tool.start` を二度取り込まないための一意キー（セッション内）。
+  callId    String @db.VarChar(128)
+  /// 提案された道具名（`HERMES_PROPOSAL_TOOLS` のどれか）。
+  tool      String @db.VarChar(64)
+  /// pending | executing | done | cancelled | expired | failed | unknown（結果不明。引数は持ったまま）。
+  status    String @default("pending") @db.VarChar(16)
+  expiresAt DateTime
+  /// `morrow-hermes-<提案ID>`。冪等キーを受ける道具だけが使う。道具ごとの重複防止は `proposal-core.ts` の表。
+  idempotencyKey String @db.VarChar(80)
+  /// 結果の種類（`imported`・`duplicate`・`deleted` など）。本文は持たない。
+  outcome   String?  @db.VarChar(32)
+  /// 対象のid（receiptId・eventId・subscriptionIdなど）。
+  targetId  String?  @db.VarChar(191)
+  /// 承認待ちの間だけの値（正規化済みの引数・要約・削除前の確認）。確定したらnull。
+  args      Json?
+  /// 次の発言の先頭でHermesへ伝えた時刻。nullは未伝達。
+  reportedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, sessionId, callId])
+  @@index([userId, status])
+  @@index([status, expiresAt])
+  @@index([createdAt])
+}
+
+/// Hermesが自動で行った書き込みの記録（道具名と成否だけ）。90日で消す。
+model HermesActionLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId String   @db.VarChar(128)
+  tool      String   @db.VarChar(64)
+  ok        Boolean
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
 }
