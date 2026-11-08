@@ -81,8 +81,10 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
                 <MailAnalysis
                   key={message.id}
                   id={message.id}
-                  // 「登録済み」の印の材料（#750の控え）。サブスクの「一覧を開いた」は登録の確認にならないので含めない
-                  registeredKinds={flowRecords.filter((r) => r.status !== "opened").map((r) => r.kind)}
+                  // 「登録済み」の印の材料（#750の控え）。サブスクの「一覧を開いた」は登録の確認にならないので含めない。確認待ちも含めない
+                  registeredKinds={flowRecords.filter((r) => r.status !== "opened" && r.status !== "pending").map((r) => r.kind)}
+                  // 確認待ち（pending）は台帳に入っていない。「登録済み」ではなく「確認待ち」の印にする（#821）
+                  pendingKinds={flowRecords.filter((r) => r.status === "pending").map((r) => r.kind)}
                 />
 
                 <MailFlowRecords records={flowRecords.map((r) => ({ ...r, createdAt: flowTimeLabel(r.createdAt) }))} />
