@@ -125,7 +125,13 @@ export function MailRows({ messages, labels, supportsLabels, inTrash, nowMs, bac
                 className="grid min-w-0 flex-1 gap-0.5 md:grid-cols-[170px_1fr_auto] md:items-center md:gap-3">
                 <span className="flex min-w-0 items-baseline justify-between gap-2 md:contents">
                   <span className={cn("truncate text-[0.8125rem]", message.unread && "font-bold")}>{senderName(message.from)}</span>
-                  <span className="shrink-0 text-[0.6875rem] text-muted md:order-last md:text-right">
+                  <span className="inline-flex shrink-0 items-center gap-1.5 text-[0.6875rem] text-muted md:order-last md:text-right">
+                    {/* 未読だけ丸印を付ける（Gmail方式。#713）。既読は透明で幅を揃え、日時の位置をずらさない */}
+                    {message.unread ? (
+                      <span role="img" aria-label="未読" className="size-2 shrink-0 rounded-full bg-accent" />
+                    ) : (
+                      <span aria-hidden="true" className="size-2 shrink-0" />
+                    )}
                     {mailTimeLabel(message.receivedAt, now)}
                   </span>
                 </span>
