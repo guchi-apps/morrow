@@ -4,12 +4,12 @@ import { Star } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
-import { mailAccountKeyOf, senderName, type MailAction, type MailLabel, type MailSummary } from "@/lib/mail/contract";
+import { mailAccountKeyOf, mailAccountTone, senderName, type MailAction, type MailLabel, type MailSummary } from "@/lib/mail/contract";
 import { cn } from "@/lib/utils";
 
 import { FLOW_KIND_META } from "@/lib/mail/flow-record-core";
 
-import { MailAccountChip } from "./mail-account-chip";
+import { ACCOUNT_TONE_CLASS, MailAccountChip } from "./mail-account-chip";
 import { mailTimeLabel } from "./mail-format";
 import { MailNotice } from "./mail-notice";
 import { leaveMailPane } from "./mail-transition";
@@ -43,7 +43,7 @@ export function MailRows({ messages, labels, supportsLabels, inTrash, showAccoun
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // 押した行（#699）。本文の画面へ移るまでの一瞬、押したことが分かるよう色を付ける
   const [opening, setOpening] = useState<string | null>(null);
-  const { apply, archiveRow, pending, notice } = useMailAction({ after: () => setSelected(new Set()) });
+  const { apply, archiveRow, pending, notice, queued } = useMailAction({ after: () => setSelected(new Set()) });
   const now = new Date(nowMs);
   const ids = [...selected];
   // 選択中のアカウント。AIDEは複数アカウントにまたがる操作を1件も変更せず断るので、同じアカウントの行だけ選べるようにする
@@ -112,12 +112,21 @@ export function MailRows({ messages, labels, supportsLabels, inTrash, showAccoun
           )}
         </div>
       )}
-      <MailNotice notice={notice} />
+      {queued > 0 ? (
+        <p role="status" className="flex items-center gap-2 rounded-[10px] border border-border bg-surface px-3.5 py-2.5 text-xs text-muted">
+          <span aria-hidden className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-border border-t-emerald-500" />
+          アーカイブ中…（残り{queued}通）
+        </p>
+      ) : (
+        <MailNotice notice={notice} />
+      )}
 
       <ul className="overflow-hidden rounded-xl border border-border bg-surface">
         {messages.map((message) => {
           const locked = lockedOut(message.id);
-          const accountKey = showAccount ? mailAccountKeyOf(message.id) : null;
+          const rowAccountKey = mailAccountKeyOf(message.id);
+          const accountKey = showAccount ? rowAccountKey : null;
+          const dotColor = rowAccountKey ? ACCOUNT_TONE_CLASS[mailAccountTone(rowAccountKey)].dot : "bg-accent";
           const href = `/mail/${encodeURIComponent(message.id)}?back=${encodeURIComponent(back)}`;
           return (
             <SwipeArchiveRow
@@ -152,12 +161,12 @@ export function MailRows({ messages, labels, supportsLabels, inTrash, showAccoun
                 <span className="flex min-w-0 items-baseline justify-between gap-2 md:contents">
                   <span className={cn("truncate text-[0.8125rem]", message.unread && "font-bold")}>{senderName(message.from)}</span>
                   <span className="inline-flex shrink-0 items-center gap-1.5 text-[0.6875rem] text-muted md:order-last md:text-right">
-                    {/* 未読だけ丸印を付ける（Gmail方式。#713）。既読は透明で幅を揃え、日時の位置をずらさない */}
-                    {message.unread ? (
-                      <span role="img" aria-label="未読" className="size-2 shrink-0 rounded-full bg-accent" />
-                    ) : (
-                      <span aria-hidden="true" className="size-2 shrink-0" />
-                    )}
+                    {/* 丸印の色＝アカウント。未読は濃く、既読は同じ色を薄く出す（#713・#760）。幅は常に同じで日時の位置はずれない */}
+                    <span
+                      role="img"
+                      aria-label={message.unread ? "未読" : "既読"}
+                      className={cn("size-2 shrink-0 rounded-full", dotColor, !message.unread && "opacity-30")}
+                    />
                     {mailTimeLabel(message.receivedAt, now)}
                   </span>
                 </span>

@@ -52,7 +52,7 @@ GitHub変数 `vars.PORT` は使わない。マニフェストへ戻さないこ�
 #724の基準に照らしたずれ候補3つは、どれも**いまは移さない**と決めた。理由を変える事情（Hermes経路の実装など）が出たら見直す。
 
 - **AI推論（メールの判定・提案・要約でCodexを直接呼ぶ。`src/lib/mail/`）は窓口に残す。** 「AI推論はハブに置かない」の対象はハブ（AIDE）で、
-  窓口のAIは禁じていない。判定は件名・差出人・冒頭だけ、提案・要約は押したときだけで何も保存しない。Hermesへの経路（#726）は設計のみで未実装
+  窓口のAIは禁じていない。判定は件名・差出人・冒頭だけ、提案・要約は開いたメールだけ（#766で開いた時点で自動に変えた）で、DBには保存しない（結果は30分だけプロセス内のメモリ）。Hermesへの経路（#726）は設計のみで未実装
 - **天気の直接取得（Open-Meteo・国土地理院）とMorrowのDBのデータは現状維持。** 予報・地名はキー無しの公開データで、台帳の記録ではない。
   `WeatherPlace`（表示する地点の登録）・`Topic`／`TopicCategory`（ニュースの仕入れ結果と設定）・`ScheduledPush`・`MailTriage`（判定済みの印と
   二重通知止め。件名・本文は持たない）は窓口自身の設定・キャッシュ・既読の印で、他アプリの記録の複製の正ではない。
@@ -231,7 +231,7 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
 
 ### メールから登録した内容の控え（#750）
 
-メールの「このメールをどうする？」で流した内容を、あとからメール詳細・一覧で見返すために `MailFlowRecord` へ**登録時点の要約**（支払先・題名・金額・日付の1行。`flow-record-core.ts`）を残す。
+メールの提案（ハーフモーダル。#766）で流した内容を、あとからメール詳細・一覧で見返すために `MailFlowRecord` へ**登録時点の要約**（支払先・題名・金額・日付の1行。`flow-record-core.ts`）を残す。
 
 - **台帳の記録の複製の正ではなく、押した操作の控え。** 件名・差出人・本文は持たない。台帳側で後から変わっても追従せず、画面にも「登録時点の内容」と出す。**台帳の中身を読み直して同期する処理は足さない**（足したら #732 の判断から外れる）
 - 残すのは成功（done/pending/duplicate）だけ。サブスクはMorrowが登録できないので、リンクを押した事実を `opened` として残し、画面は「一覧を開いた（登録は未確認）」と出す（登録済みに見せない）。値は `normalizeSuggestion()` で検証し直し、持ち主を照合する
@@ -266,9 +266,10 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
   使ったトークン量は#133から `ApiUsage` へ記録している（費用が付かないだけ）
 - 旧実装そのものを戻す場合だけ履歴（PR #574より前）から拾う。窓口のチャットを新設するときは、旧実装を土台にせず設計し直す
 
-### Hermes Agentへの経路と認証（#726。設計のみ・未実装）
+### Hermes Agentへの経路と認証（#726・#737）
 
-**経路と認証の設計を確定しただけで、チャット画面・ブリッジ・Morrow側のクライアントはまだ無い**（実行役のHermesはいまもDiscord連携だけ）。
+**ブリッジ（`hermes-bridge/`）とMorrow側のクライアント（`src/lib/hermes/`）は#737で実装した。チャット画面（#728）・subpc側の設定と疎通確認（#738。手作業）はまだ**（実行役のHermesはいまもDiscord連携だけ）。
+クライアントの失敗は `HermesError.kind`（`unreachable`／`hermes_down`／`rejected`／`not_configured`／`no_session`…）で区別する。使用量は `recordHermesTurnUsage()`（`feature: hermes_chat`）で1ターン1行。ブリッジはパラメータプロパティを使わない（Nodeの型剥がしで動かすため）。
 詳細は `docs/hermes-route.md`。実装・設定を足すときはまずそこを読む。
 
 - **VPS→subpcの順向きで、tailnet越しにsubpc上の中継（ブリッジ）を叩く。** Hermes（`hermes -p morrow serve --isolated`）もブリッジも127.0.0.1に閉じ、外へ出すのは `tailscale serve` の専用ポートだけ
@@ -297,6 +298,17 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
 - 重複防止は道具ごと。**冪等キー1本を前提にしない**。手段の無い道具は結果不明のとき自動再試行しない
 - `dryRun` は確認用の `previewDeleteEvent()` だけが持つ。実行用は `dryRun` を断る
 - 通知の種類・チャット画面への組み込みは未実装（#728・#737）
+
+### DiscordのHermesとの境界（#729。設計のみ）
+
+詳細は `docs/hermes-discord.md`。Discord（default profile）は#728の後も残すが、役割を分ける。`~/.hermes` の変更は人の作業（#762）。
+
+- **Discordで受けるのは、通知の受信・通知へのその場の操作（🗑️🔎・スレッドの追い質問）・開発運用（#アプリ-issue提案・シェル作業）だけ。**
+  台帳を触る日常の指示はMorrowへ寄せ、#ヘルメス の自由会話は#728の公開後に止める
+- **セッション・記憶は共有しない**（profile分離。#725）。`--clone` は作成時点の `MEMORY.md`・`USER.md` を写すので作成後に空にする。
+  cron・ボットトークンは写らない（`--clone-channels` は付けない）
+- **端末を鳴らすのはMorrowだけ。** 新着メールはDiscordのミラー（全メール・Hermesの判定）とMorrowの「必要なメール」（#683）で重なるので、
+  Discord側の🚨メンションを外し、ミラーは記録として残す。Hermesのチャットの完了・承認待ち（#728）もMorrowのPushだけで知らせる
 
 ### 秘書の人格（#226）
 
@@ -773,8 +785,11 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 - **`partial`（一部のアカウントが読めない）を「メールが無い」と読ませない。** 一覧は赤い帯で知らせ、新着確認は既読位置（`User.mailCheckedAt`）を進めない
 - 本文のHTMLは加工されていないので、`sandbox="allow-popups allow-popups-to-escape-sandbox"`（`allow-scripts`・`allow-same-origin` なし）の
   `iframe srcdoc` に閉じ込め、内側のCSPで外部画像を「画像を表示」まで止める（`mailSrcdoc()`）
-- **新着確認（`src/lib/mail/triage.ts`）の起点は、15分ごとのcron（`/api/briefing` の `after()`）と画面の「いま確認」（`POST /api/mail/check`。1分あける）。**
-  vpsの `cron/crontab.txt` は以前から `*/15` で `scripts/aide-bot-briefing.sh`（`/api/briefing`）を叩いているので、vps側の変更は要らなかった
+- **新着確認（`src/lib/mail/triage.ts`）の起点は、メール専用のcron口 `POST /api/mail/cron`（#768。vpsから2〜3分ごと。認証は`/api/briefing`と同じBearer）・15分ごとの`/api/briefing`の`after()`（重複しても`running`で1本）・画面の「いま確認」（`POST /api/mail/check`。1分あける）。**
+  vpsの `cron/crontab.txt` は以前から `*/15` で `scripts/aide-bot-briefing.sh`（`/api/briefing`）を叩いているので、vps側の変更は要らなかった。
+  **受信から通知までを速くする方法（間隔の短縮・Gmailのpush通知・IMAP IDLE）の調査は `docs/mail-realtime.md`**（#761。本番のメインはGmail APIで、IMAPは追加アカウントだけ）
+- **メインのGmailはpush通知（`users.watch`＋Pub/Sub）でも起こす**（#769。受け口 `POST /api/mail/push`・判定は `checkMailFromPush()`）。OIDCトークンは依存なしで検証し（`gmail-push-core.ts`）、
+  **`email` を `GMAIL_PUSH_SERVICE_ACCOUNT` と照合するのが本体**（未設定なら401で閉じる）。cronは取りこぼしの保険で、cronがメインの新着を判定したら「pushで拾えなかった」とログに出す。詳細は `docs/mail-realtime.md`
 - 判定はCodex（用途「メールの判定」・機能 `mail`）。**渡すのは差出人・件名・冒頭（snippet。200字で切る）だけ**で、メッセージIDは `m1`…の仮番号にする
   （`triage-core.ts`・`test/mail-triage.test.ts`）。通知の種類がオフ・判定していない新着が無い回はCodexを呼ばない。基準は利用者が書く `User.mailCriteria`（空なら既定）
 - **同じメールは二度判定・二度通知しない**（`MailTriage` の利用者×メールID一意）。**ただし必要と判定した行は、通知の試行（`sendPushToUser()`）が終わってから作る**（#693。先に作ると、作成と送信のあいだで止まった回の通知が永久に失われる）。不要・枠あふれの行は先に作る。送信後・確定前に止まった回は、次の確認で再判定されて再通知されうる（取りこぼすより重複を選ぶ。再判定はCodexなので結果は変わりうる）。件名・差出人・本文はMorrowのDBに残さない（`NotificationLog` の本文も件数だけ）。
@@ -787,14 +802,22 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 ### メール詳細の操作と要約（#717）
 
 - **本文の画面の操作は「既読／未読に戻す」と「アーカイブ（アーカイブ済みなら受信トレイへ戻す）」だけ**（`mail-detail-actions.tsx`）。スター・ラベル・ゴミ箱は使わないので出さない。サーバー側の `star`／`label-*`／`trash`（`aide-client`・`/api/mail/actions`・契約）は一覧が使うので残してある。ラベル名のための一覧取得も詳細からは外した（「処理済み」ラベルの自動付与〔#689〕はサーバー側で一覧を引くので残る）
-- **「📝 要約する」は押したときだけ**Codex（用途「メールの要約」`mail_summary`・既定Luna・機能 `mail_summary`）が本文を読み、要約と要点（最大5件）をその場に出す。何も保存しない。口は `POST /api/mail/flow/summary`、純粋な部分は `summary-core.ts`（`test/mail-summary.test.ts`）、サーバーは `summary.ts`（`getMail()` で持ち主を照合・利用者ごとに同時1件）。本文はデータとして読ませ、返答は固定の形で検証する
+- **要約は#766で提案と1回のAI呼び出しにまとめた**（下の「メールのAI分析」）。「📝 要約する」ボタン・`POST /api/mail/flow/summary`・`summary.ts`・用途「メールの要約」（`mail_summary`）は消した。`summary-core.ts` には要約の決まりごと（`SUMMARY_RULES`）と返答の検証（`parseSummaryReply()`）だけが残る。使用量の機能名 `mail_summary` は過去の記録の名前としてだけ残す
 
 ### メールの提案——AIが処理を推論して他アプリへ流す（#689）
 
-メール本文の画面の「このメールをどうする？」で、本文をCodex（用途「メールの提案」・機能 `mail_suggest`）に読ませ、おすすめと候補（家計簿・タスク・予定。最大3件）を出す。
-実行はカードごとに利用者が押したときだけ（自動実行しない）。純粋な部分は `src/lib/mail/suggest-core.ts`（`test/mail-suggest.test.ts`）、サーバーは `suggest.ts`、口は `POST /api/mail/flow/suggest`・`/apply`。
+メール本文の画面で、本文をCodex（用途「メールの分析」＝キー `mail_suggest`・機能 `mail_suggest`）に読ませ、おすすめと候補（家計簿・サブスク・タスク・予定。最大3件）を出す。
+実行はカードごとに利用者が押したときだけ（自動実行しない）。純粋な部分は `src/lib/mail/suggest-core.ts`（`test/mail-suggest.test.ts`）、サーバーは `suggest.ts`（`applyFlow()`）、口は `/apply`。
 
-- **本文全体をCodexへ渡す**（新着確認は件名・差出人・冒頭だけ）。押したメールだけ・6千字まで・何も保存しない。本文はデータとして読ませ、返答は固定の形で検証する
+### メールのAI分析——開いたら自動で要約と提案、押すとハーフモーダル（#766）
+
+- **開いた時点で自動で `POST /api/mail/flow/analyze` を叩き、要約と提案を1回のCodexで作る**（`analyze-core.ts`・`analyze.ts`・`test/mail-analyze.test.ts`）。以前は「要約する」「このメールをどうする？」の2つのボタンで別々に呼んでいた。プロンプトは `SUMMARY_RULES`・`SUGGEST_KIND_RULES`・`SUGGEST_RULES`・`SUGGEST_EXAMPLE` を並べて組み立て、返答は既存の `parseSummaryReply()`・`parseSuggestReply()` に通す
+- **結果は利用者×メールIDで30分だけプロセス内のメモリに持つ**（上限100件。DB・ログには残さない。再起動で消える）。開き直すたびにサブスク枠を使わないため。「↻ 分析し直す」（`refresh: true`）で取り直す。**覚えた結果を返すときも毎回 `getMail()` で持ち主を照合する**
+- Codexは利用者ごとに同時1件。同じメールの要求が重なれば走っている1回を共有し、別のメールは429（`busy`）。画面は5秒ごとに取り直す（前のメールの分析は画面を離れても最後まで走り、記憶に入る）
+- **提案の行には入力欄を出さない。** 押すと `FlowSheet`（`<dialog>` の `showModal()`。下から出るハーフモーダル。幅560pxまで）に読み取った値を入れて出し、直して登録する（登録の経路は `/apply` のまま）。下に記録の持ち主のアプリを開くリンク（`app-links.ts`。DaySpanのタスク・カレンダー、Asset Managerの家計簿連携）を置くが、**入力値は引き継がない**（受け側の口が各アプリに無い）
+- 行の「登録済み」は、その画面で登録できた回と、ページが読む控え（`MailFlowRecord`。#750）の `opened` 以外から出す。サブスクの主ボタンは今どおり「一覧を開いた」を控えに残す（登録済みとは出さない）
+
+- **本文全体をCodexへ渡す**（新着確認は件名・差出人・冒頭だけ）。開いたメールだけ・6千字まで・DBには保存しない。本文はデータとして読ませ、返答は固定の形で検証する
 - **値は承認後にサーバーで検証し直す**（`normalizeSuggestion()`）。読み取れない金額・日付はnullのまま画面で空欄＋「要確認」にし、**推測で埋めない**
 - **書き込みは `callWriteToolJson()`（`direct-call.ts`）の許可リスト3本だけ**（`aide_create_task`・`aide_create_event`・`asset_manager_import_payment`）。`callToolJson()` の書き込み拒否は変えていない。**道具を足すときはこのリストと `suggest-core.ts` の検証を揃える**
 - **Asset Managerの取り込み（`/api/receipts/import`）は `place`（支払先）と `amount`（円の整数）が必須**（#743。asset-managerの `lib/payment-import.ts`）。AIDEの道具の入力定義では任意に見えるが、送らないと「place は必須です」で断られる。`toolCallFor()` は送る前に支払先・円の金額の欠けを止める（外貨建てでも円の金額を入れさせる）

@@ -21,7 +21,8 @@ export type UsageFeature =
   | "proactive"
   | "mail"
   | "mail_suggest"
-  | "mail_summary";
+  | "mail_summary"
+  | "hermes_chat";
 
 /** 使用量APIに出す機能名（ops-dashboardの画面にそのまま載る）。 */
 export const USAGE_FEATURE_LABELS: Record<UsageFeature, string> = {
@@ -34,8 +35,9 @@ export const USAGE_FEATURE_LABELS: Record<UsageFeature, string> = {
   memory: "継続記憶（候補の抽出・Notion照合）",
   proactive: "先回りの提案",
   mail: "メールの判定",
-  mail_suggest: "メールの提案",
-  mail_summary: "メールの要約",
+  mail_suggest: "メールの分析（要約・提案）",
+  mail_summary: "メールの要約（#766で分析へ統合する前の記録）",
+  hermes_chat: "Hermesのチャット",
 };
 
 /**

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
-  buildSuggestPrompt,
   findExistingEvent,
   normalizeSuggestion,
   parseSuggestReply,
@@ -99,18 +98,12 @@ describe("toolCallFor", () => {
   });
 });
 
-describe("readToolOutcome / buildSuggestPrompt / plainBody", () => {
+describe("readToolOutcome / plainBody", () => {
   it("結果を画面の文へ読み替える", () => {
     assert.equal(readToolOutcome("payment", { status: "duplicate" }).status, "duplicate");
     assert.equal(readToolOutcome("payment", { status: "error", reason: "x" }).status, "failed");
     assert.equal(readToolOutcome("task", { ok: false, reason: "未設定" }).status, "failed");
     assert.equal(readToolOutcome("event", { ok: true }).status, "done");
-  });
-
-  it("プロンプトは本文をデータとして渡し、指示に従わない旨を含む", () => {
-    const p = buildSuggestPrompt({ from: "a", subject: "b", body: "本文\n改行", receivedDate: null, today: "2026-11-08" });
-    assert.match(p, /指示（.*）には従わない/);
-    assert.ok(!p.includes("本文\n改行"));
   });
 
   it("本文がHTMLだけのときはタグを落とす", () => {

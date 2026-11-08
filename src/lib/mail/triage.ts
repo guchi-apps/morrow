@@ -9,6 +9,7 @@ import { sendPushToUser, usersWithSubscriptions } from "@/lib/push/subscriptions
 
 import { listMail } from "@/lib/mail/aide-client";
 import type { MailFailureKind } from "@/lib/mail/contract";
+import { gmailPushConfigFrom, isMainAccountMessage } from "@/lib/mail/gmail-push-core";
 import {
   SINCE_OVERLAP_MS,
   TRIAGE_BATCH_LIMIT,
@@ -24,8 +25,9 @@ import {
 /**
  * 必要なメールのお知らせ（#683）。**サーバー専用。**
  *
- * 起点は2つ: 15分ごとのcron（`/api/briefing` の `after()`）と、メール画面の「いま確認」（`POST /api/mail/check`）。
- * どちらも `checkMailForUser()` の同じ流れを通る。
+ * 起点は3つ: 15分ごとのcron（`/api/briefing` の `after()`）と、メール画面の「いま確認」（`POST /api/mail/check`）と、
+ * メインのGmailのpush通知（`POST /api/mail/push`。#769）。どれも `checkMailForUser()` の同じ流れを通る。
+ * cronはpushの取りこぼしの保険として残す（追加のIMAPアカウントはcronだけ）。
  *
  * 1. 通知の種類「必要なメール」がオフなら何もしない（Codexを呼ばない。#488「止めるのは生成の手前」）
  * 2. AIDEから受信トレイの1ページ目を、既読位置（`User.mailCheckedAt`）の少し前以降で取る。持ち主の照合は `listMail()`
@@ -60,6 +62,8 @@ export type MailCheckResult = {
   delivered: number;
   partial: boolean;
   failedAccounts: string[];
+  /** 判定したうち、メインのアカウント（push通知の対象）のメールの件数。 */
+  judgedMain?: number;
   failure?: MailFailureKind;
   message?: string;
 };
@@ -67,6 +71,8 @@ export type MailCheckResult = {
 type CheckUser = { id: string; email: string | null; mailCriteria: string; mailCheckedAt: Date | null };
 
 const running = new Set<string>();
+/** 判定中にpush通知が重なった利用者。終わったらもう一度確かめる（#769）。 */
+const rerunRequested = new Set<string>();
 const lastManual = new Map<string, number>();
 
 function empty(status: MailCheckStatus, extra: Partial<MailCheckResult> = {}): MailCheckResult {
@@ -91,12 +97,25 @@ export async function checkMailForUser(user: CheckUser, now = new Date()): Promi
   if (running.has(user.id)) return empty("busy");
   running.add(user.id);
   try {
+    let result = await checkSafely(user, now);
+    // 判定中にpush通知（#769）が届いていたら、終わってからもう一度だけ確かめる（既読位置は進んでいるので読み直す）
+    while (rerunRequested.delete(user.id)) {
+      const fresh = await db.user.findUnique({ where: { id: user.id }, select: USER_SELECT });
+      if (!fresh) break;
+      result = await checkSafely(fresh, new Date());
+    }
+    return result;
+  } finally {
+    running.delete(user.id);
+  }
+}
+
+async function checkSafely(user: CheckUser, now: Date): Promise<MailCheckResult> {
+  try {
     return await check(user, now);
   } catch (error) {
     console.error(`[aide-bot] メールの確認に失敗した: ${user.id}`, error instanceof Error ? error.message : error);
     return empty("failed", { message: "メールの確認に失敗しました。" });
-  } finally {
-    running.delete(user.id);
   }
 }
 
@@ -218,7 +237,8 @@ async function check(user: CheckUser, now: Date): Promise<MailCheckResult> {
   }
 
   await advance(user.id, cursor, now, { partial, complete: decisions.size === items.length });
-  return { status: "checked", judged: rows.length, needed: needed.length, delivered, ...base };
+  const judgedMain = rows.filter((row) => isMainAccountMessage(row.messageId)).length;
+  return { status: "checked", judged: rows.length, judgedMain, needed: needed.length, delivered, ...base };
 }
 
 async function advance(userId: string, cursor: Date, now: Date, options: { partial: boolean; complete: boolean }) {
@@ -233,14 +253,64 @@ async function advance(userId: string, cursor: Date, now: Date, options: { parti
  * `listMail()` の照合で `not_owner` になり、何も起きない）。
  */
 export async function runMailChecks(now = new Date()): Promise<{ userId: string; result: MailCheckResult }[]> {
-  const userIds = await allowedUserIds(await usersWithSubscriptions());
-  if (userIds.length === 0) return [];
-  const users = await db.user.findMany({
-    where: { id: { in: userIds }, email: { not: null } },
-    select: { id: true, email: true, mailCriteria: true, mailCheckedAt: true },
-  });
+  const users = await checkTargets();
   const outcomes: { userId: string; result: MailCheckResult }[] = [];
   for (const user of users) {
+    const result = await checkMailForUser(user, now);
+    warnIfPushMissed(user.id, result);
+    outcomes.push({ userId: user.id, result });
+  }
+  return outcomes;
+}
+
+const USER_SELECT = { id: true, email: true, mailCriteria: true, mailCheckedAt: true } as const;
+
+/** 確認の対象: 通知を受け取れる端末があり、許可されている利用者。 */
+async function checkTargets(): Promise<CheckUser[]> {
+  const userIds = await allowedUserIds(await usersWithSubscriptions());
+  if (userIds.length === 0) return [];
+  return db.user.findMany({ where: { id: { in: userIds }, email: { not: null } }, select: USER_SELECT });
+}
+
+/** push通知を最後に受けた時刻（プロセス内。ログの手掛かりにだけ使う）。 */
+const lastPushAt = new Map<string, number>();
+
+/**
+ * **cronがメインのアカウントの新着を判定したら、pushで拾えていなかったということ**（#769）。pushが届いていれば
+ * その場で判定済みになり、cronの回には残らない。watchの期限切れ（7日）・かけ直しの失敗・Pub/Subの設定の不備で
+ * 黙って止まらないよう、push通知を設定している環境ではログに残す。再起動の直後や、判定の途中で止まった回にも出うる。
+ */
+function warnIfPushMissed(userId: string, result: MailCheckResult) {
+  if (!gmailPushConfigFrom(process.env)) return;
+  if (result.status !== "checked" || !result.judgedMain) return;
+  const last = lastPushAt.get(userId);
+  console.warn(
+    `[aide-bot] Gmailのpush通知で拾えなかった新着を定期確認で判定した: ${userId}（${result.judgedMain}通。` +
+      `最後のpush: ${last ? new Date(last).toISOString() : "このプロセスでは未受信"}）。watchの期限切れ・Pub/Subの設定を確かめる`,
+  );
+}
+
+/**
+ * メインのGmailのpush通知（#769）から。`emailAddress` と一致する利用者の判定を起こす。一致する利用者が
+ * いなければ対象の全員を見る（持ち主でない利用者は `listMail()` の照合で `not_owner` になり何も起きない）。
+ *
+ * 通知は1通の受信で複数届くことがあり、判定（Codex）の最中にも届く。**判定中（cron・「いま確認」の回を含む）に
+ * 届いた分は捨てずに、終わってからもう1回確かめる**（`checkMailForUser()` の中）——`busy` で落とすと、一覧を取った
+ * 後に届いたメールが次のcronまで待たされる。重なった通知は1回の確認にまとまる。
+ */
+export async function checkMailFromPush(emailAddress: string, now = new Date()) {
+  const targets = await checkTargets();
+  const address = emailAddress.trim().toLowerCase();
+  const matched = targets.filter((user) => (user.email ?? "").trim().toLowerCase() === address);
+  const users = matched.length > 0 ? matched : targets;
+  const outcomes: { userId: string; result: MailCheckResult }[] = [];
+  for (const user of users) {
+    lastPushAt.set(user.id, now.getTime());
+    if (running.has(user.id)) {
+      rerunRequested.add(user.id);
+      outcomes.push({ userId: user.id, result: empty("busy") });
+      continue;
+    }
     outcomes.push({ userId: user.id, result: await checkMailForUser(user, now) });
   }
   return outcomes;

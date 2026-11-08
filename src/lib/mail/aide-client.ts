@@ -40,7 +40,22 @@ function baseUrl(): string {
   return (process.env.AIDE_MAIL_API_URL || DEFAULT_BASE_URL).replace(/\/+$/, "");
 }
 
-async function call(path: string, init: RequestInit = {}): Promise<{ status: number; json: unknown } | MailOutcome<never>> {
+/** 断られた直後・届かなかった直後の、やり直しまでの待ち（#767）。 */
+const RETRY_DELAY_MS = 400;
+
+/**
+ * AIDEを1回呼ぶ。401・届かないときは1回だけやり直す（#767。連続操作の重なりで一時的に断られる）。
+ * 取り直しても二重に効かない呼び出し（読み取り・アーカイブ等）だけ `retry: true` で呼ぶ。
+ */
+async function call(path: string, init: RequestInit = {}, retry = true): Promise<{ status: number; json: unknown } | MailOutcome<never>> {
+  const first = await callOnce(path, init);
+  const transient = "ok" in first ? !first.ok && first.kind === "unreachable" : first.status === 401;
+  if (!retry || !transient) return first;
+  await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+  return callOnce(path, init);
+}
+
+async function callOnce(path: string, init: RequestInit = {}): Promise<{ status: number; json: unknown } | MailOutcome<never>> {
   const token = await sharedTokenOrEnv(TOKEN_NAME, process.env.AIDE_MAIL_API_TOKEN || undefined);
   if (!token) {
     console.error("[aide-bot] メールAPI: AIDE_MAIL_API_TOKEN を取れない（issue-deckの共有トークンが未登録か、接続設定が無い）");
@@ -128,6 +143,9 @@ export async function getMail(user: MailUser, id: string): Promise<MailOutcome<M
   return { ok: true, value: message };
 }
 
+/** 同じ操作を2回送っても結果が変わらないもの。一時的な断りの自動やり直しはこれだけ。 */
+const IDEMPOTENT_ACTIONS = new Set<MailAction>(["archive", "read", "unread"]);
+
 export async function applyMailAction(
   user: MailUser,
   input: { action: MailAction; ids: string[]; labelId: string | null },
@@ -142,7 +160,7 @@ export async function applyMailAction(
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ action: input.action, ids: input.ids, labelId: input.labelId }),
-  });
+  }, IDEMPOTENT_ACTIONS.has(input.action));
   if ("ok" in result) return result;
   if (result.status !== 200) return failureOf(result.status, result.json, `操作（${input.action}）`);
 

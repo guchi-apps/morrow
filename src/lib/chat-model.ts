@@ -60,9 +60,9 @@ export function modelDisplayName(id: string): string {
  * （`User.modelSettings`）へ持つ。用途を足したら `MODEL_USES`・`MODEL_USE_META`・`DEFAULT_MODELS`
  * の3つを揃える（型で漏れは落ちる）。
  */
-export type ModelUse = "topic" | "mail" | "mail_suggest" | "mail_summary";
+export type ModelUse = "topic" | "mail" | "mail_suggest";
 
-export const MODEL_USES: readonly ModelUse[] = ["topic", "mail", "mail_suggest", "mail_summary"];
+export const MODEL_USES: readonly ModelUse[] = ["topic", "mail", "mail_suggest"];
 
 export type ModelUseGroup = "background";
 
@@ -73,8 +73,7 @@ export const MODEL_USE_GROUP_LABELS: Record<ModelUseGroup, string> = {
 export const MODEL_USE_META: Record<ModelUse, { group: ModelUseGroup; label: string; hint: string }> = {
   topic: { group: "background", label: "ニュースの仕入れ", hint: "ウェブ検索でニュース収集（重い）" },
   mail: { group: "background", label: "メールの判定", hint: "新着メールが必要かを判定（#683）" },
-  mail_suggest: { group: "background", label: "メールの提案", hint: "開いたメールから処理の候補を推論（#689）" },
-  mail_summary: { group: "background", label: "メールの要約", hint: "開いたメールの本文を要約（#717）" },
+  mail_suggest: { group: "background", label: "メールの分析", hint: "開いたメールの要約と処理の候補を推論（#689・#766）" },
 };
 
 /**
@@ -86,7 +85,6 @@ export const DEFAULT_MODELS: Record<ModelUse, ChatModelId> = {
   topic: "gpt-6-luna",
   mail: "gpt-6-luna",
   mail_suggest: "gpt-6-sol",
-  mail_summary: "gpt-6-luna",
 };
 
 export function isChatModelId(value: unknown): value is ChatModelId {

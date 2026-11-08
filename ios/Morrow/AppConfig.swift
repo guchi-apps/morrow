@@ -39,6 +39,30 @@ enum AppConfig {
         externalSchemes.contains(url.scheme?.lowercased() ?? "")
     }
 
+    /// Asset Managerのホスト・スキーム（#744）。アプリ側の `AppConfig.baseURL`・`authCallbackScheme`
+    /// （guchi-apps/asset-manager の `ios/AssetManager/AppConfig.swift`）と揃えること。別リポジトリなので自動照合はできない
+    static let assetManagerHost = "asset.gucchii.com"
+    static let assetManagerScheme = "assetmanager"
+
+    /// `https://asset.gucchii.com/…` を Asset Manager のiOSアプリへ渡す `assetmanager://open?path=<パス>` へ変える。
+    /// 独自スキームを `externalSchemes` へ広げず、ホスト完全一致のhttpsだけをここで組み立てる。
+    /// パスは `/` 始まり・`//`・`/\\`始まりでない・制御文字なしだけ通す（それ以外は nil＝従来どおりSafari）
+    static func assetManagerAppURL(for url: URL) -> URL? {
+        guard url.scheme?.lowercased() == "https", url.host?.lowercased() == assetManagerHost, url.port == nil,
+              let parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let path = parts.percentEncodedPath + (parts.percentEncodedQuery.map { "?" + $0 } ?? "")
+        guard path.hasPrefix("/"), !path.hasPrefix("//"), !path.hasPrefix("/\\"),
+              !path.unicodeScalars.contains(where: { $0.value <= 0x20 || $0.value == 0x7f }) else { return nil }
+        var out = URLComponents()
+        out.scheme = assetManagerScheme
+        out.host = "open"
+        // `?`・`&`・`=` も含めて丸ごとエンコードする（受け側は `path` の値を1回だけデコードする）
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~/")
+        guard let encoded = (path.removingPercentEncoding ?? path).addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+        out.percentEncodedQuery = "path=" + encoded
+        return out.url
+    }
+
     /// このURLがアプリで開くべきWeb版の画面か（ホスト・スキーム・ポートまで一致）。
     /// 一致しないURLはWebViewへ読み込まず、Safari等で開く
     static func isAppURL(_ url: URL) -> Bool {

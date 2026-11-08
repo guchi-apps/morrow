@@ -154,11 +154,11 @@ describe("メールのアカウント", () => {
     assert.equal(spansMailAccounts(["abc", "def"]), false);
   });
 
-  it("色は鍵だけで決まり、main は灰で固定・同じ鍵は常に同じ", () => {
-    assert.equal(mailAccountTone("main"), "gray");
-    assert.equal(mailAccountTone("sub"), mailAccountTone("sub"));
-    assert.notEqual(mailAccountTone("sub"), "gray");
-    assert.notEqual(mailAccountTone("formal"), "gray");
+  it("色は鍵だけで決まり、main＝オレンジ・sub＝灰・formal＝青で固定・同じ鍵は常に同じ", () => {
+    assert.equal(mailAccountTone("main"), "rose");
+    assert.equal(mailAccountTone("sub"), "gray");
+    assert.equal(mailAccountTone("formal"), "blue");
+    assert.equal(mailAccountTone("other"), mailAccountTone("other"));
   });
 
   it("行からアカウントを推定する（main を先頭、鍵順）。接頭辞の無い行は無視する", () => {
