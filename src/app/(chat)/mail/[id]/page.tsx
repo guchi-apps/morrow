@@ -3,6 +3,7 @@ import { Suspense } from "react";
 
 import { MailBackLink } from "@/components/mail/mail-back-link";
 import { MailBody } from "@/components/mail/mail-body";
+import { MailSuggest } from "@/components/mail/mail-suggest";
 import { MailDetailActions } from "@/components/mail/mail-detail-actions";
 import { mailFullTime, sizeLabel } from "@/components/mail/mail-format";
 import { getCurrentUser } from "@/lib/auth-user";
@@ -86,6 +87,8 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
                     <MailDetailActions {...actions} labels={[]} />
                   );
                 })()}
+
+                <MailSuggest id={message.id} />
 
                 {triage && (
                   <p className="rounded-[10px] bg-accent-surface px-3 py-2.5 text-xs leading-relaxed">
