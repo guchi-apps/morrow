@@ -22,6 +22,7 @@ export type UsageFeature =
   | "mail"
   | "mail_suggest"
   | "mail_summary"
+  | "mail_chat"
   | "hermes_chat";
 
 /** 使用量APIに出す機能名（ops-dashboardの画面にそのまま載る）。 */
@@ -37,6 +38,7 @@ export const USAGE_FEATURE_LABELS: Record<UsageFeature, string> = {
   mail: "メールの判定",
   mail_suggest: "メールの分析（要約・提案）",
   mail_summary: "メールの要約（#766で分析へ統合する前の記録）",
+  mail_chat: "メールへの指示",
   hermes_chat: "Hermesのチャット",
 };
 
