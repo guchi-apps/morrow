@@ -808,6 +808,17 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
   `/api/mail/messages/<id>`・`/api/mail/actions` に答えるだけ）を立てて `.env.local` の `AIDE_MAIL_API_URL`・`AIDE_MAIL_API_TOKEN` を向け、
   `CODEX_BIN` も判定のJSON配列を返すスタブにして確かめる。「いま確認」の前に `User.mailCheckedAt` を少し戻すと新着として拾われる
 
+### メール通知の学習——印から傾向を読み取る（#833）
+
+基準をまとめて書く代わりに、メール本文の画面の帯（「お知らせ済み」「お知らせしていません」）で「今後このようなメールを［知らせる｜知らせない］」を押して学習させる（`mail-feedback.tsx`・`POST /api/mail/feedback`）。
+
+- **押すたびにCodex（用途「メールの判定」と同じモデル・機能 `mail_learn`）が、押したメールの差出人・件名・冒頭（snippet）と今の傾向一覧から、傾向の文を足す・直す・まとめる**（`learn-core.ts`・`learn.ts`・`test/mail-learn.test.ts`）。**残すのは傾向の文（`User.mailLearnedRules`。最大20件・1件80字）だけで、件名・本文は保存しない**（計画への指摘で「丸ごと記録する案」を採らなかった）。押した印は帯に出すため `MailFeedback`（メッセージIDと向きだけ）に残す
+- 傾向は判定のプロンプト（`buildTriagePrompt()` の第3引数）へ、書いた基準の後に「基準より具体的なので従う」として並べる。**DBから読んだ値も `normalizeLearnedRules()` を通してから入れる**（画面の削除・取り消しで送られた値も同じ）
+- 返答の一覧が空・読めない回は一覧を変えない（1回の印で全部を失わない）
+- Codexは分析・指示と同じ排他（`codex-lock.ts` の `learn`）。**メールを開くとAI分析が自動で走るので、開いた直後に押すと429**（「分析が終わるまで待って」）
+- 「取り消す」は `DELETE /api/mail/feedback` に押す前の一覧（`POST` の応答の `previous`）を送り返して戻す。一覧の削除は `PUT /api/mail/learned-rules`（残りを送る）
+- 帯は判定していない・不要と判定したメールにも出す（`mailTriageFor()`）
+
 ### メール詳細の操作と要約（#717）
 
 - **本文の画面の操作は「既読／未読に戻す」と「アーカイブ（アーカイブ済みなら受信トレイへ戻す）」だけ**（`mail-detail-actions.tsx`）。スター・ラベル・ゴミ箱は使わないので出さない。サーバー側の `star`／`label-*`／`trash`（`aide-client`・`/api/mail/actions`・契約）は一覧が使うので残してある。ラベル名のための一覧取得も詳細からは外した（「処理済み」ラベルの自動付与〔#689〕はサーバー側で一覧を引くので残る）

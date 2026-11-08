@@ -156,6 +156,19 @@ async function main() {
 
   console.log(`[aide-bot] バイパス用ユーザーをupsertしました: id=${user.id} name=${user.name}`);
 
+  // メール通知の学習（#833）で学んだ傾向。画面の「学習した傾向」の一覧を確かめるため。未学習（null）のときだけ入れる
+  if (user.mailLearnedRules === null) {
+    await db.user.update({
+      where: { id: user.id },
+      data: {
+        mailLearnedRules: [
+          { text: "予約済みの列車・きっぷの出発前案内（変更・運休は知らせる）", notify: false, at: "2026-11-01" },
+          { text: "カードの利用代金の確定・引き落としの案内", notify: true, at: "2026-11-02" },
+        ],
+      },
+    });
+  }
+
   // 使用量の記録（#133）。**これが無いと、使用量の画面の従量課金の節が「今日ぶん1件」だけになり、
   // 日別のグラフも表も空に近い状態でしか確かめられない。**
   //
