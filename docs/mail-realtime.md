@@ -75,9 +75,9 @@ IMAPの `IDLE` で接続を張り続け、新着が来たらサーバーから�
 
 ### Morrowの外に残っている作業
 
-- **GCP（GmailのOAuthクライアントのプロジェクト）での設定**（人の作業）: Pub/Subのトピック作成と `gmail-api-push@system.gserviceaccount.com` への発行権限、
+- ~~**GCP（GmailのOAuthクライアントのプロジェクト）での設定**~~（済み。#778）: Pub/Subのトピック作成と `gmail-api-push@system.gserviceaccount.com` への発行権限、
   pushサブスクリプション（エンドポイント `https://aide-bot.gucchii.com/api/mail/push`・認証を有効にしてpush用のサービスアカウントとオーディエンスを指定）
-- **`GMAIL_PUSH_SERVICE_ACCOUNT` を本番の `.env` へ届ける**（`deploy.yml` の「Send environment variables」。秘密ではないので平文でよい）
+- ~~**`GMAIL_PUSH_SERVICE_ACCOUNT` を本番の `.env` へ届ける**~~（済み。#826。`deploy.yml` の「Send environment variables」に平文で持つ。秘密ではない）
 - **AIDEの `users.watch`（受信トレイ）と毎日のかけ直し・失敗のログ**（guchi-apps/aide側）
 
 手元では、`.env.local` に `GMAIL_PUSH_SERVICE_ACCOUNT` を入れて自前の鍵で署名したトークンを送ると、実際のGoogleの公開鍵を取りに行って `unknown_key` で401になる（ログに理由が出る）。

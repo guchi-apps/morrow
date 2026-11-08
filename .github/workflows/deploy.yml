@@ -323,6 +323,9 @@ jobs:
             # Hermesブリッジの宛先（#737）。空だとチャット（#728）は「接続の設定に問題があります」で止まる。
             # トークン MORROW_HERMES_BRIDGE_TOKEN は共有トークンAPIから実行時に取るので配らない。
             printf '%s\n' "HERMES_BRIDGE_URL=${HERMES_BRIDGE_URL}"
+            # Gmailのpush通知（#769・#778）。Pub/Subのpush用サービスアカウントのメール（秘密ではない）。
+            # 空だと /api/mail/push は401で閉じたままになる。
+            printf '%s\n' "GMAIL_PUSH_SERVICE_ACCOUNT=gmail-push-invoker@aide-app-507801.iam.gserviceaccount.com"
           } | ssh -p "${SSH_PORT}" "${USERNAME}@${HOST}" env
 
       - name: Deploy and restart
