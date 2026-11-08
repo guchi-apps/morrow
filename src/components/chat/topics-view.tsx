@@ -14,13 +14,13 @@ type Props = {
   now: Date;
   /** 前回この画面を開いた時刻（#418）。nullは初回で、全件を既読として出す。 */
   seenAt: Date | null;
-  /** 通知する時間（定時のお知らせ。#344）。設定画面から話題画面へ移した（#418）。 */
+  /** 通知する時間（定時のお知らせ。#344）。設定画面からニュース画面へ移した（#418）。 */
   schedules: ScheduleRow[];
   hasDevice: boolean;
 };
 
 /**
- * 仕入れた話題の一覧（#144）。
+ * 仕入れたニュースの一覧（#144）。
  *
  * `/notices` と同じくサーバーコンポーネントのまま置き、テーマ別タブ・種類を選ぶ部品だけを
  * クライアントにする（#404）。並べる順は新しい順。まずニュースをまとめて読めるようにし、
@@ -36,7 +36,7 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
       <div className="mx-auto flex w-full max-w-[900px] flex-col gap-4 px-3.5 py-4 md:gap-5 md:px-7 md:py-6">
         <TopicSeenMarker renderedAt={now.toISOString()} />
         <div className="flex items-baseline justify-between gap-3">
-          <h2 className="text-base font-bold tracking-tight">いまの話題</h2>
+          <h2 className="text-base font-bold tracking-tight">いまのニュース</h2>
           <span className="text-[0.6875rem] text-muted">
             {lastFetchedAt
               ? `最終取得 ${jstTimeLabel(lastFetchedAt)}（${elapsedLabel(lastFetchedAt, now)}）`
@@ -80,7 +80,7 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
           <p className="rounded-xl border border-border bg-surface px-4 py-3 text-xs leading-relaxed text-muted">
             {enabledCategories.length === 0
               ? "仕入れを止めています。下の種類を1つ以上チェックしてから「最近の記事を取得する」を押してください。"
-              : "まだ話題がありません。「最近の記事を取得する」を押すと仕入れが始まり、30秒ほどで並びます。"}
+              : "まだニュースがありません。「最近の記事を取得する」を押すと仕入れが始まり、30秒ほどで並びます。"}
           </p>
         ) : (
           <TopicTabs categories={categories} allTopics={topics} byCategory={byCategory} mergedCount={mergedCount} seenAt={seenAt} now={now} />
@@ -115,7 +115,7 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
 
         <p className="text-[0.6875rem] leading-relaxed text-muted">
           <b className="font-medium text-foreground">
-            話題はお知らせとは別の場所に溜まり、通知（Push）は上の「通知する時間」に設定した時刻にだけ届きます。
+            ニュースはお知らせとは別の場所に溜まり、通知（Push）は上の「通知する時間」に設定した時刻にだけ届きます。
           </b>
           ダッシュボードに出るのは新しい{bubbleLimit}件だけで、{lifetimeHours}時間経つと入れ替わります。要点と一言はモデルが
           記事から書いたもので、細部は出典の記事で確かめてください。

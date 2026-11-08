@@ -9,10 +9,10 @@ import { topicBoard } from "@/lib/topics";
 // 仕入れるたびに変わるので、ビルド時の値を配らない。
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "話題" };
+export const metadata = { title: "ニュース" };
 
 /**
- * 仕入れた話題の一覧（#144）。ログイン中の本人ぶんだけを出す。
+ * 仕入れたニュースの一覧（#144）。ログイン中の本人ぶんだけを出す。
  *
  * **この画面は取り出すだけで、仕入れは走らせない。** 仕入れの起点は「最近の記事を取得する」ボタンと定時のお知らせの直前だけ（#660）で、
  * この画面を開いただけでは27秒の検索は始まらない。

@@ -15,7 +15,7 @@ import type { TopicCategory } from "@/lib/topic-categories";
 import { cn } from "@/lib/utils";
 
 /**
- * 定時のお知らせ（#344）。曜日・時刻（30分刻み）・話題の種類を指定して、溜めてある話題を通知で届ける。
+ * 定時のお知らせ（#344）。曜日・時刻（30分刻み）・ニュースの種類を指定して、溜めてあるニュースを通知で届ける。
  * 読むのはcronの経路なのでDBに保存する。通知の購読（上の「お知らせ」）が前提。
  */
 
@@ -31,7 +31,7 @@ export type ScheduleRow = {
 /** 選べる種類。削除された種類を指したままの行は、その行にだけ「（削除された種類）」を足す。 */
 function categoryOptions(categories: TopicCategory[], current: string): { value: string; label: string }[] {
   const options = [
-    { value: SCHEDULED_PUSH_ALL, label: "すべての話題" },
+    { value: SCHEDULED_PUSH_ALL, label: "すべてのニュース" },
     ...categories.map((category) => ({ value: category.id, label: category.label })),
   ];
   if (!options.some((option) => option.value === current)) options.push({ value: current, label: "（削除された種類）" });
@@ -78,7 +78,7 @@ export function ScheduledPushSettingsCard({ initial, hasDevice, categories }: Pr
   }
 
   async function add() {
-    // 初期値は「平日の朝7:00・すべての話題」。作ってから画面で直す。
+    // 初期値は「平日の朝7:00・すべてのニュース」。作ってから画面で直す。
     const response = await call("POST", { days: [1, 2, 3, 4, 5], hour: 7, minute: 0, category: SCHEDULED_PUSH_ALL });
     if (!response) return;
     const { schedule } = (await response.json()) as { schedule: ScheduleRow };
@@ -124,8 +124,8 @@ export function ScheduledPushSettingsCard({ initial, hasDevice, categories }: Pr
       <header>
         <h3 className="text-sm font-medium">定時のお知らせ</h3>
         <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-muted">
-          決めた曜日・時刻に、溜めてある話題（ニュース）の見出しを通知でお届けします。話題は「話題」ページで
-          選んだ種類から仕入れたものを使い、24時間より古いものは送りません。届ける話題が無い日は通知しません。
+          決めた曜日・時刻に、溜めてあるニュースの見出しを通知でお届けします。ニュースは「ニュース」ページで
+          選んだ種類から仕入れたものを使い、24時間より古いものは送りません。届けるニュースが無い日は通知しません。
         </p>
       </header>
 
@@ -202,7 +202,7 @@ export function ScheduledPushSettingsCard({ initial, hasDevice, categories }: Pr
                   ))}
                 </select>
                 <select
-                  aria-label="話題の種類"
+                  aria-label="ニュースの種類"
                   className={selectClass}
                   disabled={busy}
                   value={row.category}

@@ -38,12 +38,12 @@ import { cn } from "@/lib/utils";
  * 今日のダッシュボード（#573）。トップ（`/`）に出す。**見るだけの画面で、操作は置かない。**
  *
  * サーバーコンポーネントのまま置く。天気・予定はAIDEへ取りに行く
- * ので `Suspense` で後から流し、DBだけで出せるもの（話題）を先に描く。
+ * ので `Suspense` で後から流し、DBだけで出せるもの（ニュース）を先に描く。
  *
- * 並びは、スマホ（1列）で上から「天気 → 予定 → 話題」。PC・iPad
- * （lg以上）は左に天気・話題、右に予定の2列。
+ * 並びは、スマホ（1列）で上から「天気 → 予定 → ニュース」。PC・iPad
+ * （lg以上）は左に天気・ニュース、右に予定の2列。
  *
- * 左右のスワイプ（`DaySwipe`）・見出しの ‹ › で前後の日へめくる（#606。`?d=`）。今日以外の日は、天気・予定だけを出す。話題・現在地の天気は「いま」の
+ * 左右のスワイプ（`DaySwipe`）・見出しの ‹ › で前後の日へめくる（#606。`?d=`）。今日以外の日は、天気・予定だけを出す。ニュース・現在地の天気は「いま」の
  * 状態なので今日だけ。
  */
 
@@ -918,13 +918,13 @@ function ScheduleOk({ schedule, now, offset }: { schedule: Extract<ScheduleView,
   );
 }
 
-/* ---------------- 話題 ---------------- */
+/* ---------------- ニュース ---------------- */
 
 function TopicCard({ topics }: { topics: DashboardTopic[] }) {
   return (
-    <Card title="話題" link={{ href: "/topics", label: "一覧へ" }}>
+    <Card title="ニュース" link={{ href: "/topics", label: "一覧へ" }}>
       {topics.length === 0 ? (
-        <Empty>いま溜まっている話題はありません。</Empty>
+        <Empty>いま溜まっているニュースはありません。</Empty>
       ) : (
         <ul className="flex flex-col">
           {topics.map((topic) => (

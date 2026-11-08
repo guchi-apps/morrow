@@ -11,13 +11,13 @@ type Props = {
   isDashboardActive: boolean;
   /** 設定の画面を開いているか（#46）。 */
   isSettingsActive: boolean;
-  /** 話題の画面を開いているか（#144）。 */
+  /** ニュースの画面を開いているか（#144）。 */
   isTopicsActive: boolean;
   /** メールの画面を開いているか（#683）。 */
   isMailActive: boolean;
   /** モデルの画面を開いているか（#349）。 */
   isModelsActive: boolean;
-  /** 溜まっている話題の件数（#144）。0のときは数字を出さない。 */
+  /** 溜まっているニュースの件数（#144）。0のときは数字を出さない。 */
   topicCount: number;
   userLabel: string;
   userEmail: string | null;
@@ -75,7 +75,7 @@ export function ConversationRail({
           メール
         </Link>
 
-        {/* 仕入れた話題（#144）。お知らせとは別の受け皿で、数字は「未読」ではなく溜まっている件数。
+        {/* 仕入れたニュース（#144）。お知らせとは別の受け皿で、数字は「未読」ではなく溜まっている件数。
             用件ではないので、お知らせと違って数字を強調しない。 */}
         <Link
           href="/topics"
@@ -88,7 +88,7 @@ export function ConversationRail({
         >
           <span className="flex items-center gap-1.5">
             <Newspaper className="size-3.5 text-muted" aria-hidden="true" />
-            話題
+            ニュース
           </span>
           {topicCount > 0 && <span className="tabular-nums text-xs font-medium text-muted">{topicCount}件</span>}
         </Link>

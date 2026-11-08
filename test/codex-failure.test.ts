@@ -36,7 +36,7 @@ describe("throwIfCodexFailed", () => {
 
   it("エラーで終わった回は、Codexの文言をそのまま投げる", () => {
     assert.throws(
-      () => throwIfCodexFailed({ ...ok, errorMessage: "起動に失敗しました" }, "話題の仕入れ", 150_000),
+      () => throwIfCodexFailed({ ...ok, errorMessage: "起動に失敗しました" }, "ニュースの仕入れ", 150_000),
       { message: "起動に失敗しました" },
     );
   });
