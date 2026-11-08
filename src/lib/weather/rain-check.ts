@@ -362,6 +362,30 @@ export function pickMunicipality(
   return null;
 }
 
+/**
+ * 天気ページの地名検索（#695）。住所検索の候補から、市町村の題（「新潟県三条市」）だけを候補として返す。
+ * 都道府県は区別のため題のまま添え（`title`）、保存・表示の名前は都道府県を除いた市町村名（`name`）。
+ * 同じ地点（小数2桁）は1つにまとめ、最大 `limit` 件。地名が市町村に当たらなければ空（見当違いを出さない）。
+ */
+export type MunicipalityCandidate = Coordinates & { name: string; title: string };
+
+export function municipalityCandidates(query: string, candidates: GsiCandidate[], limit = 6): MunicipalityCandidate[] {
+  const text = query.trim();
+  if (!text) return [];
+  const seen = new Set<string>();
+  const found: MunicipalityCandidate[] = [];
+  for (const candidate of candidates) {
+    const name = withoutPrefecture(candidate.title);
+    if (name === candidate.title || !MUNICIPALITY_SUFFIX.test(name) || !name.includes(text.replace(/[市町村区]$/, ""))) continue;
+    const key = `${roundCoordinate(candidate.latitude)},${roundCoordinate(candidate.longitude)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    found.push({ name, title: candidate.title, latitude: candidate.latitude, longitude: candidate.longitude });
+    if (found.length >= limit) break;
+  }
+  return found;
+}
+
 /** 予定の地名から、検索に使う部分を取り出す（「自宅 大阪府高槻市…」→「大阪府高槻市…」）。 */
 export function searchTextOf(placeText: string): string {
   return placeText.replace(new RegExp(`^${HOME_PREFIX}\\s*`), "").trim();
