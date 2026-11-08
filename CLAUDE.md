@@ -703,6 +703,18 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
   `/api/mail/messages/<id>`・`/api/mail/actions` に答えるだけ）を立てて `.env.local` の `AIDE_MAIL_API_URL`・`AIDE_MAIL_API_TOKEN` を向け、
   `CODEX_BIN` も判定のJSON配列を返すスタブにして確かめる。「いま確認」の前に `User.mailCheckedAt` を少し戻すと新着として拾われる
 
+### メールの提案——AIが処理を推論して他アプリへ流す（#689）
+
+メール本文の画面の「このメールをどうする？」で、本文をCodex（用途「メールの提案」・機能 `mail_suggest`）に読ませ、おすすめと候補（家計簿・タスク・予定。最大3件）を出す。
+実行はカードごとに利用者が押したときだけ（自動実行しない）。純粋な部分は `src/lib/mail/suggest-core.ts`（`test/mail-suggest.test.ts`）、サーバーは `suggest.ts`、口は `POST /api/mail/flow/suggest`・`/apply`。
+
+- **本文全体をCodexへ渡す**（新着確認は件名・差出人・冒頭だけ）。押したメールだけ・6千字まで・何も保存しない。本文はデータとして読ませ、返答は固定の形で検証する
+- **値は承認後にサーバーで検証し直す**（`normalizeSuggestion()`）。読み取れない金額・日付はnullのまま画面で空欄＋「要確認」にし、**推測で埋めない**
+- **書き込みは `callWriteToolJson()`（`direct-call.ts`）の許可リスト3本だけ**（`aide_create_task`・`aide_create_event`・`asset_manager_import_payment`）。`callToolJson()` の書き込み拒否は変えていない。**道具を足すときはこのリストと `suggest-core.ts` の検証を揃える**
+- 実行の前に `getMail()` で持ち主を照合する。タスクは同じメール・同じ内容なら同じ `idempotencyKey`、家計簿は `gmailMessageId` で二重取り込みが `duplicate` になる
+- 流した後、利用者が作った「処理済み」ラベルがあれば付ける（`DONE_LABEL_NAME`。自動作成しない）
+- 給与明細→給与台帳（`asset_manager_salary_*`）は入れていない（プレビュー→承認の2段階のため別Issue）
+
 ## 通知の種類ごとのオン・オフとテスト送信（#488）
 
 **端末の登録（Web Push購読・APNs）とは別に、利用者単位で「どの種類の通知を受け取るか」を持つ。**

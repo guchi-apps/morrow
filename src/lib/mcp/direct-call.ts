@@ -83,6 +83,28 @@ export async function callToolJson(
   if (findPreset(server.url)?.writeTools.includes(tool)) {
     throw new McpCallError(`${tool} は書き込みの道具なので、ここからは呼びません`);
   }
+  return callTool(server, tool, args);
+}
+
+/**
+ * 利用者が画面で承認した書き込みだけを通す、名指しの許可リスト（#689。メールの提案の実行）。
+ * `callToolJson()` の「書き込みは断る」は変えず、ここに挙げた3本だけを呼べる別の入口にしてある。
+ */
+export const MAIL_FLOW_WRITE_TOOLS = ["aide_create_task", "aide_create_event", "asset_manager_import_payment"] as const;
+export type MailFlowWriteTool = (typeof MAIL_FLOW_WRITE_TOOLS)[number];
+
+export async function callWriteToolJson(
+  server: ConnectedServer,
+  tool: MailFlowWriteTool,
+  args: Record<string, unknown>,
+): Promise<ToolJson> {
+  if (!(MAIL_FLOW_WRITE_TOOLS as readonly string[]).includes(tool)) {
+    throw new McpCallError(`${tool} は許可していない書き込みの道具です`);
+  }
+  return callTool(server, tool, args);
+}
+
+async function callTool(server: ConnectedServer, tool: string, args: Record<string, unknown>): Promise<ToolJson> {
 
   const init = await post(server, null, {
     jsonrpc: "2.0",
