@@ -1,3 +1,4 @@
+import { cachedMailList, invalidateMailList, mailListKey } from "@/lib/mail/list-cache";
 import { forgetSharedToken, sharedTokenOrEnv } from "@/lib/shared-token";
 
 import {
@@ -131,6 +132,17 @@ export async function listMail(user: MailUser, query: MailListQuery = {}): Promi
   return { ok: true, value: page };
 }
 
+/**
+ * 画面（`/mail`）用の一覧。短期キャッシュを通す（#823。`list-cache.ts`）。
+ * 新着確認・チャット文脈など、最新が要る経路は `listMail()` を直接呼ぶ。持ち主の照合は取得時（`listMail()`）に済んでいる。
+ */
+export async function listMailCached(user: MailUser, query: MailListQuery = {}): Promise<MailOutcome<MailListPage>> {
+  const key = mailListKey(user.id, user.email, JSON.stringify([query.view ?? "inbox", query.labelId ?? null, query.account ?? null, query.q ?? "", query.pageToken ?? null]));
+  return cachedMailList(user.id, key, () => listMail(user, query));
+}
+
+export { invalidateMailList };
+
 export async function getMail(user: MailUser, id: string): Promise<MailOutcome<MailMessageResult>> {
   const result = await call(`/api/mail/messages/${encodeURIComponent(id)}`);
   if ("ok" in result) return result;
@@ -172,5 +184,6 @@ export async function applyMailAction(
     return { ok: false, kind: "not_owner", message: "操作の応答の持ち主が一致しませんでした。変更が行われた可能性があります。" };
   }
 
+  invalidateMailList(user.id);
   return { ok: true, value: done };
 }
