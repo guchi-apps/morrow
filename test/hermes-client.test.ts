@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, describe, it } from "node:test";
 
-import { classifyFailure, createHermesClient, HermesError } from "@/lib/hermes/client-core";
+import { classifyFailure, createHermesClient, HermesError, parseHistoryBody } from "@/lib/hermes/client-core";
 import { parseSseBlock, readBridgeEvents } from "@/lib/hermes/sse";
 import { hermesUsageToApiUsage } from "@/lib/hermes/usage";
 import { USAGE_FEATURE_LABELS } from "@/lib/usage-feature";
@@ -144,5 +144,47 @@ describe("使用量の写し（#725の対応表）", () => {
 
   it("機能名 hermes_chat が使用量APIの表に載る", () => {
     assert.ok(Object.hasOwn(USAGE_FEATURE_LABELS, "hermes_chat"));
+  });
+});
+
+describe("履歴の応答の検証（#752）", () => {
+  const ok = {
+    sessionId: "s1",
+    title: null,
+    hasMore: true,
+    messages: [
+      { role: "user", text: "やあ", at: 1 },
+      { role: "assistant", text: "", at: null, tools: ["aide_schedule"], extra: "捨てる" },
+    ],
+  };
+
+  it("知っている項目だけで組み直す", () => {
+    assert.deepEqual(parseHistoryBody(ok, "s1"), {
+      sessionId: "s1",
+      title: null,
+      hasMore: true,
+      messages: [
+        { role: "user", text: "やあ", at: 1 },
+        { role: "assistant", text: "", at: null, tools: ["aide_schedule"] },
+      ],
+    });
+  });
+
+  it("1件でも形が違えば応答全体を不正とする・別のセッションの応答は受け取らない", () => {
+    assert.equal(parseHistoryBody({ ...ok, sessionId: "s2" }, "s1"), null);
+    assert.equal(parseHistoryBody({ ...ok, hasMore: "yes" }, "s1"), null);
+    assert.equal(parseHistoryBody({ ...ok, messages: [{ role: "tool", text: "x", at: 1 }] }, "s1"), null);
+    assert.equal(parseHistoryBody({ ...ok, messages: [{ role: "user", text: "x", at: "1" }] }, "s1"), null);
+    assert.equal(parseHistoryBody({ ...ok, messages: [{ role: "user", text: "x", at: 1, tools: [1] }] }, "s1"), null);
+    assert.equal(parseHistoryBody(null, "s1"), null);
+  });
+
+  it("形が違う200は bad_response、404の no_session はそのまま", async () => {
+    const respond = (status: number, body: unknown): typeof fetch => async () =>
+      new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+    const bad = createHermesClient({ baseUrl: "http://x", token: "t", fetchImpl: respond(200, { messages: "x" }) });
+    await assert.rejects(bad.history("s1"), (error: unknown) => error instanceof HermesError && error.kind === "bad_response");
+    const missing = createHermesClient({ baseUrl: "http://x", token: "t", fetchImpl: respond(404, { error: "no_session" }) });
+    await assert.rejects(missing.history("s1"), (error: unknown) => error instanceof HermesError && error.kind === "no_session");
   });
 });

@@ -276,6 +276,7 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
 - **Hermesへ直接繋がない。** tailscale serveはHostヘッダーを書き換えず、ループバックにバインドしたHermesはHost違いを400で弾く（2026-11-08実測）。またHermesのトークンは設定の書き換えまでできる管理者権限なので、VPSへ置かない
 - 認証は共有トークン `MORROW_HERMES_BRIDGE_TOKEN`（正は1Password・Morrowはissue-deckの共有トークンから）＋送信元のtailnet IPの照合。ブラウザへは何も渡さない
 - 「届かない」「Hermesが落ちている」「会話が無い」を分けて出す（#214）。送れなかった指示は溜めずに入力欄へ戻す
+- **履歴（#752）はブリッジの `GET /sessions/<id>/messages` とMorrowの `hermesClient().history()` まで。画面への表示は未実装**（#728は実装せずにクローズ）。`source` が `morrow` のセッションだけを、発言者・本文・時刻・道具の名前に絞って返す（`api_content`・推論・道具の引数と結果は返さない）。Morrowは保存しない。詳細は `docs/hermes-route.md`「会話の履歴」
 
 ### Hermesに任せる操作の範囲と承認（#727。設計のみ・未実装）
 

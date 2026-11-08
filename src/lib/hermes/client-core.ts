@@ -1,8 +1,12 @@
 import {
   CONNECT_TIMEOUT_MS,
+  HISTORY_DEFAULT_LIMIT,
+  HISTORY_MAX_LIMIT,
   type ApprovalChoice,
   type BridgeEvent,
   type HealthBody,
+  type HistoryBody,
+  type HistoryMessage,
   type TurnRequestBody,
 } from "./contract.ts";
 import { readBridgeEvents } from "./sse.ts";
@@ -83,6 +87,37 @@ async function failureOf(response: Response): Promise<HermesError> {
   return classifyFailure(response.status, reason);
 }
 
+function isHistoryMessage(value: unknown): value is HistoryMessage {
+  if (typeof value !== "object" || value === null) return false;
+  const message = value as Record<string, unknown>;
+  if (message.role !== "user" && message.role !== "assistant") return false;
+  if (typeof message.text !== "string") return false;
+  if (message.at !== null && (typeof message.at !== "number" || !Number.isFinite(message.at))) return false;
+  if (message.tools !== undefined && (!Array.isArray(message.tools) || !message.tools.every((tool) => typeof tool === "string"))) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * 履歴の応答の形を確かめ、知っている項目だけで組み直す（ブリッジが項目を増やしても画面へ素通しにしない）。
+ * 1件でも形が違えば null（応答全体を `bad_response` にする）。
+ */
+export function parseHistoryBody(body: unknown, sessionId: string): HistoryBody | null {
+  if (typeof body !== "object" || body === null) return null;
+  const value = body as Record<string, unknown>;
+  if (value.sessionId !== sessionId) return null;
+  if (value.title !== null && typeof value.title !== "string") return null;
+  if (typeof value.hasMore !== "boolean" || !Array.isArray(value.messages)) return null;
+  if (!value.messages.every(isHistoryMessage)) return null;
+  return {
+    sessionId,
+    title: value.title,
+    hasMore: value.hasMore,
+    messages: value.messages.map(({ role, text, at, tools }) => ({ role, text, at, ...(tools ? { tools: [...tools] } : {}) })),
+  };
+}
+
 export function createHermesClient(config: HermesClientConfig) {
   const doFetch = config.fetchImpl ?? fetch;
   const connectTimeoutMs = config.connectTimeoutMs ?? CONNECT_TIMEOUT_MS;
@@ -142,6 +177,22 @@ export function createHermesClient(config: HermesClientConfig) {
       if (!response.ok) throw await failureOf(response);
       if (!response.body) throw new HermesError("bad_response", "ブリッジの応答に本文が無い");
       return readBridgeEvents(response.body);
+    },
+
+    /**
+     * 会話の履歴（#752）。直近 `limit` 件（既定50・上限100）を古い順で返す。**受け取って表示するだけで、保存しない。**
+     * 会話が無い・Morrowのセッションではない場合は `no_session`。
+     */
+    async history(sessionId: string, options: { limit?: number; signal?: AbortSignal } = {}): Promise<HistoryBody> {
+      const limit = Math.min(HISTORY_MAX_LIMIT, Math.max(1, Math.trunc(options.limit ?? HISTORY_DEFAULT_LIMIT)));
+      const response = await request(`/sessions/${encodeURIComponent(sessionId)}/messages?limit=${limit}`, {
+        method: "GET",
+        signal: options.signal,
+      });
+      if (!response.ok) throw await failureOf(response);
+      const parsed = parseHistoryBody(await response.json().catch(() => null), sessionId);
+      if (!parsed) throw new HermesError("bad_response", "ブリッジの履歴の形が不正");
+      return parsed;
     },
 
     async answerApproval(turnId: string, requestId: string, choice: ApprovalChoice, signal?: AbortSignal): Promise<void> {
