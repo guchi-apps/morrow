@@ -4,6 +4,7 @@ import { Check, CircleAlert, Loader2 } from "lucide-react";
 import { useState } from "react";
 
 import { ProposalCard } from "@/components/hermes/proposal-card";
+import { splitLinks } from "@/lib/hermes/linkify";
 import type { ProposalView } from "@/lib/hermes/proposal-core";
 import type { ChatItem } from "@/lib/hermes/stream-view";
 
@@ -29,8 +30,8 @@ export function ChatItemView({ item, turnId, onApproval, onProposalChange }: Pro
     case "assistant":
       return (
         <div className="max-w-[88%] self-start whitespace-pre-wrap break-words rounded-2xl rounded-bl-sm border border-border bg-surface px-3.5 py-2 text-sm">
-          {item.text}
-          {!item.done && <span className="ml-0.5 inline-block animate-pulse text-muted" aria-hidden="true">▍</span>}
+          <LinkedText text={item.text} />
+          {!item.done &&<span className="ml-0.5 inline-block animate-pulse text-muted" aria-hidden="true">▍</span>}
         </div>
       );
 
@@ -91,7 +92,7 @@ export function ChatItemView({ item, turnId, onApproval, onProposalChange }: Pro
     case "clarify":
       return (
         <div className="max-w-[88%] self-start whitespace-pre-wrap break-words rounded-2xl rounded-bl-sm border border-border bg-surface px-3.5 py-2 text-sm">
-          {item.text}
+          <LinkedText text={item.text} />
         </div>
       );
 
@@ -105,6 +106,29 @@ export function ChatItemView({ item, turnId, onApproval, onProposalChange }: Pro
         </p>
       );
   }
+}
+
+/** 返信の本文。http(s)のURLだけ押せるリンクにする（#810）。HTMLは組み立てずReact要素で描く。 */
+function LinkedText({ text }: { text: string }) {
+  return (
+    <>
+      {splitLinks(text).map((part, index) =>
+        part.type === "link" ? (
+          <a
+            key={index}
+            href={part.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="break-all text-accent underline underline-offset-2"
+          >
+            {part.text}
+          </a>
+        ) : (
+          part.text
+        ),
+      )}
+    </>
+  );
 }
 
 /** Hermes自身の承認（通常は来ない）。出すのは「1回だけ許可」と「拒否」だけで、「常に許可」は出さない。 */
