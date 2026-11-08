@@ -113,6 +113,18 @@ describe("イベントの畳み込み", () => {
     assert.ok(info?.kind === "notice" && info.tone === "info");
   });
 
+  it("tool.completeを受けずに終わった道具は成功にせず結果不明にする", () => {
+    const state = endTurn(run([{ type: "tool.start", data: { name: "aide_create_task", args: {} } }]));
+    assert.ok(state.items[1].kind === "tool" && state.items[1].status === "unknown");
+    const completed = endTurn(
+      run([
+        { type: "tool.start", data: { name: "aide_create_task", args: {} } },
+        { type: "tool.complete", data: { name: "aide_create_task", result: "{}" } },
+      ]),
+    );
+    assert.ok(completed.items[1].kind === "tool" && completed.items[1].status === "done");
+  });
+
   it("endTurnは実行中の道具と生成中の吹き出しを閉じる", () => {
     const state = endTurn(run([{ type: "message.delta", data: { text: "a" } }, { type: "tool.start", data: { name: "aide_tasks", args: {} } }]));
     assert.ok(state.items.every((i) => (i.kind === "assistant" ? i.done : i.kind !== "tool" || i.status !== "running")));
