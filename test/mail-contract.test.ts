@@ -2,13 +2,18 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  inferMailAccounts,
+  isMailAccountKey,
   isMailOwner,
+  mailAccountKeyOf,
+  mailAccountTone,
   mailSrcdoc,
   parseMailActionResponse,
   parseMailFailure,
   parseMailListResponse,
   parseMailMessageResponse,
   senderName,
+  spansMailAccounts,
 } from "@/lib/mail/contract";
 
 /**
@@ -115,5 +120,70 @@ describe("senderName", () => {
   it("表示名を取り出す", () => {
     assert.equal(senderName('"市役所 税務課" <zeimu@example.jp>'), "市役所 税務課");
     assert.equal(senderName("a@example.com"), "a@example.com");
+  });
+});
+
+/** 複数アカウント（#711）。IDは `<鍵>~<元のID>`、メインも `main~` が付く。 */
+describe("メールのアカウント", () => {
+  it("IDとラベルIDの接頭辞から鍵を取る（メインも）", () => {
+    assert.equal(mailAccountKeyOf("main~abc"), "main");
+    assert.equal(mailAccountKeyOf("sub~Label_1"), "sub");
+    assert.equal(mailAccountKeyOf("formal~INBOX.1.20"), "formal");
+  });
+
+  it("接頭辞が無い（単一アカウント）・鍵の形でない値は null", () => {
+    assert.equal(mailAccountKeyOf("abc123"), null);
+    assert.equal(mailAccountKeyOf("~abc"), null);
+    assert.equal(mailAccountKeyOf("Sub~abc"), null);
+    assert.equal(mailAccountKeyOf("thirteenchars1~abc"), null);
+  });
+
+  it("acct に渡せる鍵の形（main を含む）", () => {
+    assert.equal(isMailAccountKey("main"), true);
+    assert.equal(isMailAccountKey("sub1"), true);
+    assert.equal(isMailAccountKey("Sub"), false);
+    assert.equal(isMailAccountKey("a~b"), false);
+    assert.equal(isMailAccountKey(""), false);
+    assert.equal(isMailAccountKey(null), false);
+  });
+
+  it("鍵違いの組み合わせはまたがりとして検出する（行・ラベル共通）", () => {
+    assert.equal(spansMailAccounts(["sub~1", "sub~2"]), false);
+    assert.equal(spansMailAccounts(["sub~1", "main~2"]), true);
+    assert.equal(spansMailAccounts(["sub~1", "formal~Label_1"]), true);
+    assert.equal(spansMailAccounts(["abc", "def"]), false);
+  });
+
+  it("色は鍵だけで決まり、main は灰で固定・同じ鍵は常に同じ", () => {
+    assert.equal(mailAccountTone("main"), "gray");
+    assert.equal(mailAccountTone("sub"), mailAccountTone("sub"));
+    assert.notEqual(mailAccountTone("sub"), "gray");
+    assert.notEqual(mailAccountTone("formal"), "gray");
+  });
+
+  it("行からアカウントを推定する（main を先頭、鍵順）。接頭辞の無い行は無視する", () => {
+    const rows = [
+      { id: "sub~1", account: "サブ" },
+      { id: "formal~2", account: "フォーマル" },
+      { id: "main~3", account: "メイン" },
+      { id: "sub~4", account: "サブ" },
+      { id: "plain", account: undefined },
+    ];
+    assert.deepEqual(inferMailAccounts(rows), [
+      { key: "main", name: "メイン" },
+      { key: "formal", name: "フォーマル" },
+      { key: "sub", name: "サブ" },
+    ]);
+    assert.deepEqual(inferMailAccounts([{ id: "plain", account: undefined }]), []);
+  });
+
+  it("一覧の応答の accounts は任意で、形の悪い要素は落とす", () => {
+    const base = { ok: true, owner: "o@e.com", messages: [] };
+    assert.equal(parseMailListResponse(base)?.accounts, null);
+    const page = parseMailListResponse({
+      ...base,
+      accounts: [{ key: "main", name: "メイン" }, { key: "Bad", name: "x" }, { key: "sub" }, "x"],
+    });
+    assert.deepEqual(page?.accounts, [{ key: "main", name: "メイン" }]);
   });
 });
