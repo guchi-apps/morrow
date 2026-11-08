@@ -25,7 +25,8 @@ export const KIND_META: Record<SuggestKind, { icon: string; title: string; run: 
 };
 
 /** `href` は家計簿だけ: 作った（取り込み済みの）レシートの編集画面。自動で開けなかったときのリンクにする（#781）。 */
-export type CardResult = { text: string; error: boolean; done: boolean; /** 確認待ち（Asset Managerで確定するまで台帳には入っていない。#821）。doneのまま、行は「登録済み」にしない */ pending?: boolean; href?: string };
+import type { ReceiptState } from "@/lib/mail/flow-record-core";
+export type CardResult = { text: string; error: boolean; done: boolean; /** 家計簿の確認待ち（pending）・取り込み済み（duplicate）。確定したかは分からないので、doneのまま行は「登録済み」にしない（#821） */ receipt?: ReceiptState; href?: string };
 
 type Props = {
   card: Suggestion | null;

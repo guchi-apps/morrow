@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FlowRowButton } from "@/components/mail/flow-row";
 import { MailChat } from "@/components/mail/mail-chat";
 import { useFlowCards, type FlowRow } from "@/components/mail/use-flow-cards";
+import type { ReceiptState } from "@/lib/mail/flow-record-core";
 import type { MailAnalysis as Analysis } from "@/lib/mail/analyze-core";
 
 /**
@@ -19,7 +20,7 @@ import type { MailAnalysis as Analysis } from "@/lib/mail/analyze-core";
 const BUSY_RETRY_MS = 5000;
 const BUSY_RETRY_MAX = 24;
 
-export function MailAnalysis({ id, registeredKinds, pendingKinds = [] }: { id: string; registeredKinds: string[]; pendingKinds?: string[] }) {
+export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id: string; registeredKinds: string[]; receiptState?: ReceiptState | null }) {
   const [loading, setLoading] = useState(true);
   const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -138,8 +139,8 @@ export function MailAnalysis({ id, registeredKinds, pendingKinds = [] }: { id: s
                       <FlowRowButton
                         card={row.card}
                         recommended={row.recommended}
-                        registered={(flow.outcomes[rowId]?.done === true && !flow.outcomes[rowId]?.pending) || registeredKinds.includes(row.card.kind)}
-                        pending={flow.outcomes[rowId]?.pending === true || pendingKinds.includes(row.card.kind)}
+                        registered={(flow.outcomes[rowId]?.done === true && !flow.outcomes[rowId]?.receipt) || registeredKinds.includes(row.card.kind)}
+                        receipt={flow.outcomes[rowId]?.receipt ?? (row.card.kind === "payment" ? receiptState : null)}
                         onOpen={() => flow.setOpen(rowId)}
                       />
                     </li>

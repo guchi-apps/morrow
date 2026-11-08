@@ -12,6 +12,7 @@ import { jstTimeLabel } from "@/lib/day-key";
 import { getMail } from "@/lib/mail/aide-client";
 import { safeMailBack } from "@/lib/mail/back-path";
 import { MAIL_FAILURE_MESSAGES, isMailMessageId, mailAccountKeyOf } from "@/lib/mail/contract";
+import { flowRowStates } from "@/lib/mail/flow-record-core";
 import { flowRecordsFor } from "@/lib/mail/flow-record";
 import { neededTriages } from "@/lib/mail/triage";
 
@@ -53,6 +54,7 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
     neededTriages(user.id, [id]),
     flowRecordsFor(user.id, id),
   ]);
+  const flowStates = flowRowStates(flowRecords);
   const triage = result.ok ? triages.get(id) : undefined;
 
   return (
@@ -82,9 +84,9 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
                   key={message.id}
                   id={message.id}
                   // 「登録済み」の印の材料（#750の控え）。サブスクの「一覧を開いた」は登録の確認にならないので含めない。確認待ちも含めない
-                  registeredKinds={flowRecords.filter((r) => r.status !== "opened" && r.status !== "pending").map((r) => r.kind)}
-                  // 確認待ち（pending）は台帳に入っていない。「登録済み」ではなく「確認待ち」の印にする（#821）
-                  pendingKinds={flowRecords.filter((r) => r.status === "pending").map((r) => r.kind)}
+                  registeredKinds={flowStates.registeredKinds}
+                  // 家計簿の確認待ち・取り込み済みは、確定したか分からない。「登録済み」にしない（#821）
+                  receiptState={flowStates.receiptState}
                 />
 
                 <MailFlowRecords records={flowRecords.map((r) => ({ ...r, createdAt: flowTimeLabel(r.createdAt) }))} />

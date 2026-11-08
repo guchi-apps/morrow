@@ -2,11 +2,12 @@
 
 import { KIND_META } from "@/components/mail/flow-sheet";
 import { itemsTotal } from "@/lib/mail/payment-receipt";
+import type { ReceiptState } from "@/lib/mail/flow-record-core";
 import type { Suggestion } from "@/lib/mail/suggest-core";
 import { cn } from "@/lib/utils";
 
 /** 提案の1行（#766）。押すとハーフモーダルが開く。分析と指示の返事（#784）の両方で使う。型だけをimportする。 */
-export function FlowRowButton({ card, recommended, registered, pending = false, onOpen }: { card: Suggestion; recommended: boolean; registered: boolean; pending?: boolean; onOpen: () => void }) {
+export function FlowRowButton({ card, recommended, registered, receipt = null, onOpen }: { card: Suggestion; recommended: boolean; registered: boolean; receipt?: ReceiptState | null; onOpen: () => void }) {
   const meta = KIND_META[card.kind];
   const preview = cardPreview(card);
   return (
@@ -27,7 +28,7 @@ export function FlowRowButton({ card, recommended, registered, pending = false, 
           {meta.title}
           {recommended && <span className="rounded-full bg-accent px-2 py-0.5 text-[0.625rem] font-bold text-accent-foreground">おすすめ</span>}
           {registered && <span className="rounded-full bg-fair-surface px-2 py-0.5 text-[0.625rem] font-bold text-fair">登録済み</span>}
-          {!registered && pending && <span className="rounded-full bg-accent-surface px-2 py-0.5 text-[0.625rem] font-bold text-accent">確認待ち</span>}
+          {!registered && receipt && <span className="rounded-full bg-accent-surface px-2 py-0.5 text-[0.625rem] font-bold text-accent">{receipt === "pending" ? "確認待ち" : "取り込み済み"}</span>}
         </span>
         {preview && <span className="truncate opacity-85">{preview}</span>}
         {card.reason && (
