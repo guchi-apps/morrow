@@ -2,6 +2,7 @@ import { Search } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { MailAccountTabs } from "@/components/mail/mail-account-tabs";
 import { MailCheckButton } from "@/components/mail/mail-check-button";
 import { MailCriteriaForm } from "@/components/mail/mail-criteria-form";
 import { elapsedLabel } from "@/components/mail/mail-format";
@@ -13,6 +14,8 @@ import { listMail } from "@/lib/mail/aide-client";
 import {
   MAIL_FAILURE_MESSAGES,
   MAIL_VIEWS,
+  inferMailAccounts,
+  isMailAccountKey,
   isMailLabelId,
   isMailPageToken,
   isMailViewKey,
@@ -28,7 +31,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "メール" };
 
 type Props = {
-  searchParams: Promise<{ view?: string; label?: string; q?: string; page?: string }>;
+  searchParams: Promise<{ view?: string; label?: string; acct?: string; q?: string; page?: string }>;
 };
 
 /**
@@ -46,19 +49,44 @@ export default async function MailPage({ searchParams }: Props) {
   const query = await searchParams;
   const view: MailViewKey = isMailViewKey(query.view) ? query.view : "inbox";
   const labelId = isMailLabelId(query.label) ? query.label : null;
+  const account = isMailAccountKey(query.acct) ? query.acct : null;
   const q = (query.q ?? "").trim().slice(0, 200);
   const pageToken = isMailPageToken(query.page) ? query.page : null;
 
   const now = new Date();
-  const result = await listMail(user, { view, labelId, q, pageToken });
+  const result = await listMail(user, { view, labelId, account, q, pageToken });
   const notified = result.ok ? await neededTriages(user.id, result.value.messages.map((m) => m.id)) : new Map();
 
   const self = new URLSearchParams();
   if (labelId) self.set("label", labelId);
   else if (view !== "inbox") self.set("view", view);
+  if (account) self.set("acct", account);
   if (q) self.set("q", q);
   if (pageToken) self.set("page", pageToken);
   const back = `/mail${self.size > 0 ? `?${self}` : ""}`;
+
+  // アカウントのタブ。AIDEが `accounts` を返せばそれを使い、無ければ表示中の行から推定する（#711）。
+  // 推定は絞り込み中や行が無いアカウントで欠けうるので、絞り込み中のアカウントは必ず出して「すべて」へ戻れるようにする
+  const accounts = (() => {
+    if (!result.ok) return [];
+    const list = result.value.accounts ?? inferMailAccounts(result.value.messages);
+    return account && !list.some((item) => item.key === account) ? [...list, { key: account, name: account }] : list;
+  })();
+  const showAccounts = result.ok && (accounts.length > 1 || account !== null);
+  /** タブの切り替え先。表示と検索語は引き継ぎ、ラベル（アカウントごと）とページ位置は捨てる。 */
+  const accountHref = (key: string | null) => {
+    const params = new URLSearchParams();
+    if (view !== "inbox") params.set("view", view);
+    if (key) params.set("acct", key);
+    if (q) params.set("q", q);
+    return `/mail${params.size > 0 ? `?${params}` : ""}`;
+  };
+  const viewHref = (key: MailViewKey) => {
+    const params = new URLSearchParams();
+    if (key !== "inbox") params.set("view", key);
+    if (account) params.set("acct", account);
+    return `/mail${params.size > 0 ? `?${params}` : ""}`;
+  };
 
   const heading = labelId
     ? (result.ok ? result.value.labels.find((label) => label.id === labelId)?.name : null) ?? "ラベル"
@@ -116,13 +144,17 @@ export default async function MailPage({ searchParams }: Props) {
           </div>
         </details>
 
+        {showAccounts && result.ok && (
+          <MailAccountTabs accounts={accounts} current={account} hrefFor={accountHref} failedNames={result.value.failedAccounts} />
+        )}
+
         <nav aria-label="表示するメール" className="flex flex-wrap gap-1.5 text-xs">
           {MAIL_VIEWS.map((item) => {
             const on = !labelId && item.key === view;
             return (
               <Link
                 key={item.key}
-                href={item.key === "inbox" ? "/mail" : `/mail?view=${item.key}`}
+                href={viewHref(item.key)}
                 aria-current={on ? "page" : undefined}
                 className={cn(
                   "rounded-full border px-3 py-1.5 transition-colors",
@@ -140,6 +172,7 @@ export default async function MailPage({ searchParams }: Props) {
             <Search className="size-3.5 shrink-0 text-muted" aria-hidden="true" />
             {!labelId && view !== "inbox" && <input type="hidden" name="view" value={view} />}
             {labelId && <input type="hidden" name="label" value={labelId} />}
+            {account && <input type="hidden" name="acct" value={account} />}
             <input
               type="search"
               name="q"
@@ -150,7 +183,7 @@ export default async function MailPage({ searchParams }: Props) {
               className="min-w-0 flex-1 bg-transparent py-1.5 text-xs outline-none"
             />
           </form>
-          {result.ok && result.value.supportsLabels && <MailLabelFilter labels={result.value.labels} current={labelId} />}
+          {result.ok && result.value.supportsLabels && <MailLabelFilter labels={result.value.labels} current={labelId} account={account} />}
         </div>
 
         {!result.ok ? (
@@ -181,6 +214,7 @@ export default async function MailPage({ searchParams }: Props) {
                 labels={result.value.labels}
                 supportsLabels={result.value.supportsLabels}
                 inTrash={!labelId && view === "trash"}
+                showAccount={showAccounts && !account}
                 nowMs={now.getTime()}
                 back={back}
               />

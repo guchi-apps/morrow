@@ -704,6 +704,11 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
   `/api/mail/messages/<id>`・`/api/mail/actions` に答えるだけ）を立てて `.env.local` の `AIDE_MAIL_API_URL`・`AIDE_MAIL_API_TOKEN` を向け、
   `CODEX_BIN` も判定のJSON配列を返すスタブにして確かめる。「いま確認」の前に `User.mailCheckedAt` を少し戻すと新着として拾われる
 
+### メール詳細の操作と要約（#717）
+
+- **本文の画面の操作は「既読／未読に戻す」と「アーカイブ（アーカイブ済みなら受信トレイへ戻す）」だけ**（`mail-detail-actions.tsx`）。スター・ラベル・ゴミ箱は使わないので出さない。サーバー側の `star`／`label-*`／`trash`（`aide-client`・`/api/mail/actions`・契約）は一覧が使うので残してある。ラベル名のための一覧取得も詳細からは外した（「処理済み」ラベルの自動付与〔#689〕はサーバー側で一覧を引くので残る）
+- **「📝 要約する」は押したときだけ**Codex（用途「メールの要約」`mail_summary`・既定Luna・機能 `mail_summary`）が本文を読み、要約と要点（最大5件）をその場に出す。何も保存しない。口は `POST /api/mail/flow/summary`、純粋な部分は `summary-core.ts`（`test/mail-summary.test.ts`）、サーバーは `summary.ts`（`getMail()` で持ち主を照合・利用者ごとに同時1件）。本文はデータとして読ませ、返答は固定の形で検証する
+
 ### メールの提案——AIが処理を推論して他アプリへ流す（#689）
 
 メール本文の画面の「このメールをどうする？」で、本文をCodex（用途「メールの提案」・機能 `mail_suggest`）に読ませ、おすすめと候補（家計簿・タスク・予定。最大3件）を出す。
