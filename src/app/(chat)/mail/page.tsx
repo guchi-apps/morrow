@@ -9,16 +9,23 @@ import { elapsedLabel } from "@/components/mail/mail-format";
 import { MailRows } from "@/components/mail/mail-rows";
 import { getCurrentUser } from "@/lib/auth-user";
 import { jstTimeLabel } from "@/lib/day-key";
-import { listMailCached } from "@/lib/mail/aide-client";
+import { listMailForPage } from "@/lib/mail/aide-client";
 import {
   MAIL_FAILURE_MESSAGES,
   MAIL_VIEWS,
-  inferMailAccounts,
-  isMailAccountKey,
   isMailPageToken,
   isMailViewKey,
   type MailViewKey,
 } from "@/lib/mail/contract";
+import {
+  KNOWN_ACCOUNT_NAMES,
+  accountParamOf,
+  mergeAccounts,
+  parseAccountFilter,
+  selectedAccountKeys,
+  singleAccountKey,
+  toggleAccountKey,
+} from "@/lib/mail/account-filter";
 import { onlyInbox } from "@/lib/mail/archived-memory";
 import { flowKindsFor } from "@/lib/mail/flow-record";
 import { neededTriages } from "@/lib/mail/triage";
@@ -48,38 +55,37 @@ export default async function MailPage({ searchParams }: Props) {
 
   const query = await searchParams;
   const view: MailViewKey = isMailViewKey(query.view) ? query.view : "inbox";
-  const account = isMailAccountKey(query.acct) ? query.acct : null;
+  const filter = parseAccountFilter(query.acct);
+  // URLへ載せる選択（既定のときは付けない）。表示切替・検索・ページ送りで引き継ぐ
+  const account = filter.kind === "keys" ? filter.keys.join(",") : null;
   const q = (query.q ?? "").trim().slice(0, 200);
   const pageToken = isMailPageToken(query.page) ? query.page : null;
 
   const now = new Date();
-  const result = await listMailCached(user, { view, labelId: null, account, q, pageToken });
+  const result = await listMailForPage(user, { view, labelId: null, filter, q, pageToken });
   // 受信トレイでは、INBOXラベルの無い（アーカイブ済みの）メールを出さない（#795）。検索中は対象外
   const inboxView = view === "inbox" && !q;
   if (result.ok && inboxView) result.value.messages = onlyInbox(result.value.messages);
   const listedIds = result.ok ? result.value.messages.map((m) => m.id) : [];
   const [notified, flowKinds] = result.ok ? await Promise.all([neededTriages(user.id, listedIds), flowKindsFor(user.id, listedIds)]) : [new Map(), new Map<string, string[]>()];
 
-  const self = new URLSearchParams();
-  if (view !== "inbox") self.set("view", view);
-  if (account) self.set("acct", account);
-  if (q) self.set("q", q);
-  if (pageToken) self.set("page", pageToken);
-  const back = `/mail${self.size > 0 ? `?${self}` : ""}`;
-
-  // アカウントのタブ。AIDEが `accounts` を返せばそれを使い、無ければ表示中の行から推定する（#711）。
-  // 推定は絞り込み中や行が無いアカウントで欠けうるので、絞り込み中のアカウントは必ず出して「すべて」へ戻れるようにする
+  // アカウントのチップ（#711・#829）。AIDEが `accounts` を返せばそれ、無ければ絞る前の全行から推定した一覧。
+  // 1アカウントだけ取った回は他のアカウントが分からないので、既知の鍵（メイン・サブ・フォーマル）を足して、押して戻せるようにする
   const accounts = (() => {
     if (!result.ok) return [];
-    const list = result.value.accounts ?? inferMailAccounts(result.value.messages);
-    return account && !list.some((item) => item.key === account) ? [...list, { key: account, name: account }] : list;
+    const base = result.value.accounts ?? [];
+    const extra = singleAccountKey(filter) ? [...(filter.kind === "keys" ? filter.keys : []), ...Object.keys(KNOWN_ACCOUNT_NAMES)] : filter.kind === "keys" ? filter.keys : [];
+    return base.length > 0 || extra.length > 0 ? mergeAccounts(base, extra) : base;
   })();
-  const showAccounts = result.ok && (accounts.length > 1 || account !== null);
-  /** タブの切り替え先。表示と検索語は引き継ぎ、ページ位置は捨てる。 */
-  const accountHref = (key: string | null) => {
+  const allKeys = accounts.map((item) => item.key);
+  const selected = selectedAccountKeys(filter, allKeys);
+  const showAccounts = result.ok && accounts.length > 1;
+  /** チップを押した後のURL。表示と検索語は引き継ぎ、ページ位置は捨てる。最後の1つを外す操作は今の選択のまま。 */
+  const accountHref = (key: string) => {
     const params = new URLSearchParams();
     if (view !== "inbox") params.set("view", view);
-    if (key) params.set("acct", key);
+    const acct = accountParamOf(toggleAccountKey(selected, allKeys, key), allKeys);
+    if (acct) params.set("acct", acct);
     if (q) params.set("q", q);
     return `/mail${params.size > 0 ? `?${params}` : ""}`;
   };
@@ -89,6 +95,13 @@ export default async function MailPage({ searchParams }: Props) {
     if (account) params.set("acct", account);
     return `/mail${params.size > 0 ? `?${params}` : ""}`;
   };
+
+  const self = new URLSearchParams();
+  if (view !== "inbox") self.set("view", view);
+  if (account) self.set("acct", account);
+  if (q) self.set("q", q);
+  if (pageToken) self.set("page", pageToken);
+  const back = `/mail${self.size > 0 ? `?${self}` : ""}`;
 
   const heading = MAIL_VIEWS.find((item) => item.key === view)!.label;
 
@@ -144,7 +157,7 @@ export default async function MailPage({ searchParams }: Props) {
         </details>
 
         {showAccounts && result.ok && (
-          <MailAccountTabs accounts={accounts} current={account} hrefFor={accountHref} failedNames={result.value.failedAccounts} />
+          <MailAccountTabs accounts={accounts} selected={selected} hrefFor={accountHref} failedNames={result.value.failedAccounts} />
         )}
 
         <nav aria-label="表示するメール" className="flex flex-wrap gap-1.5 text-xs">
@@ -201,9 +214,11 @@ export default async function MailPage({ searchParams }: Props) {
               <p className="rounded-xl border border-border bg-surface px-4 py-3 text-xs text-muted">
                 {result.value.partial
                   ? "取得できたアカウントには、表示するメールがありません。"
-                  : q
-                    ? "検索に一致するメールはありません。"
-                    : "メールはありません。"}
+                  : result.value.nextPageToken
+                    ? "このページには選んだアカウントのメールがありません。「次へ」で続きを見られます。"
+                    : q
+                      ? "検索に一致するメールはありません。"
+                      : "メールはありません。"}
               </p>
             ) : (
               <MailRows
@@ -211,7 +226,7 @@ export default async function MailPage({ searchParams }: Props) {
                 labels={result.value.labels}
                 supportsLabels={result.value.supportsLabels}
                 inTrash={view === "trash"}
-                showAccount={showAccounts && !account}
+                showAccount={showAccounts && selected.length > 1}
                 nowMs={now.getTime()}
                 back={back}
                 inboxView={inboxView}

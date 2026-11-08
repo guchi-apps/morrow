@@ -1,8 +1,10 @@
+import { fetchFilteredPage, singleAccountKey, type AccountFilter } from "@/lib/mail/account-filter";
 import { cachedMailList, invalidateMailList, mailListKey } from "@/lib/mail/list-cache";
 import { forgetSharedToken, sharedTokenOrEnv } from "@/lib/shared-token";
 
 import {
   isMailAccountKey,
+  inferMailAccounts,
   isMailOwner,
   parseMailActionResponse,
   parseMailFailure,
@@ -139,6 +141,25 @@ export async function listMail(user: MailUser, query: MailListQuery = {}): Promi
 export async function listMailCached(user: MailUser, query: MailListQuery = {}): Promise<MailOutcome<MailListPage>> {
   const key = mailListKey(user.id, user.email, JSON.stringify([query.view ?? "inbox", query.labelId ?? null, query.account ?? null, query.q ?? "", query.pageToken ?? null]));
   return cachedMailList(user.id, key, () => listMail(user, query));
+}
+
+/**
+ * 画面（`/mail`）用の一覧をアカウントの選択で絞って取る（#829）。
+ * 1つだけの選択はAIDEの `acct` へ渡す。それ以外（既定・2つ以上）は全アカウントを取ってMorrow側で絞り、
+ * 足りない間は次のページも足す。キャッシュは取得条件だけを鍵にするので、チップの切り替えでAIDEへ取り直さない。
+ */
+export async function listMailForPage(
+  user: MailUser,
+  query: Omit<MailListQuery, "account"> & { filter: AccountFilter },
+): Promise<MailOutcome<MailListPage>> {
+  const { filter, ...rest } = query;
+  const single = singleAccountKey(filter);
+  if (single) {
+    const result = await listMailCached(user, { ...rest, account: single });
+    if (result.ok) result.value.accounts = result.value.accounts ?? inferMailAccounts(result.value.messages);
+    return result;
+  }
+  return fetchFilteredPage((pageToken) => listMailCached(user, { ...rest, account: null, pageToken }), filter, rest.pageToken ?? null, inferMailAccounts);
 }
 
 export { invalidateMailList };
