@@ -9,7 +9,7 @@ import { elapsedLabel } from "@/components/mail/mail-format";
 import { MailRows } from "@/components/mail/mail-rows";
 import { getCurrentUser } from "@/lib/auth-user";
 import { jstTimeLabel } from "@/lib/day-key";
-import { listMail } from "@/lib/mail/aide-client";
+import { listMailCached } from "@/lib/mail/aide-client";
 import {
   MAIL_FAILURE_MESSAGES,
   MAIL_VIEWS,
@@ -53,7 +53,7 @@ export default async function MailPage({ searchParams }: Props) {
   const pageToken = isMailPageToken(query.page) ? query.page : null;
 
   const now = new Date();
-  const result = await listMail(user, { view, labelId: null, account, q, pageToken });
+  const result = await listMailCached(user, { view, labelId: null, account, q, pageToken });
   // 受信トレイでは、INBOXラベルの無い（アーカイブ済みの）メールを出さない（#795）。検索中は対象外
   const inboxView = view === "inbox" && !q;
   if (result.ok && inboxView) result.value.messages = onlyInbox(result.value.messages);
