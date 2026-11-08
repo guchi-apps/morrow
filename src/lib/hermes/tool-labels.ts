@@ -75,13 +75,10 @@ export function isAutoWriteTool(name: string | undefined | null): boolean {
 }
 
 /**
- * Hermes組み込みの道具（AIDEの道具ではない。#814）。2026-11-08にmorrow profileの履歴で確認した名前。
+ * Hermes組み込みの道具のうち、`READ_LABELS`（#809）に無いもの（#814）。2026-11-08にmorrow profileの履歴で確認した名前。
  * 読み取りだけで台帳は触らないので自動書き込みには含めない（`isAutoWriteTool()` は変わらない）。
  */
 const BUILTIN_LABELS: Record<string, string> = {
-  web_search: "ウェブを検索",
-  web_extract: "ページを読み込む",
-  tool_search: "使える道具を探す",
   tool_describe: "道具の使い方を確認",
   desktop_project: "プロジェクトを確認",
 };
@@ -132,6 +129,9 @@ export function toolLabel(name: string | undefined | null, rawArgs?: unknown): s
 
 const HINT_LIMIT = 40;
 
+/** 手掛かりを出すHermes組み込みの道具（表示名は `READ_LABELS`）。 */
+const HINTED = new Set(["web_search", "web_extract", "tool_search"]);
+
 function quoted(text: string | null): string | null {
   const clipped = text === null ? null : clip(text);
   return clipped === null ? null : `「${clipped}」`;
@@ -166,8 +166,9 @@ export function toolHint(name: string | undefined | null, rawArgs: unknown): str
   if (!name) return null;
   const inner = relayedName(name, rawArgs);
   if (inner) return toolHint(inner, null);
-  if (knownToolKey(name)) return null;
-  const builtin = builtinKey(name);
+  const known = knownToolKey(name);
+  const builtin = known !== null && HINTED.has(known) ? known : known === null ? builtinKey(name) : null;
+  if (known !== null && builtin === null) return null;
   if (builtin === null) return clip(name.replace(/^mcp_+/, ""));
   const args = parseArgs(rawArgs);
   if (!args) return null;

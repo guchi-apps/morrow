@@ -53,13 +53,15 @@ describe("イベントの畳み込み", () => {
   });
 
   it("Hermes組み込みの道具は日本語名と手掛かりで出す（#814）", () => {
-    assert.equal(toolLabel("web_search"), "ウェブを検索");
+    assert.equal(toolLabel("web_search"), "ウェブ検索");
     assert.equal(toolHint("web_search", { query: "高槻市 天気" }), "「高槻市 天気」");
-    assert.equal(toolLabel("mcp_x_web_extract"), "ページを読み込む");
+    assert.equal(toolLabel("mcp_x_web_extract"), "ウェブページの読み取り");
     // URLのパス・クエリは出さずドメインだけ
     assert.equal(toolHint("web_extract", { urls: ["https://tenki.jp/forecast/6/30?q=secret"] }), "tenki.jp");
     assert.equal(toolHint("tool_search", { queries: ["gmail search", "x"] }), "「gmail search」");
     assert.equal(toolLabel("tool_describe"), "道具の使い方を確認");
+    // 知らない道具でも、URLのパス・クエリは手掛かりに出さない
+    assert.equal(toolHint("unknown_fetch", { url: "https://a.example/p?token=x" }), "unknown_fetch");
     assert.equal(isAutoWriteTool("web_search"), false);
   });
 
@@ -72,7 +74,7 @@ describe("イベントの畳み込み", () => {
     assert.equal(toolHint("aide_schedule", {}), null);
     const state = run([{ type: "tool.start", data: { name: "web_search", args: { query: "天気" } } }]);
     const item = state.items[1];
-    assert.ok(item.kind === "tool" && item.label === "ウェブを検索" && item.hint === "「天気」");
+    assert.ok(item.kind === "tool" && item.label === "ウェブ検索" && item.hint === "「天気」");
   });
 
   it("途中の本文が無い回は、全文を1つの吹き出しにする。あれば足さない", () => {
