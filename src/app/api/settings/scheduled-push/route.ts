@@ -52,7 +52,7 @@ async function parseFields(userId: string, body: Record<string, unknown>) {
     const known = body.category === SCHEDULED_PUSH_ALL ||
       (typeof body.category === "string" &&
         (await listTopicCategories(userId)).some((category) => category.id === body.category));
-    if (!known) return { error: "話題の種類の指定が正しくありません。" };
+    if (!known) return { error: "ニュースの種類の指定が正しくありません。" };
     data.category = body.category as string;
   }
   if ("enabled" in body) {
@@ -87,7 +87,7 @@ export async function POST(request: Request) {
   if ("error" in parsed) return badRequest(parsed.error as string);
   const { data } = parsed;
   if (data.daysMask === undefined || data.hour === undefined || data.minute === undefined || data.category === undefined) {
-    return badRequest("曜日・時刻・話題の種類を指定してください。");
+    return badRequest("曜日・時刻・ニュースの種類を指定してください。");
   }
 
   const { daysMask, hour, minute, category } = data;

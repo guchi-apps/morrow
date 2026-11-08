@@ -391,7 +391,7 @@ async function fetchTopics(userId: string, categories: TopicCategory[], now: Dat
   const result = await runCodexRecorded({
     userId,
     feature: "topic",
-    label: "話題の仕入れ",
+    label: "ニュースの仕入れ",
     model: await modelFor(userId, "topic"),
     prompt: buildTopicPrompt(categories, now),
     timeoutMs: CODEX_TIMEOUT_MS,
@@ -554,7 +554,7 @@ export async function previewTopics(
     const result = await runCodexRecorded({
       userId,
       feature: "topic",
-      label: "話題の試し検索",
+      label: "ニュースの試し検索",
       model: await modelFor(userId, "topic"),
       prompt: buildTopicPrompt([category], now),
       timeoutMs: CODEX_TIMEOUT_MS,

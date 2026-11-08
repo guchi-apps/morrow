@@ -70,7 +70,7 @@ const DUMMY_P256DH =
   "BBqwI5nKDsS6vttGU-N-qzS2IkGqA2l98SgR6YGlPINPwxqJ7zBmTv82tQz2X50h6LoERX2uoPgKf9bv9nfKcsg";
 const DUMMY_AUTH = "iAo59Zn5euzmta2BpuwsSA";
 
-// 話題（#144）。ダッシュボードの「話題」と `/topics` の一覧を確かめるためのダミー。
+// ニュース（#144）。ダッシュボードの「ニュース」と `/topics` の一覧を確かめるためのダミー。
 // 実際の仕入れ（`codex --search exec`）は開発DBのシードでは走らせない——27秒掛かるうえ、
 // サブスクの利用枠を消費する。**同じURLは `urlHash` で畳まれる**ので、何度流しても増えない。
 //
@@ -96,7 +96,7 @@ const TOPIC_SEEDS = [
     sourceName: "テレビ朝日",
     fetchedMinutesAgo: 20,
   },
-  // 同じ出来事を別の媒体が報じたもの（#362）。話題の一覧では1件にまとまり「他の記事」に並ぶ。
+  // 同じ出来事を別の媒体が報じたもの（#362）。ニュースの一覧では1件にまとまり「他の記事」に並ぶ。
   {
     category: "life",
     title: "津軽地方に線状降水帯が発生、気象庁が厳重警戒を呼びかけ",
@@ -160,7 +160,7 @@ async function main() {
   // 日別のグラフも表も空に近い状態でしか確かめられない。**
   //
   // - 朝の見通し（#79）: 移行前の記録（Claude）を再現する行。1日1回で、頼み直した日だけ2行になる
-  // - お知らせの選定（#132）・話題の仕入れ（#144）: Codexで動くぶん（定額）
+  // - お知らせの選定（#132）・ニュースの仕入れ（#144）: Codexで動くぶん（定額）
   const standaloneUsageExists = await db.apiUsage.count({
     where: { userId: user.id },
   });
@@ -205,7 +205,7 @@ async function main() {
       }
 
       // 使用量API（#297）が機能ごとに分けて返せるよう、残りの機能も少しずつ積む。
-      // 話題の仕入れ（#144）は入力が桁違いに大きい（検索を重ねるため）。自宅の取り込み（#167）は
+      // ニュースの仕入れ（#144）は入力が桁違いに大きい（検索を重ねるため）。自宅の取り込み（#167）は
       // 1日1回。機能ごとの記録を使用量API（#297）の応答から確かめるためのもの。
       if (daysBefore % 2 === 1) {
         const topicAt = new Date(at.getTime());
@@ -258,7 +258,7 @@ async function main() {
   const subscriptionCount = await db.pushSubscription.count({ where: { userId: user.id } });
   console.log(`[aide-bot] 通知の購読を投入しました: ${subscriptionCount}件`);
 
-  // 話題（#144）。同じURLは畳まれる。日付は投入日（日本時間）にしておく。
+  // ニュース（#144）。同じURLは畳まれる。日付は投入日（日本時間）にしておく。
   const publishedOn = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(now);
   // 前回この画面を開いた時刻（#418）。2時間前にしておくと、20分前の回がNEW・5時間前の回が既読になり、
   // 境目の線が出る。
@@ -272,7 +272,7 @@ async function main() {
       fetchedAt: new Date(now.getTime() - fetchedMinutesAgo * 60 * 1000),
       // 初めて取り込んだ時刻（#418）。省略した記事は仕入れた時刻と同じ（最新の回。NEWになる）。
       createdAt: new Date(now.getTime() - (createdMinutesAgo ?? fetchedMinutesAgo) * 60 * 1000),
-      // すでに秘書から振った話題（#278）。一覧にもダッシュボードにも出る。
+      // すでに秘書から振ったニュース（#278）。一覧にもダッシュボードにも出る。
       spokenAt: spokenMinutesAgo ? new Date(now.getTime() - spokenMinutesAgo * 60 * 1000) : null,
     };
 
@@ -283,9 +283,9 @@ async function main() {
     });
   }
 
-  console.log(`[aide-bot] 話題を${TOPIC_SEEDS.length}件投入しました`);
+  console.log(`[aide-bot] ニュースを${TOPIC_SEEDS.length}件投入しました`);
 
-  // 話題の種類（#345）。初期の3種類（`src/lib/topic-categories.ts` の `DEFAULT_TOPIC_CATEGORIES` と
+  // ニュースの種類（#345）。初期の3種類（`src/lib/topic-categories.ts` の `DEFAULT_TOPIC_CATEGORIES` と
   // 同じ値）に加え、自作の種類と、仕入れを外している種類を1件ずつ入れる（管理画面の各状態を
   // 確かめるため）。`topicCategoriesReady` を立てておかないと、初回の読み出しが3種類を重ねて入れる。
   const TOPIC_CATEGORY_SEEDS = [
@@ -303,7 +303,7 @@ async function main() {
     });
   }
   await db.user.update({ where: { id: user.id }, data: { topicCategoriesReady: true } });
-  console.log(`[aide-bot] 話題の種類を${TOPIC_CATEGORY_SEEDS.length}件投入しました`);
+  console.log(`[aide-bot] ニュースの種類を${TOPIC_CATEGORY_SEEDS.length}件投入しました`);
 
   // 定時のお知らせ（#344）のダミー。有効・無効の両方を入れておく（画面で状態の出し分けを確かめるため）。
   await db.scheduledPush.deleteMany({ where: { userId: user.id } });

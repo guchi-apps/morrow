@@ -1,5 +1,5 @@
 /**
- * Codex CLIに渡すモデル（#128。相談は#574で廃止し、いまは通知・お知らせ・話題の生成が使う）。
+ * Codex CLIに渡すモデル（#128。相談は#574で廃止し、いまは通知・お知らせ・ニュースの生成が使う）。
  *
  * **このモジュールはクライアントコンポーネントからもimportする。** 設定の画面がモデルを
  * 選ぶため、PrismaやCodex CLIの起動処理に触れるものをここへ持ち込まないこと
@@ -71,7 +71,7 @@ export const MODEL_USE_GROUP_LABELS: Record<ModelUseGroup, string> = {
 };
 
 export const MODEL_USE_META: Record<ModelUse, { group: ModelUseGroup; label: string; hint: string }> = {
-  topic: { group: "background", label: "話題の仕入れ", hint: "ウェブ検索でニュース収集（重い）" },
+  topic: { group: "background", label: "ニュースの仕入れ", hint: "ウェブ検索でニュース収集（重い）" },
   mail: { group: "background", label: "メールの判定", hint: "新着メールが必要かを判定（#683）" },
 };
 

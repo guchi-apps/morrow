@@ -37,7 +37,7 @@ type Props = {
 };
 
 /**
- * 話題のテーマ別タブ（#404）。先頭「すべて」＋種類ごとに話題を絞り込んで表示する。
+ * ニュースのテーマ別タブ（#404）。先頭「すべて」＋種類ごとにニュースを絞り込んで表示する。
  *
  * タップに加え、一覧の上で左右にスワイプしても隣のタブへ切り替えられる。判定は`touchend`まで
  * 待って合計の移動距離だけを見る——`touchmove`で`preventDefault()`しないので、ページの縦
@@ -101,7 +101,7 @@ export function TopicTabs({ categories, allTopics, byCategory, mergedCount, seen
     <div className="flex flex-col gap-2.5">
       <div
         role="tablist"
-        aria-label="話題のテーマ"
+        aria-label="ニュースのテーマ"
         className="flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {tabs.map((tab) => (
@@ -132,7 +132,7 @@ export function TopicTabs({ categories, allTopics, byCategory, mergedCount, seen
             key={active.id}
             className="topic-tab-fade rounded-xl border border-border bg-surface px-4 py-3 text-xs leading-relaxed text-muted"
           >
-            {active.id === ALL_TAB_ID ? "まだ話題がありません。" : `「${active.label}」の話題はまだありません。`}
+            {active.id === ALL_TAB_ID ? "まだニュースがありません。" : `「${active.label}」のニュースはまだありません。`}
           </p>
         ) : (
           <section key={active.id} className="topic-tab-fade flex flex-col gap-3 rounded-xl border border-border bg-surface p-4">

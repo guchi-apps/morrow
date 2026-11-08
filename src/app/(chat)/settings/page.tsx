@@ -53,11 +53,11 @@ export default async function SettingsPage({ searchParams }: Props) {
 
         <PushKindsCard initialDisabled={[...parseDisabledKinds(user.pushDisabledKinds)]} />
 
-        {/* 定時のお知らせの時刻は話題の画面へ移した（#418）。読む場所のそばで決められるように。 */}
+        {/* 定時のお知らせの時刻はニュースの画面へ移した（#418）。読む場所のそばで決められるように。 */}
         <p className="text-[0.8125rem] leading-relaxed text-muted">
-          話題（ニュース）を届ける曜日・時刻は、
+          ニュースを届ける曜日・時刻は、
           <Link href="/topics" className="font-medium text-accent underline underline-offset-4">
-            話題の画面の「通知する時間」
+            ニュースの画面の「通知する時間」
           </Link>
           で決められます。
         </p>

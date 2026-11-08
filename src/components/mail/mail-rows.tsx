@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 
 import { mailTimeLabel } from "./mail-format";
 import { MailNotice } from "./mail-notice";
+import { leaveMailPane } from "./mail-transition";
 import { useMailAction } from "./use-mail-action";
 
 type Row = MailSummary & { notified: boolean };
@@ -34,6 +35,8 @@ const BULK: { action: MailAction; label: string }[] = [
 /** 一覧の行とまとめての操作（#683）。選んだメールに既読・アーカイブ・ラベル・ゴミ箱をまとめて当てる。 */
 export function MailRows({ messages, labels, supportsLabels, inTrash, nowMs, back }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // 押した行（#699）。本文の画面へ移るまでの一瞬、押したことが分かるよう色を付ける
+  const [opening, setOpening] = useState<string | null>(null);
   const { apply, pending, notice } = useMailAction({ after: () => setSelected(new Set()) });
   const now = new Date(nowMs);
   const userLabels = labels.filter((label) => label.type === "user");
@@ -95,7 +98,13 @@ export function MailRows({ messages, labels, supportsLabels, inTrash, nowMs, bac
         {messages.map((message) => {
           const href = `/mail/${encodeURIComponent(message.id)}?back=${encodeURIComponent(back)}`;
           return (
-            <li key={message.id} className="flex items-start gap-2.5 border-t border-border px-3 py-2.5 first:border-t-0 md:items-center md:px-3.5">
+            <li
+              key={message.id}
+              className={cn(
+                "flex items-start gap-2.5 border-t border-border px-3 py-2.5 transition-colors first:border-t-0 md:items-center md:px-3.5",
+                opening === message.id ? "bg-accent-surface" : "hover:bg-rail",
+              )}
+            >
               <input
                 type="checkbox"
                 checked={selected.has(message.id)}
@@ -108,7 +117,12 @@ export function MailRows({ messages, labels, supportsLabels, inTrash, nowMs, bac
                 aria-label={message.starred ? "スター付き" : undefined}
                 aria-hidden={message.starred ? undefined : true}
               />
-              <Link href={href} className="grid min-w-0 flex-1 gap-0.5 md:grid-cols-[170px_1fr_auto] md:items-center md:gap-3">
+              <Link
+                href={href}
+                onClick={(event) => {
+                  if (leaveMailPane(event, "forward")) setOpening(message.id);
+                }}
+                className="grid min-w-0 flex-1 gap-0.5 md:grid-cols-[170px_1fr_auto] md:items-center md:gap-3">
                 <span className="flex min-w-0 items-baseline justify-between gap-2 md:contents">
                   <span className={cn("truncate text-[0.8125rem]", message.unread && "font-bold")}>{senderName(message.from)}</span>
                   <span className="shrink-0 text-[0.6875rem] text-muted md:order-last md:text-right">

@@ -9,6 +9,8 @@
 NotionやAIDE（`guchi-apps/aide`）などを参照し、チャットボットでプライベートを補佐するPWA。
 **利用者に見える名前は Morrow（#340。旧「秘書アプリ」）。** URL・DB名・環境変数・Cookie名・PM2名は `aide-bot` のまま変えない（リポジトリ名は #414 で `guchi-apps/morrow` へ変更した）。秘書の呼び名（「秘書」）と会話文はこの名称変更の対象外。
 
+**利用者に見える文言では「話題」と書かず「ニュース」に統一する（#696）。** 画面・通知・設定・エラー文・使用量の機能名が対象。内部名（`Topic`・`/topics`・`topic-*.ts`・用途キー `topic`）は変えない。以下の本文に残る「話題」は内部の呼び名（コード上の概念）で、画面には「ニュース」と出る。
+
 | 項目 | 値 |
 |---|---|
 | 本番URL | `https://aide-bot.gucchii.com/` |
@@ -685,6 +687,7 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
   （`triage-core.ts`・`test/mail-triage.test.ts`）。通知の種類がオフ・判定していない新着が無い回はCodexを呼ばない。基準は利用者が書く `User.mailCriteria`（空なら既定）
 - **同じメールは二度判定・二度通知しない**（`MailTriage` の利用者×メールID一意）。**ただし必要と判定した行は、通知の試行（`sendPushToUser()`）が終わってから作る**（#693。先に作ると、作成と送信のあいだで止まった回の通知が永久に失われる）。不要・枠あふれの行は先に作る。送信後・確定前に止まった回は、次の確認で再判定されて再通知されうる（取りこぼすより重複を選ぶ。再判定はCodexなので結果は変わりうる）。件名・差出人・本文はMorrowのDBに残さない（`NotificationLog` の本文も件数だけ）。
   初回は既読位置を置くだけで、溜まっている過去分は知らせない。返答が読めなかった回は何も記録せず次でやり直す
+- **一覧⇔本文の切り替えは `MailTransition`（`mail/layout.tsx`）が付ける**（#699）。パスが変わったときだけ前のパスから向きを決めて滑り込ませ（一覧→本文は右から）、`popstate`（ブラウザの戻る・iOSの端スワイプ）では付けない。待ちは `loading.tsx` のスケルトン（`mail-skeleton.tsx`。一覧の絞り込み・ページ送りでも出す）。本文の画面は本文と判定を並行に取り、ラベル名のための一覧の取得は `Suspense` で後から流す——**本文の表示を一覧の取得で待たせない**
 - 開発DBのシードにメールのダミーは無い（メールはAIDEにしか無いため）。手元では、`initialize` 不要の小さなHTTPスタブ（`/api/mail/messages`・
   `/api/mail/messages/<id>`・`/api/mail/actions` に答えるだけ）を立てて `.env.local` の `AIDE_MAIL_API_URL`・`AIDE_MAIL_API_TOKEN` を向け、
   `CODEX_BIN` も判定のJSON配列を返すスタブにして確かめる。「いま確認」の前に `User.mailCheckedAt` を少し戻すと新着として拾われる

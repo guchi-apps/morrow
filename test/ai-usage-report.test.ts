@@ -103,7 +103,7 @@ describe("buildAiUsageReport", () => {
     });
     assert.deepEqual(
       report.features.map((row) => row.label),
-      ["チャット", "お知らせの選定", "話題の仕入れ"],
+      ["チャット", "お知らせの選定", "ニュースの仕入れ"],
     );
   });
 
