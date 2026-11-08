@@ -3,7 +3,8 @@
 import { useEffect, useRef, type ReactNode } from "react";
 
 import { FLOW_APP_LINKS } from "@/lib/mail/app-links";
-import type { Suggestion, SuggestKind } from "@/lib/mail/suggest-core";
+import { itemsTotal, paymentBlocker } from "@/lib/mail/payment-receipt";
+import type { PaymentFields, Suggestion, SuggestKind } from "@/lib/mail/suggest-core";
 import { subscriptionLink } from "@/lib/mail/subscription-link";
 import { cn } from "@/lib/utils";
 
@@ -11,17 +12,21 @@ import { cn } from "@/lib/utils";
  * 提案を押したときのハーフモーダル（#766）。AIが読み取った値を入れた入力欄を出し、直して登録できる。
  * 登録の経路は以前のカード（#689）と同じ `/api/mail/flow/apply`（サーバーが値を検証し直す）。
  * 下の「○○を開く」は記録の持ち主のアプリを開くだけで、入力値は引き継がない（サブスクは主ボタンが値を載せて開く。#709）。
+ * **家計簿は入力欄を持たない**（#781）。読み取った値を見せるだけで、主ボタンが確認待ちのレシートを作ってAsset Managerのレシート編集画面を開く。
+ * 品目・カテゴリ・メモ・確定はAsset Managerで行う。
  * 型だけをimportする（`suggest-core.ts` はサーバー専用の依存を持つため、値は読み込まない）。
  */
 
 export const KIND_META: Record<SuggestKind, { icon: string; title: string; run: string }> = {
-  payment: { icon: "🧾", title: "家計簿へ取り込む", run: "取り込む" },
+  payment: { icon: "🧾", title: "家計簿へ取り込む", run: "Asset Managerで入力する ↗" },
   subscription: { icon: "🔁", title: "サブスクを確認する（Asset Managerで）", run: "Asset Managerのサブスク一覧を開く ↗" },
   task: { icon: "📌", title: "タスクにする", run: "タスクを作る" },
   event: { icon: "📅", title: "予定にする", run: "予定を登録する" },
 };
 
-export type CardResult = { text: string; error: boolean; done: boolean };
+/** `href` は家計簿だけ: 作った（取り込み済みの）レシートの編集画面。自動で開けなかったときのリンクにする（#781）。 */
+import type { ReceiptState } from "@/lib/mail/flow-record-core";
+export type CardResult = { text: string; error: boolean; done: boolean; /** 家計簿の確認待ち（pending）・取り込み済み（duplicate）。確定したかは分からないので、doneのまま行は「登録済み」にしない（#821） */ receipt?: ReceiptState; href?: string };
 
 type Props = {
   card: Suggestion | null;
@@ -35,6 +40,57 @@ type Props = {
 };
 
 const input = "w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm";
+
+const yen = (value: number) => `${value.toLocaleString("ja-JP")}円`;
+
+/** 家計簿の読み取り結果（入力欄ではない。#781）。 */
+function PaymentSummary({ fields }: { fields: PaymentFields }) {
+  const total = fields.amount ?? itemsTotal(fields.items);
+  const when = fields.date ? `${fields.date.replaceAll("-", "/")}${fields.time ? ` ${fields.time}` : ""}` : null;
+  const dim = "text-muted";
+  return (
+    <div className="flex flex-col gap-2.5">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-[0.8125rem]">
+        <dt className="text-xs text-muted">支払先</dt>
+        <dd className={cn("min-w-0 break-words", !fields.place && dim)}>{fields.place ?? "読み取れませんでした"}</dd>
+        <dt className="text-xs text-muted">日時</dt>
+        <dd className={cn(!when && "text-danger")}>{when ?? "読み取れませんでした"}</dd>
+        {fields.usage && (
+          <>
+            <dt className="text-xs text-muted">使用量</dt>
+            <dd>{fields.usage}</dd>
+          </>
+        )}
+      </dl>
+      <div className="rounded-[10px] border border-border px-2.5 py-2 text-[0.8125rem]">
+        {fields.items.length > 0 ? (
+          <ul>
+            {fields.items.map((item, index) => (
+              <li key={index} className="flex justify-between gap-3 py-1">
+                <span className="min-w-0 break-words">
+                  {item.name}
+                  {item.quantity !== null && item.quantity !== 1 && <span className="text-muted">（×{item.quantity}）</span>}
+                </span>
+                <span className="shrink-0 tabular-nums">{yen(item.amount)}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className={cn("py-1 break-words", !fields.name && dim)}>{fields.name || "品目を読み取れませんでした"}</p>
+        )}
+        <p className="mt-1 flex justify-between gap-3 border-t border-border pt-1.5 font-bold">
+          <span>合計</span>
+          <span className={cn("tabular-nums", total === null && dim)}>
+            {total !== null ? yen(total) : fields.originalAmount !== null ? `${fields.originalCurrency} ${fields.originalAmount}（円は未換算）` : "読み取れませんでした"}
+          </span>
+        </p>
+      </div>
+      {fields.amount !== null && fields.items.length > 0 && itemsTotal(fields.items) !== fields.amount && (
+        <p className="text-[0.6875rem] text-muted">品目の合計（{yen(itemsTotal(fields.items)!)}）が合計と合いません。Asset Managerで直してください。</p>
+      )}
+    </div>
+  );
+}
 
 function Field({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
   return (
@@ -81,27 +137,15 @@ export function FlowSheet({ card, recommended, outcome, running, onEdit, onRun, 
             </button>
           </div>
           <p className="text-[0.6875rem] leading-relaxed text-muted">
-            AIが本文から読み取った値です。外れることがあるので、確かめてから{card.kind === "subscription" ? "開いてください" : "登録してください"}。
+            {card.kind === "payment"
+              ? "AIが本文から読み取った値です。Asset Managerの画面で直してから確定してください。"
+              : `AIが本文から読み取った値です。外れることがあるので、確かめてから${card.kind === "subscription" ? "開いてください" : "登録してください"}。`}
             {card.reason && <>　理由: {card.reason}</>}
           </p>
 
-          <div className="grid grid-cols-2 gap-2.5">
-            {card.kind === "payment" && (
-              <>
-                <Field label="支払先" className="col-span-2">
-                  <input className={cn(input, f.place === null && "border-danger/60")} value={String(f.place ?? "")} onChange={(e) => onEdit("payment", "place", e.target.value)} />
-                </Field>
-                <Field label="名称" className="col-span-2">
-                  <input className={input} value={String(f.name ?? "")} onChange={(e) => onEdit("payment", "name", e.target.value)} />
-                </Field>
-                <Field label="金額（円）">
-                  <input inputMode="numeric" className={cn(input, f.amount === null && "border-danger/60")} value={f.amount ?? ""} onChange={(e) => onEdit("payment", "amount", e.target.value)} />
-                </Field>
-                <Field label="日付">
-                  <input type="date" className={cn(input, f.date === null && "border-danger/60")} value={String(f.date ?? "")} onChange={(e) => onEdit("payment", "date", e.target.value)} />
-                </Field>
-              </>
-            )}
+          {card.kind === "payment" && <PaymentSummary fields={card.fields} />}
+
+          <div className={cn("grid grid-cols-2 gap-2.5", card.kind === "payment" && "hidden")}>
             {card.kind === "subscription" && (
               <>
                 <Field label="名称" className="col-span-2">
@@ -161,14 +205,9 @@ export function FlowSheet({ card, recommended, outcome, running, onEdit, onRun, 
             )}
           </div>
 
-          {card.kind === "payment" && (f.place === null || f.amount === null || f.date === null) && (
-            <p className="text-[0.6875rem] text-danger">
-              要確認: 本文から読み取れなかった項目があります。入力してください。
-              {f.amount === null && f.originalAmount !== null && `（外貨建て ${f.originalCurrency} ${f.originalAmount}。金額は円に換算して入れてください）`}
-            </p>
-          )}
-
-          {card.kind === "subscription" ? (
+          {card.kind === "payment" ? (
+            <PaymentActions card={card} outcome={outcome} running={running} onRun={onRun} fallback={app} />
+          ) : card.kind === "subscription" ? (
             <>
               <a
                 href={subscriptionLink(card.fields)}
@@ -206,5 +245,51 @@ export function FlowSheet({ card, recommended, outcome, running, onEdit, onRun, 
         </div>
       )}
     </dialog>
+  );
+}
+
+const primary = "rounded-[10px] bg-accent px-3 py-2.5 text-center text-sm font-bold text-accent-foreground transition-opacity disabled:opacity-50";
+
+/** 家計簿の主ボタン（#781）。確認待ちのレシートを作り、Asset Managerのレシート編集画面を開く。作れないときは理由と逃げ道のリンク。 */
+function PaymentActions({
+  card,
+  outcome,
+  running,
+  onRun,
+  fallback,
+}: {
+  card: Extract<Suggestion, { kind: "payment" }>;
+  outcome: CardResult | undefined;
+  running: boolean;
+  onRun: (card: Suggestion) => void;
+  fallback: { label: string; url: string };
+}) {
+  const blocker = paymentBlocker(card.fields);
+  if (blocker) {
+    return (
+      <>
+        <p className="text-[0.6875rem] text-danger">{blocker}</p>
+        <a href={fallback.url} target="_blank" rel="noopener noreferrer" className={primary}>
+          {fallback.label} ↗
+        </a>
+      </>
+    );
+  }
+  return (
+    <>
+      {outcome?.href ? (
+        // 作った後は同じレシートを開き直すリンクにする（自動で開けなかった環境の逃げ道も兼ねる）
+        <a href={outcome.href} target="_blank" rel="noopener noreferrer" className={primary}>
+          Asset Managerでレシートを開く ↗
+        </a>
+      ) : (
+        <button type="button" disabled={running} onClick={() => onRun(card)} className={primary}>
+          {running ? "レシートを作っています…" : KIND_META.payment.run}
+        </button>
+      )}
+      <p className="text-center text-[0.6875rem] text-muted">
+        確認待ちのレシートとして作り、Asset Managerで開きます（iPhoneのMorrowアプリではAsset Managerアプリで開きます）。カテゴリ・メモ・品目の修正と確定はAsset Managerで行います。
+      </p>
+    </>
   );
 }

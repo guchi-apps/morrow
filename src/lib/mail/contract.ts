@@ -12,7 +12,6 @@
 export const MAIL_VIEWS = [
   { key: "inbox", label: "受信トレイ" },
   { key: "unread", label: "未読" },
-  { key: "starred", label: "スター" },
   { key: "all", label: "すべて" },
   { key: "trash", label: "ゴミ箱" },
 ] as const;

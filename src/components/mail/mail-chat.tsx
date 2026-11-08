@@ -101,7 +101,7 @@ export function MailChat({ id, analyzing, flow }: { id: string; analyzing: boole
                       if (!row) return null;
                       return (
                         <li key={rowId}>
-                          <FlowRowButton card={row.card} recommended={row.recommended} registered={flow.outcomes[rowId]?.done === true} onOpen={() => flow.setOpen(rowId)} />
+                          <FlowRowButton card={row.card} recommended={row.recommended} registered={flow.outcomes[rowId]?.done === true && !flow.outcomes[rowId]?.receipt} receipt={flow.outcomes[rowId]?.receipt ?? null} onOpen={() => flow.setOpen(rowId)} />
                         </li>
                       );
                     })}

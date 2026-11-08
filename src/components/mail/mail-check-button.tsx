@@ -2,7 +2,7 @@
 
 import { RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -41,7 +41,7 @@ function describe(result: CheckResult): { text: string; error: boolean } {
 }
 
 /** 「いま確認」（#683）。15分ごとの確認と同じ処理（新着の判定 → 必要なら通知）をその場で走らせる。 */
-export function MailCheckButton({ className }: { className?: string }) {
+export function MailCheckButton({ className, status }: { className?: string; status?: ReactNode }) {
   const router = useRouter();
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
@@ -63,15 +63,18 @@ export function MailCheckButton({ className }: { className?: string }) {
 
   return (
     <div className={cn("flex flex-col gap-2", className)}>
-      <button
-        type="button"
-        onClick={run}
-        disabled={running}
-        className="inline-flex items-center justify-center gap-1.5 rounded-[9px] bg-accent px-3.5 py-2 text-xs font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
-      >
-        <RefreshCw className={cn("size-3.5", running && "animate-spin motion-reduce:animate-none")} aria-hidden="true" />
-        {running ? "確認しています…" : "いま確認"}
-      </button>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        {status && <span className="text-[0.6875rem] text-muted">{status}</span>}
+        <button
+          type="button"
+          onClick={run}
+          disabled={running}
+          className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-[9px] bg-accent px-3.5 py-2 text-xs font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+        >
+          <RefreshCw className={cn("size-3.5", running && "animate-spin motion-reduce:animate-none")} aria-hidden="true" />
+          {running ? "確認しています…" : "いま確認"}
+        </button>
+      </div>
       {message && (
         <p
           role={message.error ? "alert" : "status"}

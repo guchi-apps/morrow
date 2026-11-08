@@ -1,11 +1,13 @@
 "use client";
 
 import { KIND_META } from "@/components/mail/flow-sheet";
+import { itemsTotal } from "@/lib/mail/payment-receipt";
+import type { ReceiptState } from "@/lib/mail/flow-record-core";
 import type { Suggestion } from "@/lib/mail/suggest-core";
 import { cn } from "@/lib/utils";
 
 /** 提案の1行（#766）。押すとハーフモーダルが開く。分析と指示の返事（#784）の両方で使う。型だけをimportする。 */
-export function FlowRowButton({ card, recommended, registered, onOpen }: { card: Suggestion; recommended: boolean; registered: boolean; onOpen: () => void }) {
+export function FlowRowButton({ card, recommended, registered, receipt = null, onOpen }: { card: Suggestion; recommended: boolean; registered: boolean; receipt?: ReceiptState | null; onOpen: () => void }) {
   const meta = KIND_META[card.kind];
   const preview = cardPreview(card);
   return (
@@ -26,6 +28,7 @@ export function FlowRowButton({ card, recommended, registered, onOpen }: { card:
           {meta.title}
           {recommended && <span className="rounded-full bg-accent px-2 py-0.5 text-[0.625rem] font-bold text-accent-foreground">おすすめ</span>}
           {registered && <span className="rounded-full bg-fair-surface px-2 py-0.5 text-[0.625rem] font-bold text-fair">登録済み</span>}
+          {!registered && receipt && <span className="rounded-full bg-accent-surface px-2 py-0.5 text-[0.625rem] font-bold text-accent">{receipt === "pending" ? "確認待ち" : "取り込み済み"}</span>}
         </span>
         {preview && <span className="truncate opacity-85">{preview}</span>}
         {card.reason && (
@@ -46,7 +49,13 @@ function cardPreview(card: Suggestion): string {
   const day = (value: string | null) => (value ? `${Number(value.slice(5, 7))}/${Number(value.slice(8, 10))}` : null);
   const parts: (string | null)[] =
     card.kind === "payment"
-      ? [card.fields.place, card.fields.name, card.fields.amount !== null ? `${card.fields.amount.toLocaleString("ja-JP")}円` : null, day(card.fields.date)]
+      ? [
+          card.fields.place,
+          // 品目に分かれていれば件数（#781）。合計が無ければ品目の合計
+          card.fields.items.length > 1 ? `${card.fields.items.length}品目` : card.fields.items[0]?.name || card.fields.name,
+          (card.fields.amount ?? itemsTotal(card.fields.items)) !== null ? `${(card.fields.amount ?? itemsTotal(card.fields.items))!.toLocaleString("ja-JP")}円` : null,
+          day(card.fields.date),
+        ]
       : card.kind === "subscription"
         ? [card.fields.name, card.fields.amount !== null ? `${card.fields.amount.toLocaleString("ja-JP")}${card.fields.currency === "USD" ? "ドル" : "円"}` : null, card.fields.cycle === "YEARLY" ? "毎年" : "毎月"]
         : card.kind === "task"

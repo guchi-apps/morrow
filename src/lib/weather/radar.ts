@@ -122,7 +122,7 @@ export function tilesFor(latitude: number, longitude: number, zoom: number, widt
 }
 
 export function baseTileUrl(zoom: number, tile: Pick<RadarTile, "x" | "y">): string {
-  return `https://cyberjapandata.gsi.go.jp/xyz/pale/${zoom}/${tile.x}/${tile.y}.png`;
+  return `https://cyberjapandata.gsi.go.jp/xyz/blank/${zoom}/${tile.x}/${tile.y}.png`;
 }
 
 export function rainTileUrl(frame: RadarTime, zoom: number, tile: Pick<RadarTile, "x" | "y">): string {
