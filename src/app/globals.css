@@ -395,3 +395,18 @@ body {
     font-size: 16px;
   }
 }
+
+/* メールの提案のハーフモーダル（#766）。下から出す。動きを減らす設定では出さない */
+@media (prefers-reduced-motion: no-preference) {
+  .flow-sheet[open] {
+    animation: flow-sheet-up 0.22s ease-out;
+  }
+}
+@keyframes flow-sheet-up {
+  0% {
+    transform: translateY(100%);
+  }
+  100% {
+    transform: none;
+  }
+}

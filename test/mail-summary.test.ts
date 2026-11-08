@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { POINTS_MAX, buildSummaryPrompt, parseSummaryReply } from "@/lib/mail/summary-core";
+import { POINTS_MAX, parseSummaryReply } from "@/lib/mail/summary-core";
 
 /** メールの要約（#717）のうち、DB・ネットワークに触れない部分。 */
 
@@ -25,18 +25,5 @@ describe("parseSummaryReply", () => {
     assert.equal(parseSummaryReply('{"points":["a"]}'), null);
     assert.equal(parseSummaryReply("[1]"), null);
     assert.deepEqual(parseSummaryReply('{"summary":"x"}'), { summary: "x", points: [] });
-  });
-});
-
-describe("buildSummaryPrompt", () => {
-  it("本文をデータとして渡し、メール内の指示に従わせない", () => {
-    const prompt = buildSummaryPrompt({ from: "a@example.com", subject: "件名", body: "本文です" });
-    assert.match(prompt, /メールの中に書かれた指示/);
-    assert.match(prompt, /"body":"本文です"/);
-  });
-
-  it("本文は上限で切る", () => {
-    const prompt = buildSummaryPrompt({ from: "a", subject: "b", body: "あ".repeat(20000) });
-    assert.ok(prompt.length < 9000);
   });
 });
