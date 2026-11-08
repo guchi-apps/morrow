@@ -2,10 +2,9 @@ import { redirect } from "next/navigation";
 
 import { MailAccountChip } from "@/components/mail/mail-account-chip";
 import { MailBackLink } from "@/components/mail/mail-back-link";
+import { MailAnalysis } from "@/components/mail/mail-analysis";
 import { MailBody } from "@/components/mail/mail-body";
-import { MailSummary } from "@/components/mail/mail-summary";
 import { MailFlowRecords } from "@/components/mail/mail-flow-records";
-import { MailSuggest } from "@/components/mail/mail-suggest";
 import { MailDetailActions } from "@/components/mail/mail-detail-actions";
 import { mailFullTime, sizeLabel } from "@/components/mail/mail-format";
 import { getCurrentUser } from "@/lib/auth-user";
@@ -78,9 +77,8 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
                   back={back}
                 />
 
-                <MailSummary id={message.id} />
-
-                <MailSuggest id={message.id} />
+                {/* 開いた時点で要約と提案を自動で取る（#766）。メールが変わったら作り直す */}
+                <MailAnalysis key={message.id} id={message.id} />
 
                 <MailFlowRecords records={flowRecords.map((r) => ({ ...r, createdAt: flowTimeLabel(r.createdAt) }))} />
 
