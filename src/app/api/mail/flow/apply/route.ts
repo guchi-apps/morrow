@@ -29,5 +29,11 @@ export async function POST(request: Request) {
       result.kind === "not_owner" ? 403 : result.kind === "invalid" ? 400 : result.kind === "not_found" ? 404 : result.kind === "unconfigured" ? 503 : 502;
     return NextResponse.json({ error: result.message, kind: result.kind }, { status });
   }
-  return NextResponse.json({ status: result.outcome.status, message: result.outcome.message, labeled: result.labeled });
+  return NextResponse.json({
+    status: result.outcome.status,
+    message: result.outcome.message,
+    labeled: result.labeled,
+    // 家計簿は作った（取り込み済みの）レシートのid。画面がAsset Managerのレシート編集画面を開く（#781）
+    ...(result.outcome.receiptId !== undefined ? { receiptId: result.outcome.receiptId } : {}),
+  });
 }
