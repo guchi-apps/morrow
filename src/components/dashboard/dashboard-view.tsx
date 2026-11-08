@@ -627,13 +627,14 @@ function HourlyStrip({ cells, nowIndex, resetKey }: { cells: HourCell[]; nowInde
             aria-hidden="true"
             style={{ gridColumn: `${band.start + 1} / span ${band.span}`, gridRow: 1 }}
             className={cn(
-              "mr-0.5 truncate rounded-md px-1.5 py-0.5 text-[0.65625rem] font-bold whitespace-nowrap",
+              "mr-0.5 rounded-md px-1.5 py-0.5 text-[0.65625rem] font-bold whitespace-nowrap",
               BAND_CLASS[band.cell.placeKind],
               band.start + band.span <= nowIndex && "opacity-50 grayscale",
             )}
             title={band.cell.placeLabel}
           >
-            {band.cell.placeLabel}
+            {/* li に overflow を持たせると sticky の基準が li になり追従しないので、切り詰めはここで行う（#685） */}
+            <span className="sticky left-1 inline-block max-w-full truncate align-top">{band.cell.placeLabel}</span>
           </li>
         ))}
         {cells.map((cell, index) => {
