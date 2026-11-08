@@ -18,8 +18,18 @@ import { readMcpBody } from "@/lib/mcp/rpc-body";
 
 const PROTOCOL_VERSION = "2025-06-18";
 const REQUEST_TIMEOUT_MS = 8_000;
+/** 書き込みの `tools/call` だけ長く待つ（Asset Managerの判定が重い回がある。`initialize` 等は8秒のまま。#709）。 */
+const WRITE_CALL_TIMEOUT_MS = 30_000;
+const REASON_LIMIT = 120;
 
-export class McpCallError extends Error {}
+export class McpCallError extends Error {
+  /** 道具が `isError` で返した、画面に出してよい短い理由（`reason`）。無ければnull。本文・スタックは含めない。 */
+  readonly reason: string | null;
+  constructor(message: string, reason: string | null = null) {
+    super(message);
+    this.reason = reason;
+  }
+}
 
 /** 結果のテキストをJSONとして読めたもの。読めなければ例外。 */
 export type ToolJson = Record<string, unknown>;
@@ -34,6 +44,7 @@ async function post(
   server: ConnectedServer,
   sessionId: string | null,
   body: unknown,
+  timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<{ sessionId: string | null; message: unknown }> {
   const response = await fetch(server.url, {
     method: "POST",
@@ -45,7 +56,7 @@ async function post(
       ...(sessionId ? { "Mcp-Session-Id": sessionId } : {}),
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   if (!response.ok && response.status !== 202) {
@@ -101,10 +112,34 @@ export async function callWriteToolJson(
   if (!(MAIL_FLOW_WRITE_TOOLS as readonly string[]).includes(tool)) {
     throw new McpCallError(`${tool} は許可していない書き込みの道具です`);
   }
-  return callTool(server, tool, args);
+  return callTool(server, tool, args, WRITE_CALL_TIMEOUT_MS);
 }
 
-async function callTool(server: ConnectedServer, tool: string, args: Record<string, unknown>): Promise<ToolJson> {
+/** `isError` の結果から、画面に出してよい短い `reason` だけを取る（本文・スタックは出さない）。 */
+function errorReason(result: Record<string, unknown>): string | null {
+  const structured = result.structuredContent;
+  let record: unknown = structured;
+  if (!record || typeof record !== "object") {
+    const content = Array.isArray(result.content) ? result.content : [];
+    const text = content.find((item): item is { text: string } => !!item && typeof (item as { text?: unknown }).text === "string")?.text;
+    try {
+      record = text ? JSON.parse(text) : null;
+    } catch {
+      record = null;
+    }
+  }
+  const reason = record && typeof record === "object" ? (record as { reason?: unknown }).reason : null;
+  if (typeof reason !== "string") return null;
+  const flat = reason.replace(/[\u0000-\u001f\u007f\s]+/g, " ").trim();
+  return flat === "" ? null : flat.slice(0, REASON_LIMIT);
+}
+
+async function callTool(
+  server: ConnectedServer,
+  tool: string,
+  args: Record<string, unknown>,
+  callTimeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<ToolJson> {
 
   const init = await post(server, null, {
     jsonrpc: "2.0",
@@ -125,10 +160,13 @@ async function callTool(server: ConnectedServer, tool: string, args: Record<stri
     id: 2,
     method: "tools/call",
     params: { name: tool, arguments: args },
-  });
+  }, callTimeoutMs);
   const result = resultOf(call.message, server.label);
 
-  if (result.isError === true) throw new McpCallError(`${tool} が失敗を返しました`);
+  if (result.isError === true) {
+    const reason = errorReason(result);
+    throw new McpCallError(`${tool} が失敗を返しました${reason ? `: ${reason}` : ""}`, reason);
+  }
 
   if (result.structuredContent && typeof result.structuredContent === "object") {
     return result.structuredContent as ToolJson;

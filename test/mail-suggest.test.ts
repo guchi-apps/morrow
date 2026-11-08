@@ -10,6 +10,7 @@ import {
   readToolOutcome,
   toolCallFor,
 } from "@/lib/mail/suggest-core";
+import { subscriptionLink, type SubscriptionFields } from "@/lib/mail/subscription-link";
 
 /** メールの提案（#689）のうち、DB・ネットワークに触れない部分。 */
 
@@ -125,5 +126,22 @@ describe("findExistingEvent（予定の重複確認）", () => {
     assert.equal(findExistingEvent({ configured: false }, { title: "x" }), "unreadable");
     assert.equal(findExistingEvent(sched([], { complete: false }), { title: "x" }), "unreadable");
     assert.equal(findExistingEvent(null, { title: "x" }), "unreadable");
+  });
+});
+
+describe("サブスク登録（#709）", () => {
+  it("値を検証し、読めない項目はnullのままにする", () => {
+    const s = normalizeSuggestion("subscription", { name: "Aqua Voice Pro", amount: 2000, currency: "EUR", cycle: "WEEKLY", day: 40, startDate: "2026-02-31" });
+    assert.ok(s && s.kind === "subscription");
+    assert.deepEqual(s.fields, { name: "Aqua Voice Pro", amount: 2000, currency: "JPY", cycle: "MONTHLY", day: null, startDate: null });
+  });
+
+  it("Morrowからは書き込まず、Asset Managerへのリンクだけを作る", () => {
+    const s = normalizeSuggestion("subscription", { name: "A B", amount: 2000, currency: "JPY", cycle: "MONTHLY", day: 8, startDate: "2026-11-08" })!;
+    assert.equal(toolCallFor(s, { messageId: "m", subject: "s", from: "f", receivedAt: null }, "u1").ok, false);
+    assert.equal(
+      subscriptionLink(s.fields as SubscriptionFields),
+      "https://asset.gucchii.com/subscriptions?new=1&name=A+B&currency=JPY&cycle=MONTHLY&amount=2000&day=8&start=2026-11-08",
+    );
   });
 });
