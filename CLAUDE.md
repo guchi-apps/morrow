@@ -266,9 +266,10 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
   使ったトークン量は#133から `ApiUsage` へ記録している（費用が付かないだけ）
 - 旧実装そのものを戻す場合だけ履歴（PR #574より前）から拾う。窓口のチャットを新設するときは、旧実装を土台にせず設計し直す
 
-### Hermes Agentへの経路と認証（#726。設計のみ・未実装）
+### Hermes Agentへの経路と認証（#726・#737）
 
-**経路と認証の設計を確定しただけで、チャット画面・ブリッジ・Morrow側のクライアントはまだ無い**（実行役のHermesはいまもDiscord連携だけ）。
+**ブリッジ（`hermes-bridge/`）とMorrow側のクライアント（`src/lib/hermes/`）は#737で実装した。チャット画面（#728）・subpc側の設定と疎通確認（#738。手作業）はまだ**（実行役のHermesはいまもDiscord連携だけ）。
+クライアントの失敗は `HermesError.kind`（`unreachable`／`hermes_down`／`rejected`／`not_configured`／`no_session`…）で区別する。使用量は `recordHermesTurnUsage()`（`feature: hermes_chat`）で1ターン1行。ブリッジはパラメータプロパティを使わない（Nodeの型剥がしで動かすため）。
 詳細は `docs/hermes-route.md`。実装・設定を足すときはまずそこを読む。
 
 - **VPS→subpcの順向きで、tailnet越しにsubpc上の中継（ブリッジ）を叩く。** Hermes（`hermes -p morrow serve --isolated`）もブリッジも127.0.0.1に閉じ、外へ出すのは `tailscale serve` の専用ポートだけ
@@ -297,6 +298,17 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
 - 重複防止は道具ごと。**冪等キー1本を前提にしない**。手段の無い道具は結果不明のとき自動再試行しない
 - `dryRun` は確認用の `previewDeleteEvent()` だけが持つ。実行用は `dryRun` を断る
 - 通知の種類・チャット画面への組み込みは未実装（#728・#737）
+
+### DiscordのHermesとの境界（#729。設計のみ）
+
+詳細は `docs/hermes-discord.md`。Discord（default profile）は#728の後も残すが、役割を分ける。`~/.hermes` の変更は人の作業（#762）。
+
+- **Discordで受けるのは、通知の受信・通知へのその場の操作（🗑️🔎・スレッドの追い質問）・開発運用（#アプリ-issue提案・シェル作業）だけ。**
+  台帳を触る日常の指示はMorrowへ寄せ、#ヘルメス の自由会話は#728の公開後に止める
+- **セッション・記憶は共有しない**（profile分離。#725）。`--clone` は作成時点の `MEMORY.md`・`USER.md` を写すので作成後に空にする。
+  cron・ボットトークンは写らない（`--clone-channels` は付けない）
+- **端末を鳴らすのはMorrowだけ。** 新着メールはDiscordのミラー（全メール・Hermesの判定）とMorrowの「必要なメール」（#683）で重なるので、
+  Discord側の🚨メンションを外し、ミラーは記録として残す。Hermesのチャットの完了・承認待ち（#728）もMorrowのPushだけで知らせる
 
 ### 秘書の人格（#226）
 
@@ -774,7 +786,8 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 - 本文のHTMLは加工されていないので、`sandbox="allow-popups allow-popups-to-escape-sandbox"`（`allow-scripts`・`allow-same-origin` なし）の
   `iframe srcdoc` に閉じ込め、内側のCSPで外部画像を「画像を表示」まで止める（`mailSrcdoc()`）
 - **新着確認（`src/lib/mail/triage.ts`）の起点は、15分ごとのcron（`/api/briefing` の `after()`）と画面の「いま確認」（`POST /api/mail/check`。1分あける）。**
-  vpsの `cron/crontab.txt` は以前から `*/15` で `scripts/aide-bot-briefing.sh`（`/api/briefing`）を叩いているので、vps側の変更は要らなかった
+  vpsの `cron/crontab.txt` は以前から `*/15` で `scripts/aide-bot-briefing.sh`（`/api/briefing`）を叩いているので、vps側の変更は要らなかった。
+  **受信から通知までを速くする方法（間隔の短縮・Gmailのpush通知・IMAP IDLE）の調査は `docs/mail-realtime.md`**（#761。本番のメインはGmail APIで、IMAPは追加アカウントだけ）
 - 判定はCodex（用途「メールの判定」・機能 `mail`）。**渡すのは差出人・件名・冒頭（snippet。200字で切る）だけ**で、メッセージIDは `m1`…の仮番号にする
   （`triage-core.ts`・`test/mail-triage.test.ts`）。通知の種類がオフ・判定していない新着が無い回はCodexを呼ばない。基準は利用者が書く `User.mailCriteria`（空なら既定）
 - **同じメールは二度判定・二度通知しない**（`MailTriage` の利用者×メールID一意）。**ただし必要と判定した行は、通知の試行（`sendPushToUser()`）が終わってから作る**（#693。先に作ると、作成と送信のあいだで止まった回の通知が永久に失われる）。不要・枠あふれの行は先に作る。送信後・確定前に止まった回は、次の確認で再判定されて再通知されうる（取りこぼすより重複を選ぶ。再判定はCodexなので結果は変わりうる）。件名・差出人・本文はMorrowのDBに残さない（`NotificationLog` の本文も件数だけ）。
@@ -783,8 +796,6 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 - 開発DBのシードにメールのダミーは無い（メールはAIDEにしか無いため）。手元では、`initialize` 不要の小さなHTTPスタブ（`/api/mail/messages`・
   `/api/mail/messages/<id>`・`/api/mail/actions` に答えるだけ）を立てて `.env.local` の `AIDE_MAIL_API_URL`・`AIDE_MAIL_API_TOKEN` を向け、
   `CODEX_BIN` も判定のJSON配列を返すスタブにして確かめる。「いま確認」の前に `User.mailCheckedAt` を少し戻すと新着として拾われる
-
-- **一覧の丸印はアカウント別の色（#760）。** メイン＝オレンジ・サブ＝灰・フォーマル＝青（`mailAccountTone()`で鍵から固定。タブの丸・チップと同じ色）。未読は濃く、既読は同じ色を薄く（`opacity-30`）出し、全行に丸印を置く
 
 ### メール詳細の操作と要約（#717）
 
