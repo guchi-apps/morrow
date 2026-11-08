@@ -43,7 +43,7 @@ export function MailRows({ messages, labels, supportsLabels, inTrash, showAccoun
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // 押した行（#699）。本文の画面へ移るまでの一瞬、押したことが分かるよう色を付ける
   const [opening, setOpening] = useState<string | null>(null);
-  const { apply, archiveRow, pending, notice } = useMailAction({ after: () => setSelected(new Set()) });
+  const { apply, archiveRow, pending, notice, queued } = useMailAction({ after: () => setSelected(new Set()) });
   const now = new Date(nowMs);
   const ids = [...selected];
   // 選択中のアカウント。AIDEは複数アカウントにまたがる操作を1件も変更せず断るので、同じアカウントの行だけ選べるようにする
@@ -112,7 +112,14 @@ export function MailRows({ messages, labels, supportsLabels, inTrash, showAccoun
           )}
         </div>
       )}
-      <MailNotice notice={notice} />
+      {queued > 0 ? (
+        <p role="status" className="flex items-center gap-2 rounded-[10px] border border-border bg-surface px-3.5 py-2.5 text-xs text-muted">
+          <span aria-hidden className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-border border-t-emerald-500" />
+          アーカイブ中…（残り{queued}通）
+        </p>
+      ) : (
+        <MailNotice notice={notice} />
+      )}
 
       <ul className="overflow-hidden rounded-xl border border-border bg-surface">
         {messages.map((message) => {
