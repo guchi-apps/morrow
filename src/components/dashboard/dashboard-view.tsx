@@ -7,6 +7,8 @@ import { DaySwipe } from "@/components/dashboard/day-swipe";
 import { HourlyStrip, WeatherIcon, YesterdayNote } from "@/components/weather/hourly-strip";
 import { weatherHref } from "@/lib/weather/place-input";
 import { dashboardSchedule } from "@/lib/dashboard/aide";
+import { mailIdsByTarget } from "@/lib/mail/link";
+import { linkKey, mailBadgeLabel } from "@/lib/mail/link-core";
 import { addDays, cardDayName, DAY_RANGE, dayHref, relativeDayName } from "@/lib/dashboard/day-offset";
 import type { ScheduleItem, ScheduleView, WeatherDay } from "@/lib/dashboard/parse";
 import { schedulePhase, type SchedulePhase } from "@/lib/dashboard/schedule-phase";
@@ -563,6 +565,14 @@ function SegmentList({ segments }: { segments: PlaceSegment[] }) {
 
 async function ScheduleBody({ userId, now, offset }: { userId: string; now: Date; offset: number }) {
   const schedule: ScheduleView = await dashboardSchedule(userId, now, offset);
+  // 紐づいたメール（#834）。予定・タスクのidが読めた行だけ引く
+  const mailLinks =
+    schedule.status === "ok"
+      ? await mailIdsByTarget(
+          userId,
+          schedule.items.flatMap((item) => (item.id && (item.kind === "event" || item.kind === "task") ? [{ kind: item.kind, targetId: item.id }] : [])),
+        )
+      : new Map<string, string[]>();
 
   switch (schedule.status) {
     case "unconnected":
@@ -572,7 +582,7 @@ async function ScheduleBody({ userId, now, offset }: { userId: string; now: Date
     case "not_configured":
       return <Empty>AIDEで予定（DaySpan）の接続が未設定です。予定が無いという意味ではありません。</Empty>;
     case "ok":
-      return <ScheduleOk schedule={schedule} now={now} offset={offset} />;
+      return <ScheduleOk schedule={schedule} now={now} offset={offset} mailLinks={mailLinks} />;
   }
 }
 
@@ -582,6 +592,35 @@ const KIND_CHIP: Record<ScheduleItem["kind"], string | null> = {
   reminder: null,
   task: "タスク",
 };
+
+/** 紐づいたメールの✉（#834）。1通ならそのメール詳細へ、複数なら開いて選ぶ（JS不要の `details`）。 */
+function MailBadge({ messageIds }: { messageIds: string[] }) {
+  if (messageIds.length === 0) return null;
+  const badge = "ml-1.5 inline-flex items-center rounded-md border border-accent/30 bg-accent-surface px-1.5 text-[0.6875rem] leading-5 text-accent";
+  if (messageIds.length === 1) {
+    return (
+      <Link href={`/mail/${encodeURIComponent(messageIds[0])}`} className={badge} aria-label="紐づいたメールを開く">
+        {mailBadgeLabel(1)}
+      </Link>
+    );
+  }
+  return (
+    <details className="relative ml-1.5 inline-block align-middle">
+      <summary className={cn(badge, "ml-0 cursor-pointer list-none")} aria-label={`紐づいたメール（${messageIds.length}通）`}>
+        {mailBadgeLabel(messageIds.length)}
+      </summary>
+      <ul className="absolute left-0 z-10 mt-1 min-w-[9rem] rounded-lg border border-border bg-surface p-1 text-xs shadow-lg">
+        {messageIds.map((messageId, index) => (
+          <li key={messageId}>
+            <Link href={`/mail/${encodeURIComponent(messageId)}`} className="block rounded px-2 py-1 hover:bg-rail-active">
+              メール {index + 1}（新しい順）
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
 
 function timeRange(item: ScheduleItem): string {
   if (!item.start) return item.kind === "event" ? "終日" : "—";
@@ -601,7 +640,7 @@ const PHASE_LEGEND: { phase: SchedulePhase; label: string }[] = [
   { phase: "record", label: "記録" },
 ];
 
-function ScheduleOk({ schedule, now, offset }: { schedule: Extract<ScheduleView, { status: "ok" }>; now: Date; offset: number }) {
+function ScheduleOk({ schedule, now, offset, mailLinks }: { schedule: Extract<ScheduleView, { status: "ok" }>; now: Date; offset: number; mailLinks: Map<string, string[]> }) {
   const { items, free, partial, googleDisconnected } = schedule;
   const nowTime = jstTimeLabel(now);
   const phases = items.map((item) => schedulePhase(item, nowTime, offset));
@@ -672,6 +711,7 @@ function ScheduleOk({ schedule, now, offset }: { schedule: Extract<ScheduleView,
                   {item.kind === "event" && item.note && (
                     <span className="ml-1.5 text-[0.6875rem] text-muted">{item.note}</span>
                   )}
+                  {item.id && (item.kind === "event" || item.kind === "task") && <MailBadge messageIds={mailLinks.get(linkKey(item.kind, item.id)) ?? []} />}
                 </span>
               </li>
             );

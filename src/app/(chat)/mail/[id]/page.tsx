@@ -5,6 +5,7 @@ import { MailBackLink } from "@/components/mail/mail-back-link";
 import { MailAnalysis } from "@/components/mail/mail-analysis";
 import { MailBody } from "@/components/mail/mail-body";
 import { MailFlowRecords } from "@/components/mail/mail-flow-records";
+import { MailLinks } from "@/components/mail/mail-links";
 import { MailDetailActions } from "@/components/mail/mail-detail-actions";
 import { mailFullTime, sizeLabel } from "@/components/mail/mail-format";
 import { getCurrentUser } from "@/lib/auth-user";
@@ -14,6 +15,7 @@ import { safeMailBack } from "@/lib/mail/back-path";
 import { MAIL_FAILURE_MESSAGES, isMailMessageId, mailAccountKeyOf } from "@/lib/mail/contract";
 import { flowRowStates } from "@/lib/mail/flow-record-core";
 import { flowRecordsFor } from "@/lib/mail/flow-record";
+import { linksForMessage } from "@/lib/mail/link";
 import { neededTriages } from "@/lib/mail/triage";
 
 export const dynamic = "force-dynamic";
@@ -49,10 +51,11 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
 
   // 本文と判定は同時に取る（#699。以前は本文→一覧→判定の順に1本ずつ待っていた）。
   // 判定はDBだけなので、本文が取れなかった回に引いても害は無い。
-  const [result, triages, flowRecords] = await Promise.all([
+  const [result, triages, flowRecords, mailLinks] = await Promise.all([
     isMailMessageId(id) ? getMail(user, id) : Promise.resolve({ ok: false, kind: "not_found", message: null } as const),
     neededTriages(user.id, [id]),
     flowRecordsFor(user.id, id),
+    linksForMessage(user.id, id),
   ]);
   const flowStates = flowRowStates(flowRecords);
   const triage = result.ok ? triages.get(id) : undefined;
@@ -88,6 +91,9 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
                   // 家計簿の確認待ち・取り込み済みは、確定したか分からない。「登録済み」にしない（#821）
                   receiptState={flowStates.receiptState}
                 />
+
+                {/* 紐づけた予定・タスク（#834）。メールから作った直後はrefreshで入れ替わるので、一覧の中身をkeyにする */}
+                <MailLinks key={mailLinks.map((l) => l.id).join(",")} id={message.id} links={mailLinks} />
 
                 <MailFlowRecords records={flowRecords.map((r) => ({ ...r, createdAt: flowTimeLabel(r.createdAt) }))} />
 

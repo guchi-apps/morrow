@@ -59,6 +59,7 @@ model User {
   topics            Topic[]
   mailTriages       MailTriage[]
   mailFlowRecords   MailFlowRecord[]
+  mailLinks         MailLink[]
   hermesProposals   HermesProposal[]
   hermesActionLogs  HermesActionLog[]
 }
@@ -429,6 +430,38 @@ model MailFlowRecord {
 
   @@unique([userId, messageId, kind, contentKey])
   @@index([userId, messageId])
+}
+
+// --- メールと予定・タスクの紐づけ（#834） ---
+// どのメールがどの予定・タスクに紐づくかの控え。AIDEの予定作成にはメール参照を載せる欄が無いためMorrow側に持つ。
+// 台帳の記録の複製の正ではなく、押した操作の控え（#732）。件名・差出人・本文は持たない。
+// 持つのは紐づけ時点の題名だけ（台帳側で変わっても追従しない。台帳から消えても行は残り、利用者が解除できる）。
+
+model MailLink {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// AIDEのメッセージID（最大320文字）。
+  messageId  String  @db.VarChar(320)
+  /// event / task。
+  kind       String  @db.VarChar(10)
+  /// AIDEの予定id（`aide_schedule` の events[].id）またはタスクid（`taskId`）。
+  targetId   String  @db.VarChar(120)
+  /// 予定だけ: そのカレンダーのid（`events[].calendarId`）。
+  calendarId String? @db.VarChar(200)
+  /// 紐づけ時点の題名（画面にそのまま出す短い文）。
+  title      String  @db.VarChar(200)
+  /// 紐づけ時点の日付（YYYY-MM-DD。予定の日・タスクの期限。無ければnull）。
+  dateText   String? @db.VarChar(10)
+  /// created（メールから作成した）/ manual（あとから紐づけた）。
+  source     String  @db.VarChar(10)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, messageId, kind, targetId])
+  @@index([userId, messageId])
+  @@index([userId, kind, targetId])
 }
 
 // --- Hermes Agentの提案と実行の記録（#748。設計は docs/hermes-actions.md） ---

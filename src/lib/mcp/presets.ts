@@ -136,6 +136,8 @@ export const MCP_PRESETS: McpPreset[] = [
       "aide_aircon_status",
       "aide_weather",
       "aide_schedule",
+      // メールの紐づけ（#834）の候補。固定タスクDBの読み取りだけ
+      "aide_tasks",
       "aide_balances",
       "aide_fixed_costs",
       "aide_utility_bills",
