@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   buildSuggestPrompt,
+  findExistingEvent,
   normalizeSuggestion,
   parseSuggestReply,
   plainBody,
@@ -104,5 +105,25 @@ describe("readToolOutcome / buildSuggestPrompt / plainBody", () => {
   it("本文がHTMLだけのときはタグを落とす", () => {
     assert.equal(plainBody(null, "<p>こんにちは<script>x</script></p>").trim(), "こんにちは");
     assert.equal(plainBody("text", "<p>html</p>"), "text");
+  });
+});
+
+describe("findExistingEvent（予定の重複確認）", () => {
+  const sched = (events: unknown[], extra: Record<string, unknown> = {}) => ({ configured: true, complete: true, sources: { googleConnected: true }, days: [{ events }], ...extra });
+  const ev = { title: "打ち合わせ", startTime: "10:00", endTime: "11:00", allDay: false };
+  it("同じタイトル・時刻があれば exists", () => {
+    assert.equal(findExistingEvent(sched([ev]), { title: "打ち合わせ", startTime: "10:00", endTime: "11:00" }), "exists");
+  });
+  it("時刻・タイトルが違えば none、中止された予定は数えない", () => {
+    assert.equal(findExistingEvent(sched([ev]), { title: "打ち合わせ", startTime: "11:00", endTime: "12:00" }), "none");
+    assert.equal(findExistingEvent(sched([{ ...ev, outcome: "CANCELED" }]), { title: "打ち合わせ", startTime: "10:00", endTime: "11:00" }), "none");
+  });
+  it("終日は時刻なし同士で照合する", () => {
+    assert.equal(findExistingEvent(sched([{ title: "休み", allDay: true }]), { title: "休み" }), "exists");
+  });
+  it("取得できなかった・一部だけの応答は unreadable", () => {
+    assert.equal(findExistingEvent({ configured: false }, { title: "x" }), "unreadable");
+    assert.equal(findExistingEvent(sched([], { complete: false }), { title: "x" }), "unreadable");
+    assert.equal(findExistingEvent(null, { title: "x" }), "unreadable");
   });
 });
