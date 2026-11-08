@@ -100,7 +100,7 @@ export function useFlowCards(mailId: string) {
       const noReceipt = card.kind === "payment" && !failed && !href ? "レシートの画面を開けませんでした。Asset Managerの家計簿連携から開いてください。" : "";
       setOutcomes((o) => ({
         ...o,
-        [rowId]: { text: `${data?.message ?? "実行しました。"}${data?.labeled ? "「処理済み」ラベルを付けました。" : ""}${noReceipt}`, error: failed, done: !failed, href },
+        [rowId]: { text: `${data?.message ?? "実行しました。"}${data?.labeled ? "「処理済み」ラベルを付けました。" : ""}${noReceipt}`, error: failed, done: !failed, pending: data?.status === "pending", href },
       }));
       // 登録した内容の欄（#750）と「処理済み」ラベルを更新する
       if (!failed) router.refresh();

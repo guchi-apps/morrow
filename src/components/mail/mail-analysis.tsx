@@ -19,7 +19,7 @@ import type { MailAnalysis as Analysis } from "@/lib/mail/analyze-core";
 const BUSY_RETRY_MS = 5000;
 const BUSY_RETRY_MAX = 24;
 
-export function MailAnalysis({ id, registeredKinds }: { id: string; registeredKinds: string[] }) {
+export function MailAnalysis({ id, registeredKinds, pendingKinds = [] }: { id: string; registeredKinds: string[]; pendingKinds?: string[] }) {
   const [loading, setLoading] = useState(true);
   const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -138,7 +138,8 @@ export function MailAnalysis({ id, registeredKinds }: { id: string; registeredKi
                       <FlowRowButton
                         card={row.card}
                         recommended={row.recommended}
-                        registered={flow.outcomes[rowId]?.done === true || registeredKinds.includes(row.card.kind)}
+                        registered={(flow.outcomes[rowId]?.done === true && !flow.outcomes[rowId]?.pending) || registeredKinds.includes(row.card.kind)}
+                        pending={flow.outcomes[rowId]?.pending === true || pendingKinds.includes(row.card.kind)}
                         onOpen={() => flow.setOpen(rowId)}
                       />
                     </li>
