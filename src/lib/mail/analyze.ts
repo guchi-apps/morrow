@@ -3,6 +3,7 @@ import { runCodexRecorded } from "@/lib/codex-run";
 import { jstDayKey } from "@/lib/day-key";
 
 import { getMail, type MailUser } from "@/lib/mail/aide-client";
+import { acquireMailCodex } from "@/lib/mail/codex-lock";
 import { analysisCacheKey, buildAnalyzePrompt, freshValue, parseAnalyzeReply, putCache, type CacheEntry, type MailAnalysis } from "@/lib/mail/analyze-core";
 import type { MailFailureKind } from "@/lib/mail/contract";
 import { plainBody } from "@/lib/mail/suggest-core";
@@ -13,7 +14,8 @@ import { plainBody } from "@/lib/mail/suggest-core";
  * - **先に `getMail()` で持ち主を照合する**（#683）。覚えた結果を返すときも毎回照合する（照合の結果は持ち回さない）
  * - 結果は利用者×メールIDで30分だけプロセス内のメモリに持つ（同じメールを開き直すたびにサブスク枠を使わないため）。
  *   DB・ログには残さない。再起動で消える。`refresh` で取り直す
- * - Codexは利用者ごとに同時1件。同じメールの要求が重なったら走っている1回の結果を共有する
+ * - Codexは利用者ごとに同時1件（指示 #784 と共有の排他。`codex-lock.ts`）。同じメールの分析の要求が重なったら走っている1回の結果を共有する
+ *   （共有するのは分析どうしだけ。指示とは共有しない）
  */
 
 const ANALYZE_TIMEOUT_MS = 150_000;
@@ -30,7 +32,10 @@ export async function analyzeMail(user: MailUser, messageId: string, options: { 
   const key = analysisCacheKey(user.id, messageId);
   const current = running.get(user.id);
   if (current?.key === key) return current.promise;
-  if (current) return { ok: false, kind: "busy", message: "別のメールを分析しています。少し待ってください。" };
+  const release = acquireMailCodex(user.id, { kind: "analyze", key });
+  if (!release) {
+    return { ok: false, kind: "busy", message: current ? "別のメールを分析しています。少し待ってください。" : "指示への返事を作っています。少し待ってください。" };
+  }
 
   const promise = run(user, messageId, key, options.refresh === true);
   running.set(user.id, { key, promise });
@@ -38,6 +43,7 @@ export async function analyzeMail(user: MailUser, messageId: string, options: { 
     return await promise;
   } finally {
     if (running.get(user.id)?.promise === promise) running.delete(user.id);
+    release();
   }
 }
 
