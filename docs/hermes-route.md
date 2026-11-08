@@ -56,7 +56,7 @@ DNS rebinding対策を外から騙す形になるので採らない。
 
 `serve` のトークンはダッシュボードと同じもので、会話だけでなく `tools.configure`（profileの道具の
 設定を書き換える）・設定・セッションの削除まで使える。VPSへ置くと、Morrowが乗っ取られたとき
-Hermesの権限設定（#727で決める）ごと書き換えられる。**VPSに置くのは、ブリッジが許す操作だけを
+Hermesの権限設定（#727。`docs/hermes-actions.md`）ごと書き換えられる。**VPSに置くのは、ブリッジが許す操作だけを
 呼べるトークン**にする。
 
 ## ブリッジ（morrow-hermes-bridge）
@@ -67,11 +67,13 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 |---|---|---|
 | `GET /health` | 接続して `gateway.ready` を待つ | `{bridge:"ok", hermes:"ok"\|"down"}`。認証必須 |
 | `POST /turns` `{sessionId?, text, title?}` | `session.create`（無ければ）/ `session.resume` → `prompt.submit` | 応答はSSE。`message.delta`・`tool.start`/`tool.complete`・`approval`・`clarify`・`message.complete`（`usage` 付き）をそのまま種類別に流す |
-| `POST /turns/<id>/approval` `{requestId, choice}` | `approval` リクエストへの回答 | 選べる値は #727 で絞る（`always` を出さない等）。ブリッジ側でも許可リストを持つ |
+| `POST /turns/<id>/approval` `{requestId, choice}` | `approval` リクエストへの回答 | `once`・`deny` だけを通す（`always`・`session` は400。`docs/hermes-actions.md`） |
 | `POST /turns/<id>/interrupt` | `session.interrupt` | |
 
 - 接続ごとに `client.capabilities {server_requests:true}` を送る（送らないと承認が聞かれずに取り下げられる。#725）
 - `session.create` の `source` は `morrow` に固定する（Hermes側の一覧で見分けるため）
+- 取り消せない書き込みの提案用に、何もしないMCPの道具 `morrow_propose_action` をループバックで答える（Morrow専用profileの接続先。
+  提案はMorrowがストリームの `tool.start` から読む。`docs/hermes-actions.md`）
 - `tools.configure`・設定・削除・`dashboard` 系は**どの経路からも呼べない**
 - Hermesのトークン（`HERMES_DASHBOARD_SESSION_TOKEN`）はsubpcの中だけ。起動時に乱数で作り、
   Hermesとブリッジの両方のunitへ同じ値を渡す（1Passwordには置かない。外へ出ないので正を持つ必要が無い）
