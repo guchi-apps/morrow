@@ -150,6 +150,7 @@ export function MailSuggest({ id }: { id: string }) {
                 <div className="flex flex-wrap gap-1.5">
                   {card.kind === "payment" && (
                     <>
+                      <input aria-label="支払先" className={input} value={String(f.place ?? "")} onChange={(e) => edit("payment", "place", e.target.value)} placeholder="支払先" />
                       <input aria-label="名称" className={input} value={String(f.name ?? "")} onChange={(e) => edit("payment", "name", e.target.value)} placeholder="名称" />
                       <input aria-label="金額（円）" inputMode="numeric" className={cn(input, "w-28")} value={f.amount ?? ""} onChange={(e) => edit("payment", "amount", e.target.value)} placeholder="金額（円）" />
                       <input aria-label="日付" type="date" className={input} value={String(f.date ?? "")} onChange={(e) => edit("payment", "date", e.target.value)} />
@@ -186,8 +187,11 @@ export function MailSuggest({ id }: { id: string }) {
                     </>
                   )}
                 </div>
-                {card.kind === "payment" && (f.amount === null || f.date === null) && (
-                  <p className="text-[0.6875rem] text-danger">要確認: 本文から読み取れなかった項目があります。入力してください。</p>
+                {card.kind === "payment" && (f.place === null || f.amount === null || f.date === null) && (
+                  <p className="text-[0.6875rem] text-danger">
+                    要確認: 本文から読み取れなかった項目があります。入力してください。
+                    {f.amount === null && f.originalAmount !== null && `（外貨建て ${f.originalCurrency} ${f.originalAmount}。金額は円に換算して入れてください）`}
+                  </p>
                 )}
                 <div>
                   {card.kind === "subscription" ? (

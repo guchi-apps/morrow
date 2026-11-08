@@ -766,6 +766,7 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 - **本文全体をCodexへ渡す**（新着確認は件名・差出人・冒頭だけ）。押したメールだけ・6千字まで・何も保存しない。本文はデータとして読ませ、返答は固定の形で検証する
 - **値は承認後にサーバーで検証し直す**（`normalizeSuggestion()`）。読み取れない金額・日付はnullのまま画面で空欄＋「要確認」にし、**推測で埋めない**
 - **書き込みは `callWriteToolJson()`（`direct-call.ts`）の許可リスト3本だけ**（`aide_create_task`・`aide_create_event`・`asset_manager_import_payment`）。`callToolJson()` の書き込み拒否は変えていない。**道具を足すときはこのリストと `suggest-core.ts` の検証を揃える**
+- **Asset Managerの取り込み（`/api/receipts/import`）は `place`（支払先）と `amount`（円の整数）が必須**（#743。asset-managerの `lib/payment-import.ts`）。AIDEの道具の入力定義では任意に見えるが、送らないと「place は必須です」で断られる。`toolCallFor()` は送る前に支払先・円の金額の欠けを止める（外貨建てでも円の金額を入れさせる）
 - 実行の前に `getMail()` で持ち主を照合する。タスクは同じメール・同じ内容なら同じ `idempotencyKey`、家計簿は `gmailMessageId` で二重取り込みが `duplicate` になる
 - 流した後、利用者が作った「処理済み」ラベルがあれば付ける（`DONE_LABEL_NAME`。自動作成しない）
 - **サブスク登録（#709）はMorrow内で完結させない。** 提案の種類 `subscription` は、読み取った値（名称・金額・通貨・周期・請求日・開始日だけ。本文・差出人は載せない）をクエリに載せて `https://asset.gucchii.com/subscriptions` を開くリンク（`subscription-link.ts`）で、`asset_manager_create_subscription` は呼ばない。**受け側（クエリで登録フォームを埋める口）は未実装で別Issue**。それまでは一覧が開くだけ **ボタンは「Asset Managerのサブスク一覧を開く」と表記し、登録できたかのように読ませない**（受け側が未実装の間は一覧が開くだけで、入力は引き継がれない。画面にもその旨を添える。#734）。
