@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { forgetArchived, rememberArchived } from "@/lib/mail/archived-memory";
 import type { MailAction } from "@/lib/mail/contract";
 
 import { createRefreshGate, createSerialQueue } from "./action-queue";
@@ -52,6 +53,8 @@ export function useMailAction(options: { after?: (action: MailAction) => void } 
         setNotice({ text: result.error, error: true });
         return false;
       }
+      if (action === "archive") rememberArchived(ids);
+      else if (action === "inbox") forgetArchived(ids);
       setNotice({ text: result.done, error: false });
       options.after?.(action);
       router.refresh();
@@ -85,6 +88,7 @@ export function useMailAction(options: { after?: (action: MailAction) => void } 
           return false;
         }
         refreshGate.markSucceeded();
+        rememberArchived([id]);
         setNotice({ text: archived.done, error: false });
         return true;
       } finally {

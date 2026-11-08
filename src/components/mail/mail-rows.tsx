@@ -2,8 +2,9 @@
 
 import { Star } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import { hideArchived, readArchived, subscribeArchived, type ArchivedMap } from "@/lib/mail/archived-memory";
 import { mailAccountKeyOf, mailAccountTone, senderName, type MailAction, type MailLabel, type MailSummary } from "@/lib/mail/contract";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +30,8 @@ type Props = {
   nowMs: number;
   /** 本文から一覧へ戻るときのURL。 */
   back: string;
+  /** 受信トレイ表示か（アーカイブ済みを隠すのはこのときだけ）。 */
+  inboxView: boolean;
 };
 
 const BULK: { action: MailAction; label: string }[] = [
@@ -39,7 +42,15 @@ const BULK: { action: MailAction; label: string }[] = [
 ];
 
 /** 一覧の行とまとめての操作（#683）。選んだメールに既読・アーカイブ・ラベル・ゴミ箱をまとめて当てる。 */
-export function MailRows({ messages, labels, supportsLabels, inTrash, showAccount, nowMs, back }: Props) {
+export function MailRows({ messages: listed, labels, supportsLabels, inTrash, showAccount, nowMs, back, inboxView }: Props) {
+  // アーカイブに成功したメールは、取り直した一覧が古くても受信トレイへ戻さない（#795）。保存はブラウザなので描画後に読む
+  const [archived, setArchived] = useState<ArchivedMap>({});
+  useEffect(() => {
+    const load = () => setArchived(readArchived());
+    load();
+    return subscribeArchived(load);
+  }, [listed]);
+  const messages = hideArchived(listed, archived, inboxView);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // 押した行（#699）。本文の画面へ移るまでの一瞬、押したことが分かるよう色を付ける
   const [opening, setOpening] = useState<string | null>(null);
