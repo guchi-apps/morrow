@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import type { Suggestion, SuggestKind, SuggestResult } from "@/lib/mail/suggest-core";
+import { subscriptionLink } from "@/lib/mail/subscription-link";
 import { cn } from "@/lib/utils";
 
 /**
@@ -14,6 +15,7 @@ import { cn } from "@/lib/utils";
 
 const KIND_META: Record<SuggestKind, { icon: string; title: string; run: string }> = {
   payment: { icon: "🧾", title: "家計簿へ取り込む", run: "取り込む" },
+  subscription: { icon: "🔁", title: "サブスクに登録する（Asset Managerで）", run: "Asset Managerで登録する ↗" },
   task: { icon: "📌", title: "タスクにする", run: "タスクを作る" },
   event: { icon: "📅", title: "予定にする", run: "予定を登録する" },
 };
@@ -61,9 +63,9 @@ export function MailSuggest({ id }: { id: string }) {
       current.map((card) => {
         if (card.kind !== kind) return card;
         const fields = { ...card.fields } as Record<string, unknown>;
-        if (key === "amount") {
+        if (key === "amount" || key === "day") {
           const n = value.trim() === "" ? null : Number(value.replace(/[,，]/g, ""));
-          fields.amount = n !== null && Number.isFinite(n) ? Math.round(n) : null;
+          fields[key] = n !== null && Number.isFinite(n) ? (card.kind === "subscription" && key === "amount" ? n : Math.round(n)) : null;
         } else {
           fields[key] = value === "" && key !== "title" && key !== "name" && key !== "memo" ? null : value;
         }
@@ -153,6 +155,22 @@ export function MailSuggest({ id }: { id: string }) {
                       <input aria-label="日付" type="date" className={input} value={String(f.date ?? "")} onChange={(e) => edit("payment", "date", e.target.value)} />
                     </>
                   )}
+                  {card.kind === "subscription" && (
+                    <>
+                      <input aria-label="名称" className={input} value={String(f.name ?? "")} onChange={(e) => edit("subscription", "name", e.target.value)} placeholder="名称" />
+                      <input aria-label="金額" inputMode="decimal" className={cn(input, "w-24")} value={f.amount ?? ""} onChange={(e) => edit("subscription", "amount", e.target.value)} placeholder="金額" />
+                      <select aria-label="通貨" className={input} value={String(f.currency)} onChange={(e) => edit("subscription", "currency", e.target.value)}>
+                        <option value="JPY">円</option>
+                        <option value="USD">ドル</option>
+                      </select>
+                      <select aria-label="周期" className={input} value={String(f.cycle)} onChange={(e) => edit("subscription", "cycle", e.target.value)}>
+                        <option value="MONTHLY">毎月</option>
+                        <option value="YEARLY">毎年</option>
+                      </select>
+                      <input aria-label="請求日" inputMode="numeric" className={cn(input, "w-16")} value={f.day ?? ""} onChange={(e) => edit("subscription", "day", e.target.value)} placeholder="請求日" />
+                      <input aria-label="開始日" type="date" className={input} value={String(f.startDate ?? "")} onChange={(e) => edit("subscription", "startDate", e.target.value)} />
+                    </>
+                  )}
                   {card.kind === "task" && (
                     <>
                       <input aria-label="題名" className={cn(input, "min-w-[12rem] flex-1")} value={String(f.title ?? "")} onChange={(e) => edit("task", "title", e.target.value)} />
@@ -172,6 +190,16 @@ export function MailSuggest({ id }: { id: string }) {
                   <p className="text-[0.6875rem] text-danger">要確認: 本文から読み取れなかった項目があります。入力してください。</p>
                 )}
                 <div>
+                  {card.kind === "subscription" ? (
+                    <a
+                      href={subscriptionLink(card.fields)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={cn("inline-block rounded-[9px] px-3 py-1.5 text-xs font-bold transition-colors", recommended ? "bg-accent text-accent-foreground" : "border border-border bg-surface hover:bg-rail-active")}
+                    >
+                      {meta.run}
+                    </a>
+                  ) : (
                   <button
                     type="button"
                     disabled={running !== null || outcome?.done === true}
@@ -183,6 +211,7 @@ export function MailSuggest({ id }: { id: string }) {
                   >
                     {running === card.kind ? "実行しています…" : outcome?.done ? "実行済み" : meta.run}
                   </button>
+                  )}
                 </div>
                 {outcome && (
                   <p role={outcome.error ? "alert" : "status"} className={cn("text-[0.6875rem]", outcome.error ? "text-danger" : "text-muted")}>

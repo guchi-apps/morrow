@@ -1,7 +1,7 @@
 import { modelFor } from "@/lib/chat-model-server";
 import { runCodexRecorded } from "@/lib/codex-run";
 import { jstDayKey } from "@/lib/day-key";
-import { callToolJson, callWriteToolJson, connectedServerFor } from "@/lib/mcp/direct-call";
+import { callToolJson, callWriteToolJson, connectedServerFor, McpCallError } from "@/lib/mcp/direct-call";
 
 import { applyMailAction, getMail, listMail, type MailUser } from "@/lib/mail/aide-client";
 import type { MailFailureKind } from "@/lib/mail/contract";
@@ -119,6 +119,11 @@ export async function applyFlow(user: MailUser, messageId: string, suggestion: S
     }
   } catch (error) {
     console.error(`[aide-bot] メールの処理（${call.tool}）に失敗した`, error instanceof Error ? error.message : error);
+    // 道具が返した短い理由（`reason`）があれば添える。本文・スタックは出さない
+    const reason = error instanceof McpCallError && error.reason ? `（${error.reason}）` : "";
+    if (reason && call.tool !== "aide_create_event") {
+      return { ok: false, kind: "failed", message: `${suggestion.kind === "payment" ? "取り込めませんでした" : "タスクを作れませんでした"}${reason}。` };
+    }
     return { ok: false, kind: "failed", message: call.tool === "aide_create_event" ? "実行できませんでした。予定は登録済みの可能性があります。確認してから試してください。" : "実行できませんでした。時間をおいて試してください。" };
   } finally {
     if (lockKey) applying.delete(lockKey);
