@@ -19,7 +19,7 @@ export type SuggestKind = (typeof SUGGEST_KINDS)[number];
 
 export const SUGGEST_KIND_LABELS: Record<SuggestKind, string> = {
   payment: "家計簿へ取り込む",
-  subscription: "サブスクに登録する",
+  subscription: "サブスク一覧を開く（Asset Manager）",
   task: "タスクにする",
   event: "予定にする",
 };

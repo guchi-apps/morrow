@@ -714,7 +714,7 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 - **書き込みは `callWriteToolJson()`（`direct-call.ts`）の許可リスト3本だけ**（`aide_create_task`・`aide_create_event`・`asset_manager_import_payment`）。`callToolJson()` の書き込み拒否は変えていない。**道具を足すときはこのリストと `suggest-core.ts` の検証を揃える**
 - 実行の前に `getMail()` で持ち主を照合する。タスクは同じメール・同じ内容なら同じ `idempotencyKey`、家計簿は `gmailMessageId` で二重取り込みが `duplicate` になる
 - 流した後、利用者が作った「処理済み」ラベルがあれば付ける（`DONE_LABEL_NAME`。自動作成しない）
-- **サブスク登録（#709）はMorrow内で完結させない。** 提案の種類 `subscription` は、読み取った値（名称・金額・通貨・周期・請求日・開始日だけ。本文・差出人は載せない）をクエリに載せて `https://asset.gucchii.com/subscriptions` を開くリンク（`subscription-link.ts`）で、`asset_manager_create_subscription` は呼ばない。**受け側（クエリで登録フォームを埋める口）は未実装で別Issue**。それまでは一覧が開くだけ
+- **サブスク登録（#709）はMorrow内で完結させない。** 提案の種類 `subscription` は、読み取った値（名称・金額・通貨・周期・請求日・開始日だけ。本文・差出人は載せない）をクエリに載せて `https://asset.gucchii.com/subscriptions` を開くリンク（`subscription-link.ts`）で、`asset_manager_create_subscription` は呼ばない。**受け側（クエリで登録フォームを埋める口）は未実装で別Issue**。それまでは一覧が開くだけ **ボタンは「Asset Managerのサブスク一覧を開く」と表記し、登録できたかのように読ませない**（受け側が未実装の間は一覧が開くだけで、入力は引き継がれない。画面にもその旨を添える。#734）。
 - **書き込みの失敗理由**: `callWriteToolJson()` の `tools/call` だけ30秒待ち、`isError` の結果は短い `reason` だけを `McpCallError.reason` に載せて画面へ出す（本文・スタックは出さない）。`apply` の `maxDuration` は120秒
 - 給与明細→給与台帳（`asset_manager_salary_*`）は入れていない（プレビュー→承認の2段階のため別Issue）
 
