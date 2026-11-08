@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { mailTimeLabel } from "./mail-format";
 import { MailNotice } from "./mail-notice";
 import { leaveMailPane } from "./mail-transition";
+import { SwipeArchiveRow } from "./swipe-archive-row";
 import { useMailAction } from "./use-mail-action";
 
 type Row = MailSummary & { notified: boolean };
@@ -37,7 +38,7 @@ export function MailRows({ messages, labels, supportsLabels, inTrash, nowMs, bac
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // 押した行（#699）。本文の画面へ移るまでの一瞬、押したことが分かるよう色を付ける
   const [opening, setOpening] = useState<string | null>(null);
-  const { apply, pending, notice } = useMailAction({ after: () => setSelected(new Set()) });
+  const { apply, archiveRow, pending, notice } = useMailAction({ after: () => setSelected(new Set()) });
   const now = new Date(nowMs);
   const userLabels = labels.filter((label) => label.type === "user");
 
@@ -98,11 +99,13 @@ export function MailRows({ messages, labels, supportsLabels, inTrash, nowMs, bac
         {messages.map((message) => {
           const href = `/mail/${encodeURIComponent(message.id)}?back=${encodeURIComponent(back)}`;
           return (
-            <li
+            <SwipeArchiveRow
               key={message.id}
+              enabled={!inTrash}
+              onArchive={() => archiveRow(message.id, message.unread)}
               className={cn(
-                "flex items-start gap-2.5 border-t border-border px-3 py-2.5 transition-colors first:border-t-0 md:items-center md:px-3.5",
-                opening === message.id ? "bg-accent-surface" : "hover:bg-rail",
+                "flex items-start gap-2.5 px-3 py-2.5 transition-colors md:items-center md:px-3.5",
+                opening === message.id ? "bg-accent-surface" : "bg-surface hover:bg-rail",
               )}
             >
               <input
@@ -138,7 +141,7 @@ export function MailRows({ messages, labels, supportsLabels, inTrash, nowMs, bac
                   {message.snippet && <> — {message.snippet}</>}
                 </span>
               </Link>
-            </li>
+            </SwipeArchiveRow>
           );
         })}
       </ul>
