@@ -14,7 +14,7 @@ import { OPEN_METEO_ATTRIBUTION, forecastAt } from "@/lib/weather/open-meteo";
 import { placeDayFrom, type PlaceDay } from "@/lib/weather/place-day";
 import { MAX_WEATHER_PLACES, placeFromQuery, weatherHref, type WeatherPlaceInput } from "@/lib/weather/place-input";
 import { listWeatherPlaces } from "@/lib/weather/places-store";
-import { describeWeatherCode, type Forecast } from "@/lib/weather/rain-check";
+import { describeWeatherCode, roundCoordinate, type Forecast } from "@/lib/weather/rain-check";
 
 // 予報は時間とともに変わるので、ビルド時の値を配らない。
 export const dynamic = "force-dynamic";
@@ -24,8 +24,10 @@ export const metadata = { title: "天気" };
 type Query = Record<string, string | string[] | undefined>;
 
 const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value);
+// 選んだ地点はURL経由で小数2桁に丸まっている一方、自宅はAIDEの生の座標のまま来る（#754）。
+// 厳密一致だと自宅だけ一致せず、一覧の強調・「自宅」表示が外れるので、丸めてから比べる。
 const sameSpot = (a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) =>
-  a.latitude === b.latitude && a.longitude === b.longitude;
+  roundCoordinate(a.latitude) === roundCoordinate(b.latitude) && roundCoordinate(a.longitude) === roundCoordinate(b.longitude);
 const temp = (value: number | null) => (value === null ? "—" : `${Math.round(value)}°`);
 
 /**
