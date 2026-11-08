@@ -14,6 +14,7 @@ import {
 import { authorize, parseAllowedIps } from "./auth.ts";
 import { connectHermes, type HermesLink } from "./hermes-link.ts";
 import { TurnLimiter } from "./limits.ts";
+import { createProposeMcpServer } from "./propose-mcp.ts";
 import { NoSessionError, openSession, runTurn, type TurnHandle } from "./turn.ts";
 
 /**
@@ -262,6 +263,12 @@ function main(): void {
   });
   // tailscale serve からはループバックでしか届かない。外へバインドしない
   server.listen(port, "127.0.0.1", () => console.log(`morrow-hermes-bridge: 127.0.0.1:${port}`));
+
+  // 提案用のMCP（何もしない道具）。外へ出さない別のポート。未設定なら立てない
+  const proposePort = Number(process.env.MORROW_HERMES_PROPOSE_MCP_PORT ?? "");
+  if (Number.isInteger(proposePort) && proposePort > 0) {
+    createProposeMcpServer().listen(proposePort, "127.0.0.1", () => console.log(`morrow-propose-mcp: 127.0.0.1:${proposePort}/mcp`));
+  }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) main();

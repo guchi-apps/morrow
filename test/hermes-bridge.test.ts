@@ -502,3 +502,36 @@ describe("認証とルーティング", () => {
     }
   });
 });
+
+interface McpReply {
+  result: { protocolVersion: string; tools: { name: string }[]; content: { text: string }[] };
+  error: { code: number };
+}
+
+describe("提案用のMCP（morrow_propose_action）", () => {
+  it("initialize・tools/list・tools/call に答え、何も実行しない固定の文を返す", async () => {
+    const { createProposeMcpServer, PROPOSE_RESULT_TEXT, PROPOSE_TOOL_NAME } = await import("../hermes-bridge/propose-mcp.ts");
+    const server = createProposeMcpServer();
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    servers.push(server);
+    const { port } = server.address() as AddressInfo;
+    const post = async (body: unknown) => {
+      const response = await fetch(`http://127.0.0.1:${port}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      return { status: response.status, json: response.status === 200 ? ((await response.json()) as McpReply) : null };
+    };
+
+    const init = await post({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } });
+    assert.equal(init.json?.result.protocolVersion, "2025-06-18");
+    assert.equal((await post({ jsonrpc: "2.0", method: "notifications/initialized" })).status, 202);
+
+    const list = await post({ jsonrpc: "2.0", id: 2, method: "tools/list" });
+    assert.deepEqual(list.json?.result.tools.map((tool) => tool.name), [PROPOSE_TOOL_NAME]);
+
+    const call = await post({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: PROPOSE_TOOL_NAME, arguments: { tool: "aide_delete_event", args: {}, summary: "x" } } });
+    assert.equal(call.json?.result.content[0].text, PROPOSE_RESULT_TEXT);
+    assert.match(PROPOSE_RESULT_TEXT, /実行済みとは言わない/);
+
+    const unknown = await post({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "other" } });
+    assert.equal(unknown.json?.error.code, -32602);
+  });
+});

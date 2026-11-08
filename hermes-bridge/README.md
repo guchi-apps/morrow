@@ -13,6 +13,7 @@ pnpm hermes-bridge   # node hermes-bridge/server.ts
 | `HERMES_URL` | Hermesの宛先（例 `http://127.0.0.1:<ポート>`） |
 | `HERMES_DASHBOARD_SESSION_TOKEN` | Hermesのトークン（subpcの外へ出さない） |
 | `MORROW_HERMES_BRIDGE_TOKEN` | Morrowが送るBearer。**未設定なら全部401** |
+| `MORROW_HERMES_PROPOSE_MCP_PORT` | 任意。提案用の何もしないMCP（`morrow_propose_action`）の待受ポート（127.0.0.1の `/mcp`。外へ出さない）。Morrow専用profileの `mcp_servers` の接続先にする |
 | `MORROW_HERMES_BRIDGE_ALLOWED_IPS` | 許可する送信元（`X-Forwarded-For`）をカンマ区切りで。**空なら全部403** |
 
 API: `GET /health`・`POST /turns`（SSE）・`POST /turns/<id>/approval`（`once`・`deny` だけ）・`POST /turns/<id>/interrupt`。
