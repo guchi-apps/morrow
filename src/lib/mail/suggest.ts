@@ -5,6 +5,8 @@ import { callToolJson, callWriteToolJson, connectedServerFor, McpCallError } fro
 
 import { applyMailAction, getMail, listMail, type MailUser } from "@/lib/mail/aide-client";
 import type { MailFailureKind } from "@/lib/mail/contract";
+import { recordStatusOf } from "@/lib/mail/flow-record-core";
+import { saveFlowRecord } from "@/lib/mail/flow-record";
 import {
   buildSuggestPrompt,
   findExistingEvent,
@@ -129,6 +131,10 @@ export async function applyFlow(user: MailUser, messageId: string, suggestion: S
     if (lockKey) applying.delete(lockKey);
   }
   if (outcome.status === "failed") return { ok: true, outcome, labeled: false };
+
+  // 登録した内容の控え（#750）。失敗しても本筋は止めない
+  const recordStatus = recordStatusOf(outcome);
+  if (recordStatus) await saveFlowRecord(user.id, messageId, suggestion, recordStatus);
 
   return { ok: true, outcome, labeled: await markDone(user, messageId, message.labelIds) };
 }
