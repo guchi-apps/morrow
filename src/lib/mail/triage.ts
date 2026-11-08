@@ -31,7 +31,7 @@ import {
  * 2. AIDEから受信トレイの1ページ目を、既読位置（`User.mailCheckedAt`）の少し前以降で取る。持ち主の照合は `listMail()`
  * 3. **初回は既読位置を置くだけ**（溜まっている過去分は知らせない）
  * 4. まだ判定していない新着（`MailTriage` に無いもの）が無ければCodexを呼ばない
- * 5. 新着をまとめて1回だけ判定し、判定を `MailTriage` に残す（**同じメールは二度判定・二度通知しない**）
+ * 5. 新着をまとめて1回だけ判定し、判定を `MailTriage` に残す（**同じメールは二度判定・二度通知しない**。ただし必要と判定した行は通知の試行後に残す。#693）
  * 6. 必要なものがあれば1本の通知にまとめて送る
  * 7. 既読位置を進める。**一覧が `partial`・判定しきれなかった回は進めない**（欠けた分を次で拾い直す）
  */
@@ -173,17 +173,28 @@ async function check(user: CheckUser, now: Date): Promise<MailCheckResult> {
   // 1回に載せきれなかった分は、判定を省いたものとして記録する（溜まった分で通知が溢れないように）
   for (const message of overflow) rows.push({ userId: user.id, messageId: message.id, needed: false, reason: "" });
 
-  await db.mailTriage.createMany({ data: rows, skipDuplicates: true });
+  // **必要と判定した行は、通知の試行が終わるまで確定しない**（#693）。先に作ると、作成と送信のあいだで
+  // 止まった回のメールが「判定済み」のまま二度と候補に戻らず、通知が永久に失われる。
+  // 不要と判定した行・枠あふれの行は通知と無関係なので先に確定してよい。
+  // 送信後・確定前に止まった場合は、次の確認で同じメールを再判定・再通知する（取りこぼすより重複を選ぶ）。
+  const neededIds = new Set(needed.map((mail) => mail.id));
+  await db.mailTriage.createMany({
+    data: rows.filter((row) => !neededIds.has(row.messageId)),
+    skipDuplicates: true,
+  });
 
   let delivered = 0;
   if (needed.length > 0) {
     const payload = composeMailPush(needed);
     delivered = await sendPushToUser(user.id, { ...payload, tag: MAIL_NOTICE_KIND });
+    // 送信の試行が終わったので確定する。端末が無い・オフで届かなかった回は notifiedAt=null のまま判定済みにする
+    await db.mailTriage.createMany({
+      data: rows
+        .filter((row) => neededIds.has(row.messageId))
+        .map((row) => ({ ...row, notifiedAt: delivered > 0 ? now : null })),
+      skipDuplicates: true,
+    });
     if (delivered > 0) {
-      await db.mailTriage.updateMany({
-        where: { userId: user.id, messageId: { in: needed.map((mail) => mail.id) } },
-        data: { notifiedAt: now },
-      });
       // 記録には件名・差出人を残さない（メールの中身はAIDEにだけ置く）
       const dedupeKey = createHash("sha256").update(needed.map((mail) => mail.id).join(",")).digest("hex").slice(0, 40);
       await db.notificationLog
