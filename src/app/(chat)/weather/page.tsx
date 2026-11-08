@@ -243,7 +243,7 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
                       青い地は降水確率50%以上。灰色は過ぎた時間。横にスクロールできます。{OPEN_METEO_ATTRIBUTION}
                     </p>
                     {offset === 0 ? (
-                      <RainRadar key={keyOf(selected)} latitude={selected.latitude} longitude={selected.longitude} />
+                      <RainRadar key={keyOf(selected)} latitude={selected.latitude} longitude={selected.longitude} centerLabel={selected.name} />
                     ) : (
                       <p className="border-t border-border pt-2.5 text-xs text-muted">
                         雨雲レーダーは今日の表示のときだけ出ます（実況と約15時間先までの予報のため）。
