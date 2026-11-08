@@ -2,6 +2,7 @@ import { Search } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { RainRadar } from "@/components/dashboard/rain-radar";
 import { PlaceActions } from "@/components/weather/place-actions";
 import { HourlyStrip, WeatherIcon, YesterdayNote } from "@/components/weather/hourly-strip";
 import { getCurrentUser } from "@/lib/auth-user";
@@ -241,6 +242,13 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
                     <p className="text-[0.6875rem] text-muted">
                       青い地は降水確率50%以上。灰色は過ぎた時間。横にスクロールできます。{OPEN_METEO_ATTRIBUTION}
                     </p>
+                    {offset === 0 ? (
+                      <RainRadar key={keyOf(selected)} latitude={selected.latitude} longitude={selected.longitude} />
+                    ) : (
+                      <p className="border-t border-border pt-2.5 text-xs text-muted">
+                        雨雲レーダーは今日の表示のときだけ出ます（実況と約15時間先までの予報のため）。
+                      </p>
+                    )}
                   </>
                 )}
               </>
