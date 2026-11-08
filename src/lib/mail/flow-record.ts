@@ -45,11 +45,12 @@ export async function flowKindsFor(userId: string, messageIds: string[]): Promis
     const rows = await db.mailFlowRecord.findMany({
       where: { userId, messageId: { in: messageIds } },
       orderBy: { createdAt: "asc" },
-      select: { messageId: true, kind: true },
+      select: { messageId: true, kind: true, status: true },
     });
     for (const row of rows) {
       const kinds = map.get(row.messageId) ?? [];
-      if (!kinds.includes(row.kind)) kinds.push(row.kind);
+      const key = row.kind === "subscription" && row.status === "opened" ? "subscription_opened" : row.kind;
+      if (!kinds.includes(key)) kinds.push(key);
       map.set(row.messageId, kinds);
     }
   } catch {
