@@ -6,7 +6,7 @@ import type { Suggestion } from "@/lib/mail/suggest-core";
 import { cn } from "@/lib/utils";
 
 /** 提案の1行（#766）。押すとハーフモーダルが開く。分析と指示の返事（#784）の両方で使う。型だけをimportする。 */
-export function FlowRowButton({ card, recommended, registered, onOpen }: { card: Suggestion; recommended: boolean; registered: boolean; onOpen: () => void }) {
+export function FlowRowButton({ card, recommended, registered, pending = false, onOpen }: { card: Suggestion; recommended: boolean; registered: boolean; pending?: boolean; onOpen: () => void }) {
   const meta = KIND_META[card.kind];
   const preview = cardPreview(card);
   return (
@@ -27,6 +27,7 @@ export function FlowRowButton({ card, recommended, registered, onOpen }: { card:
           {meta.title}
           {recommended && <span className="rounded-full bg-accent px-2 py-0.5 text-[0.625rem] font-bold text-accent-foreground">おすすめ</span>}
           {registered && <span className="rounded-full bg-fair-surface px-2 py-0.5 text-[0.625rem] font-bold text-fair">登録済み</span>}
+          {!registered && pending && <span className="rounded-full bg-accent-surface px-2 py-0.5 text-[0.625rem] font-bold text-accent">確認待ち</span>}
         </span>
         {preview && <span className="truncate opacity-85">{preview}</span>}
         {card.reason && (
