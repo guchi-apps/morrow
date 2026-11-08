@@ -39,16 +39,21 @@ export function ChatItemView({ item, turnId, onApproval, onProposalChange }: Pro
         // 取り消せる書き込み（自動実行済み）の結果カード。値はこの画面にだけ出し、Morrowには残さない
         return (
           <section
-            className={`max-w-[560px] self-start rounded-xl border border-border border-l-4 bg-surface p-3 text-sm ${item.status === "failed" ? "border-l-red-600" : "border-l-accent"}`}
+            className={`max-w-[560px] self-start rounded-xl border border-border border-l-4 bg-surface p-3 text-sm ${item.status === "failed" ? "border-l-red-600" : item.status === "unknown" ? "border-l-amber-500" : "border-l-accent"}`}
           >
             <div className="flex flex-wrap items-center gap-2 font-semibold">
               <span>{item.label}</span>
               <span
-                className={`rounded-full px-2 py-px text-xs font-normal ${item.status === "failed" ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300" : "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300"}`}
+                className={`rounded-full px-2 py-px text-xs font-normal ${item.status === "failed" ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300" : item.status === "unknown" ? "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300" : "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300"}`}
               >
-                {item.status === "failed" ? "失敗した可能性があります" : "自動で実行しました"}
+                {item.status === "failed" ? "失敗した可能性があります" : item.status === "unknown" ? "結果を確認できません" : "自動で実行しました"}
               </span>
             </div>
+            {item.status === "unknown" && (
+              <p className="mt-1.5 text-xs text-muted">
+                途中で止まったため、実行されたか分かりません。予定・タスクの画面で確かめてから、無ければ改めて頼んでください（確かめずに頼み直すと重複することがあります）。
+              </p>
+            )}
             {item.lines.length > 0 && (
               <dl className="mt-1.5 grid grid-cols-[6em_1fr] gap-x-2.5 gap-y-0.5">
                 {item.lines.map((line) => (
@@ -64,16 +69,16 @@ export function ChatItemView({ item, turnId, onApproval, onProposalChange }: Pro
       }
       return (
         <div
-          className={`inline-flex max-w-full items-center gap-1 self-start rounded-full border px-2.5 py-0.5 text-xs ${item.status === "running" ? "border-amber-400 text-amber-800 dark:text-amber-300" : item.status === "failed" ? "border-red-400 text-red-700" : "border-border text-muted"}`}
+          className={`inline-flex max-w-full items-center gap-1 self-start rounded-full border px-2.5 py-0.5 text-xs ${item.status === "running" ? "border-amber-400 text-amber-800 dark:text-amber-300" : item.status === "failed" ? "border-red-400 text-red-700" : item.status === "unknown" ? "border-amber-400 text-amber-800 dark:text-amber-300" : "border-border text-muted"}`}
         >
           {item.status === "running" ? (
             <Loader2 className="size-3 animate-spin" aria-hidden="true" />
-          ) : item.status === "failed" ? (
+          ) : item.status === "failed" || item.status === "unknown" ? (
             <CircleAlert className="size-3" aria-hidden="true" />
           ) : (
             <Check className="size-3" aria-hidden="true" />
           )}
-          <span className="truncate">{item.status === "running" ? `${item.label}…` : item.label}</span>
+          <span className="truncate">{item.status === "running" ? `${item.label}…` : item.status === "unknown" ? `${item.label}（結果不明）` : item.label}</span>
         </div>
       );
 
