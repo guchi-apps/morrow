@@ -92,6 +92,8 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 - **`source` が `morrow` のセッションだけ返す。** Discord（default profile）など他のセッションは、無いときと同じ404（`no_session`）で、中身も有無も見せない
 - **WebSocketの `session.resume`＋`session.history` は使わない。** 読むだけでHermesに生きたセッションができる。RESTは読み取りだけで副作用が無い（同じ `X-Hermes-Session-Token`）
 - **返すのは発言者（`user`／`assistant`）・本文・時刻と、Hermesの発言で呼んだ道具の名前だけ**（`HistoryMessage`。`src/lib/hermes/contract.ts`）。Hermesの行には `api_content`（モデルへ渡したシステム注記入りの本文）・暗号化された推論・道具の引数と結果が載る（2026-11-08に実物の `morrow` profileで確認）ので、許可リストで拾う。道具の結果の行（`role: tool`）・`display_kind` 付きの行（圧縮の要約など）は落とす
+- **セッションidはHermesのURLのパスへ埋め込むので、`.` だけの値を断る**（`isPathSafeSessionId()`）。`..` を通すと `new URL()` がパスを畳み、`/api/sessions/../messages` がHermesの別のREST（`/api/messages`）を指す。ブリッジの入口（URLの解釈で畳まれる）と `history.ts`（Hermesへ送る直前）の両方で止まる
+- 認証はヘッダー `X-Hermes-Session-Token`（WebSocketの `?token=` と同じ値）
 - **確認カードの状態は入れない。** 正はMorrowのDB（`HermesProposal`）で、画面が突き合わせる
 - 道具の結果の行を落とすので、Hermesからは表示件数の4倍＋1件を読む。読んだページが一杯・絞った結果が件数を超えたら `hasMore`（これより前があるかもしれない）
 - 失敗は他の経路と同じ: 無い・Morrow以外は404 `no_session`、HermesのRESTに届かない・5xxは503 `hermes_down`。Morrow側は応答の形を `parseHistoryBody()` で確かめ、1件でも違えば `bad_response`

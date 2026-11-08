@@ -91,6 +91,14 @@ export const HISTORY_MAX_LIMIT = 100;
 /** ブリッジが受け付けるセッションidの形（`POST /turns` の `sessionId` と同じ）。 */
 export const SESSION_ID_PATTERN = /^[\w.:-]{1,128}$/;
 
+/**
+ * URLのパスへ埋め込むセッションidか（#752の履歴）。`SESSION_ID_PATTERN` に加え、`.` だけの値を断る。
+ * `..` を通すと `new URL()` がパスを畳み、`/api/sessions/../messages` がHermesの別のREST（`/api/messages`）を指す。
+ */
+export function isPathSafeSessionId(value: string): boolean {
+  return SESSION_ID_PATTERN.test(value) && !/^\.+$/.test(value);
+}
+
 export interface HealthBody {
   bridge: "ok";
   hermes: "ok" | "down";

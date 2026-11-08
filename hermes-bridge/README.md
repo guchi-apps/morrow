@@ -1,7 +1,7 @@
 # morrow-hermes-bridge（#737）
 
 subpcの127.0.0.1で動く、Hermes Agentへの中継。設計は `docs/hermes-route.md`、操作の範囲は `docs/hermes-actions.md`。
-`tailscale serve` の裏に置き、Hermesの `/api/ws` のうち**ターンの開始・承認の回答・中断だけ**を通す。履歴（#752）はHermesのRESTを読むだけ（`source` が `morrow` のセッションに限る）。依存は足していない（Node標準の `http`・`WebSocket`）。
+`tailscale serve` の裏に置き、Hermesの `/api/ws` のうち**ターンの開始・承認の回答・中断だけ**を通す。履歴（#752）はHermesのREST（`GET /api/sessions/{id}`・`/messages`。認証はヘッダー `X-Hermes-Session-Token` に同じトークン）を読むだけで、`source` が `morrow` のセッションに限る。Hermesの行には `api_content`・暗号化された推論・道具の引数と結果が載る（実物で確認）ので、`history.ts` が許可リストで絞る。依存は足していない（Node標準の `http`・`WebSocket`）。
 
 ```bash
 pnpm hermes-bridge   # node hermes-bridge/server.ts

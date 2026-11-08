@@ -1,10 +1,13 @@
-import { HISTORY_MAX_LIMIT, type HistoryBody, type HistoryMessage } from "../src/lib/hermes/contract.ts";
+import { HISTORY_MAX_LIMIT, isPathSafeSessionId, type HistoryBody, type HistoryMessage } from "../src/lib/hermes/contract.ts";
 import { SESSION_SOURCE } from "./turn.ts";
 
 /**
  * 会話の履歴（#752）。Hermesの REST `GET /api/sessions/{id}` と `/api/sessions/{id}/messages` を読み、
  * **`source` が `morrow` のセッションだけ**を、表示に要る項目に絞って返す。
  *
+ * - 認証はヘッダー `X-Hermes-Session-Token`（WebSocketの `?token=` と同じ値。Hermesの `web_server.py` の `_SESSION_HEADER_NAME`）。
+ *   応答は `/api/sessions/{id}` が `sessions` テーブルの行（`source`・`title` など）、`/messages` が `{ session_id, messages: 行[], pagination }`。
+ *   無いidは404（Hermes v0.22.5・`bf0203a794`。2026-11-08に実物で確認）
  * - WebSocketの `session.resume`＋`session.history` は使わない。読むだけでHermesに生きたセッションを作るため
  * - Hermesの行は許可リストで拾う。`api_content`（モデルへ渡したシステム注記入り）・推論（暗号化された中身を含む）・
  *   道具の引数と結果は返さない（2026-11-08に実物の `morrow` profileで、これらが行に載ることを確認した）
@@ -96,6 +99,8 @@ export function createHistoryReader(options: {
   }
 
   return async (sessionId, limit) => {
+    // パスへ埋め込むので、呼び出し側（server.ts）の検証に頼らずここでも断る
+    if (!isPathSafeSessionId(sessionId)) throw new HistoryNotFoundError("セッションidの形が不正");
     const id = encodeURIComponent(sessionId);
     const detail = await getJson(`/api/sessions/${id}`);
     if (detail.status === 404) throw new HistoryNotFoundError("セッションが無い");

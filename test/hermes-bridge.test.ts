@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createServer as createHttpServer, type Server } from "node:http";
+import { createServer as createHttpServer, request as httpRequest, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, describe, it } from "node:test";
 
@@ -632,6 +632,9 @@ describe("HermesのRESTから履歴を読む（#752）", () => {
     const read = createHistoryReader({ url: hermes.url, token: "t", timeoutMs: 2_000 });
     await assert.rejects(read("s-discord", 10), HistoryNotFoundError);
     await assert.rejects(read("missing", 10), HistoryNotFoundError);
+    // `..` はURLで畳まれて別のRESTを指すので、Hermesへ送らずに断る
+    await assert.rejects(read("..", 10), HistoryNotFoundError);
+    assert.equal(hermes.seen.some((r) => !r.path.startsWith("/api/sessions/")), false);
     assert.equal(hermes.seen.some((r) => r.path.includes("/messages")), false);
   });
 
@@ -665,6 +668,33 @@ describe("GET /sessions/<id>/messages（#752）", () => {
     const { client } = await startBridge(simpleChat(), { history: sample });
     await assert.rejects(client.history("missing"), (error: unknown) => error instanceof HermesError && error.kind === "no_session");
     await assert.rejects(client.history("broken"), (error: unknown) => error instanceof HermesError && error.kind === "hermes_down");
+  });
+
+  it("`..` などパスを畳む値は、履歴の読み取りまで届かない", async () => {
+    const asked: string[] = [];
+    const spy: HistoryReader = async (sessionId, limit) => {
+      asked.push(sessionId);
+      return sample(sessionId, limit);
+    };
+    const { baseUrl } = await startBridge(simpleChat(), { history: spy });
+    const { port } = new URL(baseUrl);
+    // fetchはURLを畳んでしまうので、生のパスのまま送る
+    const rawStatus = (path: string) =>
+      new Promise<number>((resolve, reject) => {
+        const req = httpRequest(
+          { host: "127.0.0.1", port, path, headers: { authorization: `Bearer ${TOKEN}`, "x-forwarded-for": CLIENT_IP } },
+          (res) => {
+            res.resume();
+            resolve(res.statusCode ?? 0);
+          },
+        );
+        req.on("error", reject);
+        req.end();
+      });
+    for (const path of ["/sessions/../messages", "/sessions/%2E%2E/messages", "/sessions/.%2e/messages", "/sessions/./messages"]) {
+      assert.notEqual(await rawStatus(path), 200, path);
+    }
+    assert.deepEqual(asked, []);
   });
 
   it("limit・sessionIdが不正なら400、認証が無ければ401", async () => {

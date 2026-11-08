@@ -9,6 +9,7 @@ import {
   SESSION_ID_PATTERN,
   TURN_TIMEOUT_MS,
   isApprovalChoice,
+  isPathSafeSessionId,
   type BridgeErrorReason,
   type BridgeEvent,
   type HealthBody,
@@ -224,7 +225,7 @@ export function createBridgeServer(options: BridgeOptions): Server {
 
   /** `GET /sessions/<id>/messages?limit=N`（#752）。Morrowのセッションだけを、表示に要る項目に絞って返す。 */
   async function handleHistory(res: ServerResponse, sessionId: string, rawLimit: string | null): Promise<void> {
-    if (!SESSION_ID_PATTERN.test(sessionId)) return sendError(res, 400, "bad_request");
+    if (!isPathSafeSessionId(sessionId)) return sendError(res, 400, "bad_request");
     let limit = HISTORY_DEFAULT_LIMIT;
     if (rawLimit !== null) {
       if (!/^\d{1,3}$/.test(rawLimit)) return sendError(res, 400, "bad_request");
