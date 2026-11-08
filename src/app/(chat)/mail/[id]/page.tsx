@@ -78,7 +78,12 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
                 />
 
                 {/* 開いた時点で要約と提案を自動で取る（#766）。メールが変わったら作り直す */}
-                <MailAnalysis key={message.id} id={message.id} />
+                <MailAnalysis
+                  key={message.id}
+                  id={message.id}
+                  // 「登録済み」の印の材料（#750の控え）。サブスクの「一覧を開いた」は登録の確認にならないので含めない
+                  registeredKinds={flowRecords.filter((r) => r.status !== "opened").map((r) => r.kind)}
+                />
 
                 <MailFlowRecords records={flowRecords.map((r) => ({ ...r, createdAt: flowTimeLabel(r.createdAt) }))} />
 

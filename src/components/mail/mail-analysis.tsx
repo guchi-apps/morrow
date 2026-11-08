@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 const BUSY_RETRY_MS = 5000;
 const BUSY_RETRY_MAX = 24;
 
-export function MailAnalysis({ id }: { id: string }) {
+export function MailAnalysis({ id, registeredKinds }: { id: string; registeredKinds: string[] }) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [waiting, setWaiting] = useState(false);
@@ -83,7 +83,7 @@ export function MailAnalysis({ id }: { id: string }) {
     );
   }
 
-  /** サブスク一覧を開いたことを控えに残す（#750）。登録できたかは分からないので「開いた」として残る。失敗しても開くのは止めない。 */
+  /** サブスク一覧を開いたことを控えに残す（#750。#766の計画レビューで引き継ぎを確認）。登録できたかは分からないので「開いた」として残る。失敗しても開くのは止めない。 */
   function recordOpened(card: Suggestion) {
     fetch("/api/mail/flow/subscription", {
       method: "POST",
@@ -186,7 +186,7 @@ export function MailAnalysis({ id }: { id: string }) {
                 {cards.map((card) => {
                   const meta = KIND_META[card.kind];
                   const recommended = card.kind === result.suggest.recommended;
-                  const outcome = outcomes[card.kind];
+                  const registered = outcomes[card.kind]?.done === true || registeredKinds.includes(card.kind);
                   return (
                     <li key={card.kind}>
                       <button
@@ -205,7 +205,7 @@ export function MailAnalysis({ id }: { id: string }) {
                           <span className="flex flex-wrap items-center gap-1.5 font-bold">
                             {meta.title}
                             {recommended && <span className="rounded-full bg-accent px-2 py-0.5 text-[0.625rem] font-bold text-accent-foreground">おすすめ</span>}
-                            {outcome?.done && <span className="rounded-full bg-fair-surface px-2 py-0.5 text-[0.625rem] font-bold text-fair">登録済み</span>}
+                            {registered && <span className="rounded-full bg-fair-surface px-2 py-0.5 text-[0.625rem] font-bold text-fair">登録済み</span>}
                           </span>
                           {cardPreview(card) && <span className="truncate opacity-85">{cardPreview(card)}</span>}
                           {card.reason && (
