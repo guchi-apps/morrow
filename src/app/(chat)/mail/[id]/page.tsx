@@ -1,15 +1,16 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 
+import { MailBackLink } from "@/components/mail/mail-back-link";
 import { MailBody } from "@/components/mail/mail-body";
 import { MailDetailActions } from "@/components/mail/mail-detail-actions";
 import { mailFullTime, sizeLabel } from "@/components/mail/mail-format";
 import { getCurrentUser } from "@/lib/auth-user";
 import { jstTimeLabel } from "@/lib/day-key";
-import { getMail, listMail } from "@/lib/mail/aide-client";
+import { getMail, listMail, type MailUser } from "@/lib/mail/aide-client";
+import { safeMailBack } from "@/lib/mail/back-path";
 import { MAIL_FAILURE_MESSAGES, isMailMessageId } from "@/lib/mail/contract";
 import { neededTriages } from "@/lib/mail/triage";
-import { isInternalPath } from "@/lib/safe-path";
 
 export const dynamic = "force-dynamic";
 
@@ -19,11 +20,6 @@ type Props = {
   params: Promise<{ id: string }>;
   searchParams: Promise<{ back?: string }>;
 };
-
-/** 戻り先は一覧（`/mail…`）だけを受け付ける。外から与えられる値なので `isInternalPath()` も通す。 */
-function safeBack(value: string | undefined): string {
-  return value && value.startsWith("/mail") && isInternalPath(value) ? value : "/mail";
-}
 
 function safeDecode(value: string): string {
   try {
@@ -45,19 +41,20 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
 
   const [{ id: rawId }, query] = await Promise.all([params, searchParams]);
   const id = safeDecode(rawId);
-  const back = safeBack(query.back);
+  const back = safeMailBack(query.back);
 
-  const result = isMailMessageId(id) ? await getMail(user, id) : ({ ok: false, kind: "not_found", message: null } as const);
-  // 本文の応答にはラベルの名前が無いので、ラベルを扱える取得元のときだけ一覧から名前を引く
-  const labels = result.ok && result.value.supportsLabels ? await listMail(user, {}) : null;
-  const triage = result.ok ? (await neededTriages(user.id, [id])).get(id) : undefined;
+  // 本文と判定は同時に取る（#699。以前は本文→一覧→判定の順に1本ずつ待っていた）。
+  // 判定はDBだけなので、本文が取れなかった回に引いても害は無い。
+  const [result, triages] = await Promise.all([
+    isMailMessageId(id) ? getMail(user, id) : Promise.resolve({ ok: false, kind: "not_found", message: null } as const),
+    neededTriages(user.id, [id]),
+  ]);
+  const triage = result.ok ? triages.get(id) : undefined;
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[900px] flex-col gap-3.5 px-3.5 py-4 md:px-7 md:py-6">
-        <Link href={back} className="self-start text-xs text-accent hover:underline">
-          ← 一覧へ戻る
-        </Link>
+        <MailBackLink href={back} />
 
         {!result.ok ? (
           <p role="alert" className="rounded-[10px] border border-danger/30 bg-danger-surface px-3.5 py-2.5 text-xs leading-relaxed text-danger">
@@ -68,17 +65,27 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
             const { message, supportsLabels } = result.value;
             return (
               <>
-                <MailDetailActions
-                  id={message.id}
-                  unread={message.unread}
-                  starred={message.starred}
-                  inInbox={message.labelIds.includes("INBOX")}
-                  inTrash={message.labelIds.includes("TRASH")}
-                  labelIds={message.labelIds}
-                  labels={labels?.ok ? labels.value.labels : []}
-                  supportsLabels={supportsLabels}
-                  back={back}
-                />
+                {(() => {
+                  const actions = {
+                    id: message.id,
+                    unread: message.unread,
+                    starred: message.starred,
+                    inInbox: message.labelIds.includes("INBOX"),
+                    inTrash: message.labelIds.includes("TRASH"),
+                    labelIds: message.labelIds,
+                    supportsLabels,
+                    back,
+                  };
+                  // 本文の応答にはラベルの名前が無いので、ラベルを扱える取得元のときだけ一覧から名前を引く。
+                  // 一覧の取得は重いので本文を先に出し、名前は届いてから差し込む（#699）
+                  return supportsLabels ? (
+                    <Suspense fallback={<MailDetailActions {...actions} labels={[]} />}>
+                      <ActionsWithLabels user={user} actions={actions} />
+                    </Suspense>
+                  ) : (
+                    <MailDetailActions {...actions} labels={[]} />
+                  );
+                })()}
 
                 {triage && (
                   <p className="rounded-[10px] bg-accent-surface px-3 py-2.5 text-xs leading-relaxed">
@@ -137,4 +144,12 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
       </div>
     </div>
   );
+}
+
+type ActionsProps = Omit<React.ComponentProps<typeof MailDetailActions>, "labels">;
+
+/** ラベルの名前を一覧から引いてから操作バーを描く（`Suspense` の中で待つ）。 */
+async function ActionsWithLabels({ user, actions }: { user: MailUser; actions: ActionsProps }) {
+  const labels = await listMail(user, {});
+  return <MailDetailActions {...actions} labels={labels.ok ? labels.value.labels : []} />;
 }
