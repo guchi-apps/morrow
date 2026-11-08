@@ -107,10 +107,13 @@ export const MAIL_ACCOUNT_TONES = ["gray", "blue", "green", "rose"] as const;
 export type MailAccountTone = (typeof MAIL_ACCOUNT_TONES)[number];
 
 export function mailAccountTone(key: string): MailAccountTone {
-  if (key === MAIN_ACCOUNT_KEY) return "gray";
+  // メイン＝オレンジ・サブ＝灰・フォーマル＝青で固定（#760）。他の鍵は残りの3色からハッシュで決める
+  if (key === MAIN_ACCOUNT_KEY) return "rose";
+  if (key === "sub") return "gray";
+  if (key === "formal") return "blue";
   let hash = 0;
   for (const char of key) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return MAIL_ACCOUNT_TONES[1 + (hash % (MAIL_ACCOUNT_TONES.length - 1))]!;
+  return MAIL_ACCOUNT_TONES[hash % (MAIL_ACCOUNT_TONES.length - 1)]!;
 }
 
 /**
