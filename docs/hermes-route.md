@@ -168,5 +168,19 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 2. トークンの発行と登録: 1Passwordへ `hermes-bridge-token` を作り、issue-deckの共有トークン `MORROW_HERMES_BRIDGE_TOKEN` に登録（利用元 `aide-bot`）
 3. subpc: Morrow専用profile（`hermes profile create morrow --clone`）、Hermesとブリッジのuser unit（lingering済み）、
    `tailscale serve --bg --https=<専用ポート> http://127.0.0.1:<ブリッジ>`（**443・8443には相乗りしない**。subpcのREADME「`tailscale serve` は443ではなく8443に出す」と同じ理由）
+   **profileを作ったら `hermes -p morrow mcp login aide` も通す**（下の「AIDEのOAuthはprofileごと」）
 4. VPSのtailnet IPをブリッジの許可リストへ（`tailscale ip -4` の値）
 5. 任意の強化: TailscaleのACL（grants）で、subpcの専用ポートへ届く送信元をVPSだけに絞る（既存の通信を巻き込まないか確かめてから）
+
+## AIDEのOAuthはprofileごと（#809）
+
+Morrow専用profileの `mcp_servers.aide` は `auth: oauth`。**OAuthのトークンはprofileごとに持ち、`--clone` でも写らない**
+（既定profile〔Discord〕の分は `~/.hermes/mcp-tokens/aide.*`、Morrow profileには無かった）。トークンが無いと、Hermesは起動はするが
+AIDEの道具を1本も読み込まず、チャットは「接続中」のまま「予定表を確認できない」と答える（#809。天気はウェブ検索で代わりに答える）。
+
+- **見分け方**: `~/.hermes/profiles/morrow/logs/agent.log` に
+  `MCP OAuth setup failed for 'aide': ... no cached tokens found.`（続けて `hermes mcp login aide` を促す文）が5分ごとに出る。
+  チャット画面では道具が「使える道具の検索」「ウェブ検索」だけになり、「予定の確認」が出ない
+- **直し方（人の作業）**: subpcで `hermes -p morrow mcp login aide` を対話的に通し（AIDEの認可画面）、Hermesのuser unitを再起動する
+- **既定profileのトークンファイルを写さない。** リフレッシュトークンを2つのprofileで使い回すと、片方が更新した時点でもう片方が失効しうる
+- 接続状態（`/api/hermes/status`）はHermesに届くかだけを見ており、AIDEに繋がっているかは出ない

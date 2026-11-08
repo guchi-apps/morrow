@@ -175,6 +175,11 @@ describe("道具の表示名", () => {
     assert.equal(knownToolKey("mcp_aide_aide_schedule"), "aide_schedule");
     assert.equal(toolLabel("mcp_aide_aide_schedule"), "予定の確認");
     assert.equal(toolLabel("terminal"), "その他の操作");
+    // Hermes組み込みの道具（#809）
+    assert.equal(toolLabel("tool_search"), "使える道具の検索");
+    assert.equal(toolLabel("web_search"), "ウェブ検索");
+    assert.equal(toolLabel("web_extract"), "ウェブページの読み取り");
+    assert.equal(isAutoWriteTool("web_search"), false);
     assert.equal(toolLabel(undefined), "その他の操作");
   });
 
