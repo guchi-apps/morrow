@@ -14,7 +14,7 @@ type Gesture = { x: number; y: number; dir: "h" | "v" | null };
  *
  * - 縦のスクロールを邪魔しない（`touch-action: pan-y`。最初の動きで向きを決め、横が勝ったときだけ追従する）
  * - 画面の左右24pxから始めた操作は無視する（iOSの殻の戻る・進むのスワイプと食い合わせない）
- * - しきい値を超えて離すと行が左へ抜け、`onArchive` が成功したら行は一覧から消える（呼び出し側が取り直す）。失敗したら戻す
+ * - しきい値を超えて離すと行が左へ抜けて高さ0へ畳まれ（#741）、裏で `onArchive` を待つ。成功したら呼び出し側が取り直して一覧から消え、失敗したら元へ戻す
  */
 export function SwipeArchiveRow({
   enabled,
@@ -36,6 +36,9 @@ export function SwipeArchiveRow({
 
   const width = () => rootRef.current?.clientWidth ?? 0;
   const [ready, setReady] = useState(false);
+  // 離したあとに行を畳む（#741）。高さのtransitionには実寸が要るので、測ってから次のフレームで0にする
+  const [height, setHeight] = useState<number | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
 
   const cancel = () => {
     gesture.current = null;
@@ -77,16 +80,28 @@ export function SwipeArchiveRow({
     if (!ready) return cancel();
     setLeaving(true);
     setOffset(-width());
+    setHeight(rootRef.current?.offsetHeight ?? 0);
+    requestAnimationFrame(() => requestAnimationFrame(() => setCollapsed(true)));
     const ok = await onArchive();
-    if (!ok) {
-      setLeaving(false);
-      setReady(false);
-      setOffset(0);
-    }
+    // 成功したら畳んだまま、一覧の取り直しで行が外れるのを待つ（戻すと一瞬復活してちらつく）
+    if (ok) return;
+    setLeaving(false);
+    setReady(false);
+    setOffset(0);
+    setCollapsed(false);
+    setHeight(null);
   };
 
   return (
-    <li ref={rootRef} className="relative overflow-hidden border-t border-border first:border-t-0">
+    <li
+      ref={rootRef}
+      style={height === null ? undefined : { height: collapsed ? 0 : height, opacity: collapsed ? 0 : 1 }}
+      className={cn(
+        "relative overflow-hidden border-t border-border first:border-t-0",
+        height !== null && "transition-[height,opacity] duration-[250ms] ease-out",
+        collapsed && "border-t-0",
+      )}
+    >
       <div
         aria-hidden
         className={cn(
@@ -95,7 +110,7 @@ export function SwipeArchiveRow({
         )}
       >
         <Archive className="size-4" />
-        {ready || leaving ? "離すとアーカイブ" : "アーカイブ"}
+        {leaving ? null : ready ? "離すとアーカイブ" : "アーカイブ"}
       </div>
       <div
         onTouchStart={onTouchStart}
