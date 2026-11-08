@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 
 const KIND_META: Record<SuggestKind, { icon: string; title: string; run: string }> = {
   payment: { icon: "🧾", title: "家計簿へ取り込む", run: "取り込む" },
-  subscription: { icon: "🔁", title: "サブスクに登録する（Asset Managerで）", run: "Asset Managerで登録する ↗" },
+  subscription: { icon: "🔁", title: "サブスクを確認する（Asset Managerで）", run: "Asset Managerのサブスク一覧を開く ↗" },
   task: { icon: "📌", title: "タスクにする", run: "タスクを作る" },
   event: { icon: "📅", title: "予定にする", run: "予定を登録する" },
 };
@@ -211,6 +211,9 @@ export function MailSuggest({ id }: { id: string }) {
                   >
                     {running === card.kind ? "実行しています…" : outcome?.done ? "実行済み" : meta.run}
                   </button>
+                  )}
+                  {card.kind === "subscription" && (
+                    <p className="mt-1 text-[0.6875rem] text-muted">入力欄の内容は引き継がれません。一覧が開くだけなので、登録はAsset Manager側で行ってください。</p>
                   )}
                 </div>
                 {outcome && (
