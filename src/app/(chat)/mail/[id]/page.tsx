@@ -1,14 +1,14 @@
 import { redirect } from "next/navigation";
-import { Suspense } from "react";
 
 import { MailBackLink } from "@/components/mail/mail-back-link";
 import { MailBody } from "@/components/mail/mail-body";
+import { MailSummary } from "@/components/mail/mail-summary";
 import { MailSuggest } from "@/components/mail/mail-suggest";
 import { MailDetailActions } from "@/components/mail/mail-detail-actions";
 import { mailFullTime, sizeLabel } from "@/components/mail/mail-format";
 import { getCurrentUser } from "@/lib/auth-user";
 import { jstTimeLabel } from "@/lib/day-key";
-import { getMail, listMail, type MailUser } from "@/lib/mail/aide-client";
+import { getMail } from "@/lib/mail/aide-client";
 import { safeMailBack } from "@/lib/mail/back-path";
 import { MAIL_FAILURE_MESSAGES, isMailMessageId } from "@/lib/mail/contract";
 import { neededTriages } from "@/lib/mail/triage";
@@ -63,30 +63,18 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
           </p>
         ) : (
           (() => {
-            const { message, supportsLabels } = result.value;
+            const { message } = result.value;
             return (
               <>
-                {(() => {
-                  const actions = {
-                    id: message.id,
-                    unread: message.unread,
-                    starred: message.starred,
-                    inInbox: message.labelIds.includes("INBOX"),
-                    inTrash: message.labelIds.includes("TRASH"),
-                    labelIds: message.labelIds,
-                    supportsLabels,
-                    back,
-                  };
-                  // 本文の応答にはラベルの名前が無いので、ラベルを扱える取得元のときだけ一覧から名前を引く。
-                  // 一覧の取得は重いので本文を先に出し、名前は届いてから差し込む（#699）
-                  return supportsLabels ? (
-                    <Suspense fallback={<MailDetailActions {...actions} labels={[]} />}>
-                      <ActionsWithLabels user={user} actions={actions} />
-                    </Suspense>
-                  ) : (
-                    <MailDetailActions {...actions} labels={[]} />
-                  );
-                })()}
+                <MailDetailActions
+                  id={message.id}
+                  unread={message.unread}
+                  inInbox={message.labelIds.includes("INBOX")}
+                  inTrash={message.labelIds.includes("TRASH")}
+                  back={back}
+                />
+
+                <MailSummary id={message.id} />
 
                 <MailSuggest id={message.id} />
 
@@ -147,12 +135,4 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
       </div>
     </div>
   );
-}
-
-type ActionsProps = Omit<React.ComponentProps<typeof MailDetailActions>, "labels">;
-
-/** ラベルの名前を一覧から引いてから操作バーを描く（`Suspense` の中で待つ）。 */
-async function ActionsWithLabels({ user, actions }: { user: MailUser; actions: ActionsProps }) {
-  const labels = await listMail(user, {});
-  return <MailDetailActions {...actions} labels={labels.ok ? labels.value.labels : []} />;
 }
