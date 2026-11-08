@@ -392,6 +392,17 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
   `MCP_PRESETS` の `aide` の `url` を一時的にそちらへ向けて確かめる（**`presets.ts` は戻すこと**）。シードは
   AIDE接続を `enabled: false` で入れるので、そのままでは「未接続」が出る
 
+### 天気ページ（#695）
+
+`/weather` は、登録した地点（自宅は常に先頭）の一覧と地名検索、選んだ地点の**その日の0〜23時**（気温の折れ線・1時間ごとの天気・降水確率・雨量）を出す。
+ダッシュボードの「時間と場所ごと」の地点名（予報を取れた区間だけ。場所不明・自宅の地点が未着・日別予報で代用した行は押せない）は、その地点・その日の詳細へ飛ぶ。
+
+- **地点はURLに載る**（`/weather?n=<名前>&lat=&lon=&d=`。組み立て・検証は純粋な `src/lib/weather/place-input.ts`・`test/weather-place-input.test.ts`）。登録していない地点（予定の行き先）も座標だけで開け、登録は詳細のボタン（`POST /api/weather/places`）から。座標は小数2桁に丸めて持つ（外へ送る値と同じ。#586の方針）
+- **登録は `WeatherPlace`（利用者ごと・上限8件・座標で一意）。自宅（AIDEの `location`）はDBに持たず**、`dashboardHomePlace()` が先頭へ足す。AIDEが地点を返していない間は自宅の行が出ない
+- **検索は市町村まで**（`searchMunicipalities()`。国土地理院の住所検索から `municipalityCandidates()` が市町村の題だけを残す。施設名・番地・海外は引けない）。検索は `GET ?q=`（フォームのGET。JS不要）で、候補は詳細へのリンク
+- **気温の折れ線・1時間ごとの帯は `src/components/weather/hourly-strip.tsx` に切り出し、ダッシュボードと共有**している。見た目を変えるときは両方の画面を見ること。1日分は `place-day.ts`（`forecastAt()` の30分キャッシュを使い回すので外への呼び出しは増えない）
+- 日付は `?d=`（今日の前後 `DAY_RANGE` 日）。ダッシュボードと違って左右スワイプは持たず、‹ › のリンクでめくる
+
 ## 通知の起動（cron）と朝の見通し・先回りの提案の廃止（#675）
 
 **朝の見通し（#79・#183）・朝のニュース・起きた合図（#233）・先回りの提案（#325）は#675で廃止した。** 開いていないときに動く
@@ -691,6 +702,18 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 - 開発DBのシードにメールのダミーは無い（メールはAIDEにしか無いため）。手元では、`initialize` 不要の小さなHTTPスタブ（`/api/mail/messages`・
   `/api/mail/messages/<id>`・`/api/mail/actions` に答えるだけ）を立てて `.env.local` の `AIDE_MAIL_API_URL`・`AIDE_MAIL_API_TOKEN` を向け、
   `CODEX_BIN` も判定のJSON配列を返すスタブにして確かめる。「いま確認」の前に `User.mailCheckedAt` を少し戻すと新着として拾われる
+
+### メールの提案——AIが処理を推論して他アプリへ流す（#689）
+
+メール本文の画面の「このメールをどうする？」で、本文をCodex（用途「メールの提案」・機能 `mail_suggest`）に読ませ、おすすめと候補（家計簿・タスク・予定。最大3件）を出す。
+実行はカードごとに利用者が押したときだけ（自動実行しない）。純粋な部分は `src/lib/mail/suggest-core.ts`（`test/mail-suggest.test.ts`）、サーバーは `suggest.ts`、口は `POST /api/mail/flow/suggest`・`/apply`。
+
+- **本文全体をCodexへ渡す**（新着確認は件名・差出人・冒頭だけ）。押したメールだけ・6千字まで・何も保存しない。本文はデータとして読ませ、返答は固定の形で検証する
+- **値は承認後にサーバーで検証し直す**（`normalizeSuggestion()`）。読み取れない金額・日付はnullのまま画面で空欄＋「要確認」にし、**推測で埋めない**
+- **書き込みは `callWriteToolJson()`（`direct-call.ts`）の許可リスト3本だけ**（`aide_create_task`・`aide_create_event`・`asset_manager_import_payment`）。`callToolJson()` の書き込み拒否は変えていない。**道具を足すときはこのリストと `suggest-core.ts` の検証を揃える**
+- 実行の前に `getMail()` で持ち主を照合する。タスクは同じメール・同じ内容なら同じ `idempotencyKey`、家計簿は `gmailMessageId` で二重取り込みが `duplicate` になる
+- 流した後、利用者が作った「処理済み」ラベルがあれば付ける（`DONE_LABEL_NAME`。自動作成しない）
+- 給与明細→給与台帳（`asset_manager_salary_*`）は入れていない（プレビュー→承認の2段階のため別Issue）
 
 ## 通知の種類ごとのオン・オフとテスト送信（#488）
 
