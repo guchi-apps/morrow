@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { contentKeyOf, recordStatusOf, summarizeSuggestion } from "@/lib/mail/flow-record-core";
+import { contentKeyOf, flowRowStates, flowStatusLabel, recordStatusOf, summarizeSuggestion } from "@/lib/mail/flow-record-core";
 import { normalizeSuggestion } from "@/lib/mail/suggest-core";
 
 test("支払いの要約は支払先・金額・日付", () => {
@@ -51,4 +51,20 @@ test("失敗は記録しない・重複と確認待ちは残す", () => {
 test("同じ要約は同じ鍵", () => {
   assert.equal(contentKeyOf("a"), contentKeyOf("a"));
   assert.notEqual(contentKeyOf("a"), contentKeyOf("b"));
+});
+
+test("家計簿の確認待ち・取り込み済みの控えは登録済みの印にしない（#821）", () => {
+  assert.deepEqual(flowRowStates([{ kind: "payment", status: "pending" }]), { registeredKinds: [], receiptState: "pending" });
+  assert.deepEqual(flowRowStates([{ kind: "payment", status: "duplicate" }]), { registeredKinds: [], receiptState: "duplicate" });
+  // 確認待ちが残っていれば、重複の控えが並んでも確認待ちのまま
+  assert.equal(flowRowStates([{ kind: "payment", status: "duplicate" }, { kind: "payment", status: "pending" }]).receiptState, "pending");
+  // 完了の控えがあれば登録済み
+  assert.deepEqual(flowRowStates([{ kind: "payment", status: "pending" }, { kind: "payment", status: "done" }]), { registeredKinds: ["payment"], receiptState: null });
+  // ほかの種類の重複は従来どおり登録済み。サブスクの「開いた」は含めない
+  assert.deepEqual(flowRowStates([{ kind: "task", status: "duplicate" }, { kind: "subscription", status: "opened" }]), { registeredKinds: ["task"], receiptState: null });
+});
+
+test("家計簿の重複の控えは「登録済み」と書かない（#821）", () => {
+  assert.ok(!flowStatusLabel("payment", "duplicate")?.includes("登録済み"));
+  assert.equal(flowStatusLabel("task", "duplicate"), "登録済み（重複を検出）");
 });
