@@ -126,7 +126,7 @@ export function MailRows({ messages, labels, supportsLabels, inTrash, showAccoun
           const locked = lockedOut(message.id);
           const rowAccountKey = mailAccountKeyOf(message.id);
           const accountKey = showAccount ? rowAccountKey : null;
-          const dotColor = rowAccountKey ? ACCOUNT_TONE_CLASS[mailAccountTone(rowAccountKey)].dot : "bg-accent";
+          const tone = ACCOUNT_TONE_CLASS[rowAccountKey ? mailAccountTone(rowAccountKey) : "coral"];
           const href = `/mail/${encodeURIComponent(message.id)}?back=${encodeURIComponent(back)}`;
           return (
             <SwipeArchiveRow
@@ -161,11 +161,11 @@ export function MailRows({ messages, labels, supportsLabels, inTrash, showAccoun
                 <span className="flex min-w-0 items-baseline justify-between gap-2 md:contents">
                   <span className={cn("truncate text-[0.8125rem]", message.unread && "font-bold")}>{senderName(message.from)}</span>
                   <span className="inline-flex shrink-0 items-center gap-1.5 text-[0.6875rem] text-muted md:order-last md:text-right">
-                    {/* 丸印の色＝アカウント。未読は濃く、既読は同じ色を薄く出す（#713・#760）。幅は常に同じで日時の位置はずれない */}
+                    {/* 丸印の色＝アカウント。未読は塗り、既読は同じ色の輪（#713・#760・#789）。大きさは常に同じで日時の位置はずれない */}
                     <span
                       role="img"
                       aria-label={message.unread ? "未読" : "既読"}
-                      className={cn("size-2 shrink-0 rounded-full", dotColor, !message.unread && "opacity-30")}
+                      className={cn("size-2 shrink-0 rounded-full", message.unread ? tone.dot : cn("border-[1.5px]", tone.ring))}
                     />
                     {mailTimeLabel(message.receivedAt, now)}
                   </span>

@@ -1,12 +1,15 @@
 import { mailAccountTone, type MailAccountTone } from "@/lib/mail/contract";
 import { cn } from "@/lib/utils";
 
-/** アカウントの色。鍵だけで決まる（`mailAccountTone()`）ので、名前を変えても色は変わらない。 */
-export const ACCOUNT_TONE_CLASS: Record<MailAccountTone, { chip: string; dot: string }> = {
-  gray: { chip: "bg-rail-active text-muted", dot: "bg-muted" },
-  blue: { chip: "bg-topic-surface text-topic", dot: "bg-topic" },
-  green: { chip: "bg-fair-surface text-fair", dot: "bg-fair" },
-  rose: { chip: "bg-accent-surface text-accent", dot: "bg-accent" },
+/**
+ * アカウントの色。鍵だけで決まる（`mailAccountTone()`）ので、名前を変えても色は変わらない。
+ * `dot` は未読の塗り、`ring` は既読の輪（同じ色の線。#789。透明度で薄めると色の区別が消えるため）。
+ */
+export const ACCOUNT_TONE_CLASS: Record<MailAccountTone, { chip: string; dot: string; ring: string }> = {
+  coral: { chip: "bg-account-coral-surface text-account-coral-text", dot: "bg-account-coral", ring: "border-account-coral" },
+  blue: { chip: "bg-account-blue-surface text-account-blue-text", dot: "bg-account-blue", ring: "border-account-blue" },
+  teal: { chip: "bg-account-teal-surface text-account-teal-text", dot: "bg-account-teal", ring: "border-account-teal" },
+  violet: { chip: "bg-account-violet-surface text-account-violet-text", dot: "bg-account-violet", ring: "border-account-violet" },
 };
 
 /** どのアカウントのメールか（一覧の行・本文の見出し）。 */
