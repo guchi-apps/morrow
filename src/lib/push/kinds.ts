@@ -10,6 +10,7 @@
 export const PUSH_KINDS = [
   "scheduled-push",
   "mail-notice",
+  "hermes-approval",
 ] as const;
 
 export type PushKind = (typeof PUSH_KINDS)[number];
@@ -42,6 +43,18 @@ export const PUSH_KIND_INFO: Record<PushKind, PushKindInfo> = {
       title: "必要なメール（1通）",
       body: "（見本）差出人：件名 — 理由がここに並びます。",
       url: "/mail",
+    },
+  },
+  // Hermesの提案の確認待ち（#794）。押すとチャットを開くだけで、通知から直接は承認しない（値を見ずに押せてしまうため）。
+  // 「返答が届きました」は出さない（画面を閉じると中断するため）。
+  "hermes-approval": {
+    label: "チャットの確認待ち",
+    hint: "チャットでHermesが出した提案のうち、あなたの確認が要るもの（取り消せない操作）があるときに知らせます。押すとチャットが開きます。",
+    when: "Hermesが確認待ちの提案を出したとき",
+    sample: {
+      title: "確認待ちがあります",
+      body: "（見本）チャットを開いて、内容を確かめてください。",
+      url: "/chat",
     },
   },
 };

@@ -1,6 +1,6 @@
 "use client";
 
-import { Cpu, LayoutDashboard, Mail, Newspaper, Settings, Sun } from "lucide-react";
+import { Cpu, LayoutDashboard, Mail, MessageSquare, Newspaper, Settings, Sun } from "lucide-react";
 import Link from "next/link";
 
 import { AppLogo } from "@/components/brand/app-icon";
@@ -16,6 +16,10 @@ type Props = {
   /** メールの画面を開いているか（#683）。 */
   isMailActive: boolean;
   isWeatherActive: boolean;
+  /** チャットの画面を開いているか（#794）。 */
+  isChatActive: boolean;
+  /** Hermesの確認待ちの件数（#794）。0のときはバッジを出さない。 */
+  pendingProposalCount: number;
   /** モデルの画面を開いているか（#349）。 */
   isModelsActive: boolean;
   /** 溜まっているニュースの件数（#144）。0のときは数字を出さない。 */
@@ -39,6 +43,8 @@ export function ConversationRail({
   isTopicsActive,
   isMailActive,
   isWeatherActive,
+  isChatActive,
+  pendingProposalCount,
   isModelsActive,
   topicCount,
   userLabel,
@@ -69,6 +75,30 @@ export function ConversationRail({
         >
           <LayoutDashboard className="size-3.5 text-muted" aria-hidden="true" />
           ホーム
+        </Link>
+
+        {/* チャット（#794）。Hermes Agentへ指示する窓口。確認待ちがあれば件数を出す。 */}
+        <Link
+          href="/chat"
+          onClick={onNavigate}
+          aria-current={isChatActive ? "page" : undefined}
+          className={cn(
+            "mx-2.5 mt-2 flex items-center justify-between gap-2 rounded-[9px] px-2.5 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+            isChatActive && "bg-rail-active shadow-[inset_2px_0_0_var(--accent)]",
+          )}
+        >
+          <span className="flex items-center gap-1.5">
+            <MessageSquare className="size-3.5 text-muted" aria-hidden="true" />
+            チャット
+          </span>
+          {pendingProposalCount > 0 && (
+            <span
+              className="tabular-nums rounded-full bg-amber-600 px-1.5 text-[0.6875rem] font-medium text-white"
+              aria-label={`確認待ち${pendingProposalCount}件`}
+            >
+              {pendingProposalCount}
+            </span>
+          )}
         </Link>
 
         {/* 天気（#695）。登録した地点の1日の予報。 */}

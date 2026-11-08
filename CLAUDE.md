@@ -242,7 +242,7 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
 **方針変更（#724）: #574の「相談はChatGPTで代替する」決定は古い決定として扱う。** Morrowは「利用者が触る唯一の入口（窓口）」に統一し、
 Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新設する**（上の「アプリの役割分担」）。ただし
 **廃止した旧実装は復活させない**（下の「消したもの」は戻さない。新設は別Issueで、窓口からの指示→Hermes→ハブ経由で台帳、という
-新しい設計で作る）。**2026-11時点では未実装**で、いまのMorrowにチャット・音声の画面は無い。以下は#574で消した事実の履歴。
+新しい設計で作る）。**実行窓口のチャット（`/chat`）は #794 で実装した**（下の「Hermes Agentへの経路と認証」）。音声の画面は無い。以下は#574で消した事実の履歴。
 
 **#574当時の判断（古い決定）: 相談・音声対話はChatGPTで代替するため、Morrowからチャットをやめた**（#573でダッシュボードと通知の遷移先を
 移した後の#574）。当時のMorrowは「集めて・選んで・届ける」だけを持った。
@@ -268,7 +268,7 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
 
 ### Hermes Agentへの経路と認証（#726・#737）
 
-**ブリッジ（`hermes-bridge/`）とMorrow側のクライアント（`src/lib/hermes/`）は#737で実装した。チャット画面（#728）・subpc側の設定と疎通確認（#738。手作業）はまだ**（実行役のHermesはいまもDiscord連携だけ）。
+**ブリッジ（`hermes-bridge/`）とMorrow側のクライアント（`src/lib/hermes/`）は#737で、チャット画面（`/chat`）は#794で実装した**（subpc側の設定・疎通は#738。手作業は完了）。
 クライアントの失敗は `HermesError.kind`（`unreachable`／`hermes_down`／`rejected`／`not_configured`／`no_session`…）で区別する。使用量は `recordHermesTurnUsage()`（`feature: hermes_chat`）で1ターン1行。ブリッジはパラメータプロパティを使わない（Nodeの型剥がしで動かすため）。
 詳細は `docs/hermes-route.md`。実装・設定を足すときはまずそこを読む。
 
@@ -276,6 +276,11 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
 - **Hermesへ直接繋がない。** tailscale serveはHostヘッダーを書き換えず、ループバックにバインドしたHermesはHost違いを400で弾く（2026-11-08実測）。またHermesのトークンは設定の書き換えまでできる管理者権限なので、VPSへ置かない
 - 認証は共有トークン `MORROW_HERMES_BRIDGE_TOKEN`（正は1Password・Morrowはissue-deckの共有トークンから）＋送信元のtailnet IPの照合。ブラウザへは何も渡さない
 - 「届かない」「Hermesが落ちている」「会話が無い」を分けて出す（#214）。送れなかった指示は溜めずに入力欄へ戻す
+- **チャット画面（#794）**: ブラウザ → `POST /api/hermes/turns`（SSEの中継。`src/app/api/hermes/turns/route.ts`）→ `hermesClient().startTurn()`。承認は `turns/[id]/approval`（`once`・`deny`だけ）、止めるは `turns/[id]/interrupt`、接続状態は `GET /api/hermes/status`（30秒キャッシュ）。**会話の本文・セッションidは画面のstateにだけ持つ**（Morrowのサーバーに残さない。リロードで新しい会話。過去の表示は #752）。画面の状態への畳み込みは純粋な `stream-view.ts`、道具の日本語名・結果カードの項目は `tool-labels.ts`、失敗の読み替えは `errors.ts`（`test/hermes-stream-view.test.ts`）
+  - 中継は `morrow_propose_action` の `tool.start` を `ingestStreamToolStart()` で確認カードにして `proposal` イベントへ置き換える（生の引数はブラウザへ渡さない）。取り消せる書き込みの `tool.complete` は `recordAutoAction()`（道具名の正規化済みの名前と成否だけ）、ターンの終わりに `recordHermesTurnUsage()`。次の発言の先頭へ `pendingHermesNotes()` を付ける
+  - **承認・中断の宛先は `turn-owners.ts`（プロセス内。ターンの持ち主だけが答えられる）。** ターンの開始は利用者ごと3秒に1回
+  - **通知 `hermes-approval`（確認待ちがあります→`/chat` を開くだけ）の送信は、中継がターンの終わりに1回だけ**（提案を保存していたとき。`isPushKindEnabled()` でオフなら送らない）。「返答が届きました」は出さない（画面を閉じると中断するため）。左メニューのバッジは `countPendingProposals()`
+  - ストリーム中の `reasoning.delta`・`tool.progress` は画面に出さず、中継でも流さない。`clarify` は質問文として出す
 - **履歴（#752）はブリッジの `GET /sessions/<id>/messages` とMorrowの `hermesClient().history()` まで。画面への表示は未実装**（#728は実装せずにクローズ）。`source` が `morrow` のセッションだけを、発言者・本文・時刻・道具の名前に絞って返す（`api_content`・推論・道具の引数と結果は返さない）。Morrowは保存しない。詳細は `docs/hermes-route.md`「会話の履歴」
 
 ### Hermesに任せる操作の範囲と承認（#727。設計のみ・未実装）
@@ -298,7 +303,7 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
 - `pending → executing` を `updateMany` の件数で1回だけ進めた側が実行する。**引数は承認待ち・実行中・結果不明の間だけDBに持ち**、確定したら消す（金額・相手先をMorrowに残さない）
 - 重複防止は道具ごと。**冪等キー1本を前提にしない**。手段の無い道具は結果不明のとき自動再試行しない
 - `dryRun` は確認用の `previewDeleteEvent()` だけが持つ。実行用は `dryRun` を断る
-- 通知の種類・チャット画面への組み込みは未実装（#728・#737）
+- 通知の種類 `hermes-approval`・チャット画面への組み込みは #794 で実装済み
 
 ### DiscordのHermesとの境界（#729。設計のみ）
 

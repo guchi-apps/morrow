@@ -4,7 +4,7 @@
 前提は #725 の技術検証の結論（`hermes -p morrow serve --isolated` の WebSocket `/api/ws` を使う）。
 チャット画面（#728）・操作の範囲と承認（#727）はこの経路の上に作る。
 
-**状態: ブリッジ（`hermes-bridge/`）とMorrow側のクライアント（`src/lib/hermes/`）は #737 で実装済み。** チャット画面（#728）と、subpc側の設定・トークン登録・疎通確認（#738。手作業）はまだ。
+**状態: ブリッジ（`hermes-bridge/`）とMorrow側のクライアント（`src/lib/hermes/`）は #737、チャット画面は #794 で実装済み。** チャット画面（`/chat`）は #794 で実装済み。subpc側の設定・トークン登録・疎通確認は #738（手作業）。
 DiscordのHermes（default profile）との境界・通知の重複は `docs/hermes-discord.md`（#729）。
 
 ## 結論
@@ -87,7 +87,7 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 ## 会話の履歴（#752）
 
 画面を開き直したときに前のやり取りを見せるため、ブリッジが履歴を返す（`hermes-bridge/history.ts`）。Morrowは受け取って表示するだけで、**保存しない**（`docs/hermes-actions.md`「実行の記録」）。
-**画面への表示は未実装**（チャット画面の #728 は実装せずにクローズした。表示はチャット画面を作るIssueで、Morrowの `hermesClient().history()` を呼ぶ）。
+**画面への表示は未実装**（チャット画面は #794 で作ったが、初版は開いている間のやり取りだけ。表示は別Issueで、Morrowの `hermesClient().history()` を呼ぶ）。
 
 - **`source` が `morrow` のセッションだけ返す。** Discord（default profile）など他のセッションは、無いときと同じ404（`no_session`）で、中身も有無も見せない
 - **WebSocketの `session.resume`＋`session.history` は使わない。** 読むだけでHermesに生きたセッションができる。RESTは読み取りだけで副作用が無い（同じ `X-Hermes-Session-Token`）

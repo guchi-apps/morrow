@@ -106,6 +106,16 @@ export async function listProposals(userId: string, now = new Date()): Promise<P
   return rows.map((row) => proposalView(row)).filter((view): view is ProposalView => view !== null);
 }
 
+/** 確認待ち（承認待ちで期限内）の件数。左メニューのバッジ用（#794）。数えるだけで掃除はしない。 */
+export async function countPendingProposals(userId: string, now = new Date()): Promise<number> {
+  try {
+    return await db.hermesProposal.count({ where: { userId, status: "pending", expiresAt: { gt: now } } });
+  } catch (error) {
+    console.error("[aide-bot] 確認待ちの件数を数えられなかった", error instanceof Error ? error.message : error);
+    return 0;
+  }
+}
+
 // ---- 実行 ----
 
 export type ExecuteResult =
