@@ -117,6 +117,11 @@ Morrowのprofileでは**持たせない**（`platform_toolsets` から外す）�
 | `command_allowlist` | 空 | defaultの許可（`execute_code` 等）を `--clone` で持ち込まない |
 
 - `--clone` で作るとdefaultの `command_allowlist`・MCPの設定を写すので、作った後に上の値へ直す（#738の手作業）
+- **`--clone` で写るもの**（Hermes v0.22.5 `hermes_cli/profiles.py`。#729）: `config.yaml`・`.env`・`SOUL.md`・`memories/MEMORY.md`・`memories/USER.md`・
+  スキル・プラグイン。**写らないもの**: cron（`jobs.json`）・セッション（`state.db`・`sessions`）・Discord/Slackのボットトークンとplatformの設定
+  （`--clone-channels` を付けない限り）。**`--clone-channels` は付けない**（付けると同じDiscordボットへ繋ぎ、二重に応答する）
+- **作成後に `memories/MEMORY.md`・`memories/USER.md` を空にする。** Discordの会話由来の記憶が初期値として入り、以後は同期されない
+  （記憶は共有しない。`docs/hermes-discord.md`）。口調を揃えるための `SOUL.md` は残してよい
 - 提案用の道具（次の節）を受け持つMCPサーバーをもう1つ足す
 
 ## 取り消せない書き込みの提案と確認
