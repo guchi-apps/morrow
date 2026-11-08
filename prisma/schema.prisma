@@ -19,26 +19,14 @@ model User {
   name           String?
   image          String?
 
-  // 朝の見通し（#79）を届ける時刻（日本時間）。#121で画面から変更できるようにした。
-  // 30分刻みでしか選べない（cronの起動頻度と釣り合わせているため）。
-  briefingHour   Int @default(7)
-  briefingMinute Int @default(0)
-
-  /// 起きた合図（#233。`POST /api/briefing/wake`）を受け付けるトークンのSHA-256。nullなら受け付けない。
-  /// 本体は発行した直後の応答にしか出さない（`src/lib/wake-token.ts`）。
-  wakeTokenHash      String?   @unique @db.VarChar(64)
-  wakeTokenCreatedAt DateTime?
-  /// 最後に合図を受け取った時刻。オートメーションが効いているかを設定の画面から読むためのもの。
-  wakeTokenUsedAt    DateTime?
-
   // 話題（#144）として仕入れるニュースの種類。`general` / `life` / `tech` をカンマで繋いだ文字列で、
   // 正は `src/lib/topic-categories.ts`。空文字なら仕入れない。Cookieにしないのは、仕入れが
   // 利用者の画面とは別のタイミング（応答後のバックグラウンド）で走り、そこで読む必要があるため。
   // **#345から `TopicCategory`（利用者ごとの行）へ移した。この列は移行元としてだけ読む**（初回に
   // 3種類のオン・オフを引き継ぐ。`topicCategoriesReady` が立った後は読まない）。
-  topicCategories String @default("general,life,tech") @db.VarChar(120)
+  topicCategories      String          @default("general,life,tech") @db.VarChar(120)
   /// `TopicCategory` へ初期データを入れたか（#345）。立てるのは `updateMany` のCASで、二重に入れない。
-  topicCategoriesReady Boolean @default(false)
+  topicCategoriesReady Boolean         @default(false)
   topicCategoryList    TopicCategory[]
   /// 話題の画面を最後に開いた時刻（#418）。これより後に初めて取り込んだ記事（`Topic.createdAt`）を「NEW」にする。
   /// nullは一度も開いていない（全件を既読として出す）。書くのは `POST /api/topics/seen` だけ。
@@ -49,166 +37,40 @@ model User {
   /// Cookieにしないのは、読むのがcronや返答後の後始末（Cookieの届かない経路）でもあるため。
   modelSettings Json?
 
-  /// Notionから取り込んだ「自宅・暮らしの前提」の覚え書き（#167）。nullなら一度も取り込めていない。
-  /// 相談のプロンプトへ毎回そのまま載る（`src/lib/home-profile.ts`）。道具として引かせないのは、
-  /// 呼ぶたびに返事が約9秒遅れるため（#131）。
-  homeProfile String? @db.Text
-  /// 最後に取り込んだ時刻。1日あいていなければ取り込み直さない歯止めに使う。
-  /// **本文がnullでもここは進む**——取り込みを試して見つからなかった回も間隔を空けるため。
-  homeProfileFetchedAt DateTime?
+  /// オフにした通知の種類（#488）。`src/lib/push/kinds.ts` のキーをカンマで繋ぐ。空文字なら全部オン。
+  pushDisabledKinds String @default("") @db.VarChar(200)
 
-  // 先回りの提案（#325）。秘書の方から「今ならできる」を届ける通知の設定。
-  // 読むのがcronから叩かれる利用者のいない経路なので、Cookieではなくここへ持つ。
-  /// 週末のまとまった空きに未達成の希望が合うとき。
-  proactiveWeekend Boolean @default(true)
-  /// 予定の変更・キャンセルで新しい空きができたとき。
-  proactiveFreeTime Boolean @default(true)
-  /// 未完了のタスク・継続中の用件に着手しやすい時間ができたとき。
-  proactiveOngoing Boolean @default(true)
-  /// 静かな時間帯（日本時間の時。開始と終了が同じなら設けない）。日をまたいでよい。
-  proactiveQuietStart Int @default(22)
-  proactiveQuietEnd   Int @default(8)
-  /// 平日の勤務・通勤の時間帯（`proactive-rule.ts` の `WORK_*`）を避けるか。
-  proactiveAvoidWork Boolean @default(true)
-  /// 頻度。`daily`（1日1件まで）/ `twice_weekly`（週2件まで）/ `weekly`（週1件まで）。
-  proactiveFrequency String @default("daily") @db.VarChar(20)
-  /// 最後に提案の判定を試みた時刻。モデルを呼ぶ回の間隔をあけるための印（送った・黙った・失敗のどれでも進める）。
-  proactiveCheckedAt DateTime?
+  /// 「必要なメール」の基準（#683）。利用者が書く自由記述で、判定のプロンプトへそのまま入る。空文字なら既定の基準。
+  mailCriteria  String    @default("") @db.VarChar(600)
+  /// メールの新着確認の既読位置（#683）。これ以降に受信したものを新着として判定する。nullは一度も確認していない
+  /// （初回は位置を置くだけで、溜まっている過去分は通知しない）。一覧が `partial` の回は進めない。
+  mailCheckedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  conversations     Conversation[]
   apiUsages         ApiUsage[]
-  toolCalls         ToolCall[]
   mcpConnections    McpConnection[]
   pushSubscriptions PushSubscription[]
+  apnsDevices       ApnsDevice[]
   notificationLogs  NotificationLog[]
   scheduledPushes   ScheduledPush[]
-  notices           Notice[]
+  weatherPlaces     WeatherPlace[]
   topics            Topic[]
-  memories          Memory[]
-}
-
-// --- チャット ---
-// **#157で「話題ごとのスレッド」をやめ、利用者につき1本の連続セッションにした。**
-// 秘書は今日のできごとを伝える相手で、話題ごとに分ける手間はその使い方に合っていない。
-// 分け目は利用者ではなく日付が付ける（画面は `src/lib/day-log.ts` が日ごとに切って出す）。
-//
-// **#24が単一スレッドを採らなかった理由——「同時に複数の依頼を投げたときに、片方の返答が
-// まだ保存されていない履歴でもう片方が動き、返答が食い違う」——は消えていない。**
-// #48の `pendingGenerations` は同じスレッドの生成が畳まれるまで次を待たせるが、上限は5秒で、
-// Codexの1往復は数十秒かかる。全経路が1本に集まったぶん、当たる窓はこれまでより広い。
-// **利用者1人・端末1つという前提で受け入れている**（画面から次を送る操作は必ず割り込み
-// （`abort()`）を伴い、打ち切られた側がすぐ保存して錠を外すため、実際に待たされるのは
-// 2つの端末で同時に話しかけた場合だけ）。前提が変わるなら、まずここを見直すこと。
-
-model Conversation {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  /// 連続セッション本体（#157）。**利用者につき1本だけtrueになる。**
-  /// falseの行は残していないが、列を消さずに残してあるのは、統合の失敗に気付けるようにするため
-  /// （2本目ができていれば `primaryConversation()` が古い方を返し続ける）。
-  /// `(userId, isPrimary)` に一意制約は張れない（falseの行は複数あってよい）ので、作るときの
-  /// idを `main_<userId>` に決め打ちして主キーで守る（#264）。
-  isPrimary Boolean @default(false)
-
-  // 相談を分けていた頃の見出し（#24）。連続セッションでは固定の文言が入るだけで画面に出ない。
-  // 消さずに残してあるのは、統合前のスレッド名をマイグレーション後に読み返せるようにするため。
-  title String @db.VarChar(120)
-
-  /// 畳んだ古い発言の要約（#157のcompact）。nullなら一度も畳んでいない。
-  /// プロンプトでは履歴の手前へ置く（`src/lib/compact.ts`）。
-  summary String? @db.Text
-  /// 要約に含めた発言の数。**履歴はこの数だけ読み飛ばした先から組み立てる。**
-  /// 時刻ではなく件数で持つのは、同じ時刻の発言があっても取りこぼさないため。
-  summarizedCount Int @default(0)
-
-  /// 会話の作業文脈の起点（#322）。nullなら区切っていない（記録の先頭から）。
-  /// **履歴・要約・件数はこの時刻以降の発言だけを対象にする**（`src/lib/context-break.ts`）。
-  /// それ以前の発言・通知・書き込みの記録・使用量は消さず、日別の記録からそのまま読める。
-  contextStartedAt DateTime?
-  /// 利用者本人が最後に発言した時刻（#322）。自動区切りの「無操作時間」の基準。
-  /// **秘書の側が積んだ発言（朝の見通し・お知らせ・声かけ）では進めない**——進めると、
-  /// 自動発言だけで区切りが延び続ける。`updatedAt` は自動発言でも進むので代わりにならない。
-  lastUserMessageAt DateTime?
-
-  createdAt DateTime @default(now())
-  // 発言を足しても親のこの列は自動では動かないため、APIハンドラ側で明示的に更新する。
-  // 連続セッションでは並び順に使わなくなったが、最後に話した時刻（#101のひとりごと）で読む。
-  updatedAt DateTime @updatedAt
-
-  messages      Message[]
-  apiUsages     ApiUsage[]
-  toolCalls     ToolCall[]
-  contextBreaks ContextBreak[]
-
-  // 連続セッションの取り出しはこの組で引く。
-  @@index([userId, isPrimary])
-  @@index([userId, updatedAt])
-}
-
-/// 会話を区切った履歴（#322）。記録の画面に「ここから新しい会話」の線を出すために持つ。
-/// 文脈の起点そのものは `Conversation.contextStartedAt` が正で、これは表示用の控え。
-model ContextBreak {
-  id             String       @id @default(cuid())
-  conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  /// 区切った時刻（＝そのときの `contextStartedAt`）。
-  at   DateTime
-  /// `MANUAL`（利用者が押した）／`AUTO`（無操作のまま日をまたいだ）。
-  kind String   @db.VarChar(10)
-
-  @@index([conversationId, at])
-}
-
-enum MessageRole {
-  USER
-  ASSISTANT
-}
-
-model Message {
-  id             String       @id @default(cuid())
-  conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  role        MessageRole
-  // 返答はMarkdownで数千字になりうるため、VARCHARではなくTEXTにする。
-  content     String      @db.Text
-  // 利用者に割り込まれて途中で終わった返答（#48）。次の往復でモデルへ「言い切っていない」
-  // ことを伝えるために持つ。本文へ注記を混ぜないのは、保存した文面をそのまま画面へ出すため。
-  // USERの発言では常にfalse。
-  interrupted Boolean     @default(false)
-  /// 秘書の側から話しかけた発言（#278）。利用者の依頼への返答ではなく、積まれた用件（#93）や
-  /// 仕入れた話題（#144）を秘書の言葉としてそのまま置いたもの。画面で「秘書から」の印を
-  /// 出すために持つ。USERの発言では常にfalse。
-  proactive   Boolean     @default(false)
-
-  createdAt DateTime @default(now())
-
-  @@index([conversationId, createdAt])
+  mailTriages       MailTriage[]
+  mailFlowRecords   MailFlowRecord[]
+  hermesProposals   HermesProposal[]
+  hermesActionLogs  HermesActionLog[]
 }
 
 // --- APIの消費量（#51） ---
-// 数える単位は「Messages APIの呼び出し1回」で、秘書の返答（Message）とは別の行に持つ。
-//
-// **返答の行に持たせると、行が作られない往復のぶんが丸ごと落ちる。** 1文字も出ないうちに
-// 割り込まれた往復・生成に失敗した往復では返答を保存しない（route.tsの `answer.trim() !== ""`）が、
-// 履歴を毎回まるごと送り直す設計上、入力ぶんはその時点で使い終わっている。
-// 1発言に対してAPIを複数回叩く形（ツール利用など）になっても、この単位なら数え方が変わらない。
+// 数える単位は「モデルの呼び出し1回」。
+// 相談（#574で廃止）の頃に持っていた `conversationId` は#575で消した。
 
 model ApiUsage {
   id     String @id @default(cuid())
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // どの相談で使ったか。スレッドを消しても使った事実は残したいので、Cascadeではなく
-  // SetNullにする（消えるのは紐付けだけ）。
-  conversationId String?
-  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
 
   // 単価はモデルごとに違う。呼び出したときのモデルが分からないと、CHAT_MODELを変えた時点で
   // 過去ぶんの概算費用まで新しい単価で計算し直されてしまう。
@@ -272,10 +134,18 @@ model McpConnection {
 
   // --- 認可の途中（コールバックで消す） ---
   // 認可コードを受け取るまでの間だけ値が入る。残っていても害は無いが、繋ぎ直すたび上書きする。
-  pendingState       String? @db.VarChar(64)
-  pendingVerifier    String? @db.VarChar(128)
+  pendingState                 String?   @db.VarChar(64)
+  pendingVerifier              String?   @db.VarChar(128)
   /// 認可を始めたときのredirect_uri。トークン交換で同じ値を送る必要がある。
-  pendingRedirectUri String? @db.VarChar(500)
+  pendingRedirectUri           String?   @db.VarChar(500)
+  /// 認可を始めた時刻。コールバックで10分を超えたstateは受け付けない（#469）。
+  pendingStartedAt             DateTime?
+  // 繋ぎ直しで取り直した資格情報とエンドポイント（#453）。開始時点で本体の列を上書きすると、認可を
+  // 離脱したときに旧refresh tokenと食い違い、既存の接続が黙って使えなくなる。成功時に切り替える。
+  pendingClientId              String?   @db.VarChar(255)
+  pendingClientSecret          String?   @db.Text
+  pendingAuthorizationEndpoint String?   @db.VarChar(500)
+  pendingTokenEndpoint         String?   @db.VarChar(500)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -286,49 +156,6 @@ model McpConnection {
   @@index([pendingState])
 }
 
-// --- 書き込みの道具の記録（#81） ---
-// 秘書が「あとから取り消せない書き込み」を行ったときだけ、その1回を1行として残す（#78）。
-//
-// **Messageとは別のテーブルに置く。** ツールの呼び出しと結果を発言として保存すると、
-// 次の往復で宙に浮いた `tool_use` を履歴へ渡すことになる（#46「保存するのは本文だけ」）。
-// ここはモデルへ渡す履歴の組み立て（route.tsの `toPromptMessages()`）が一切見ない場所なので、
-// 画面に記録を残しても送るリクエストの形は変わらない。
-//
-// **残るのは「書き込みだと把握している道具」だけ。** 名前の正は `MCP_PRESETS` の `writeTools`
-// （src/lib/mcp/presets.ts）で、挙げ漏らした道具は絞り込みと同じく記録にも残らない。
-// 「記録に無い＝書き込んでいない」とは読めない。
-
-model ToolCall {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // どの相談で呼んだか。スレッドを消しても「取り消せない書き込みをした事実」は残したいので、
-  // ApiUsageと同じくCascadeではなくSetNullにする（消えるのは紐付けだけ）。
-  conversationId String?
-  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
-
-  /// 画面に出す接続先の名前。接続を消した後も読めるよう、slugと一緒にここへ写す。
-  serverLabel String @db.VarChar(60)
-  serverSlug  String @db.VarChar(40)
-  /// 道具の名前（`aide_zaim_payment` など）。
-  toolName    String @db.VarChar(120)
-
-  /// モデルが渡した引数のJSON。**「何を登録したのか」はここにしか残らない。**
-  input  String  @db.Text
-  /// 接続先が返した内容。受け取る前に打ち切られた往復ではnullのまま残る。
-  output String? @db.Text
-  /// 接続先が失敗を返した（`mcp_tool_result` の `is_error`）。
-  failed Boolean @default(false)
-
-  // 呼んだ時刻を明示的に入れる（route.ts）。行を作るのは返答を保存した後なので、
-  // 既定のnow()に任せると、相談の画面で秘書の返答より後ろに並ぶ。
-  createdAt DateTime @default(now())
-
-  @@index([userId, createdAt])
-  @@index([conversationId, createdAt])
-}
-
 // --- プロアクティブ通知（#79） ---
 // 秘書の方から状況を知らせるための購読先と、送った記録。
 //
@@ -337,7 +164,6 @@ model ToolCall {
 
 /**
  * Web Pushの購読先。**端末ごとに1行**になる（iPhone・PCで別々に購読する）。
- *
  * `endpoint` はブラウザベンダーのURLで、数百文字になることがあるためTEXTで持つ。
  * MariaDBは長いTEXTへそのまま一意制約を張れないので、SHA-256の64文字を別の列に持ち、
  * そちらへ張る（guchi-apps/signaly の PushSubscription と同じ手）。
@@ -347,7 +173,7 @@ model PushSubscription {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  endpoint String @db.Text
+  endpoint     String @db.Text
   /// `endpoint` のSHA-256（hex 64文字）。一意制約はこちらに張る。
   endpointHash String @db.VarChar(64)
 
@@ -358,8 +184,8 @@ model PushSubscription {
   /// どの端末かを画面で見分けるための覚え書き。User-Agentから機械的に作る。
   deviceLabel String @db.VarChar(120)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
   /// 最後に送信が通った時刻。届かなくなった購読を見分ける手掛かりにする。
   lastNotifiedAt DateTime?
 
@@ -368,8 +194,35 @@ model PushSubscription {
 }
 
 /**
+ * iOSアプリ（WKWebViewの殻。#441）のAPNsデバイストークン（#475）。**端末ごとに1行**。
+ * WKWebViewにはPushManagerが無くWeb Pushが使えないため、殻がAPNsのトークンを取って
+ * サーバーへ登録し、`sendPushToUser()` がWeb Pushと並べて送る。
+ * トークンは長さが可変（32バイト以上）なのでSHA-256の64文字を一意制約に使う
+ * （`PushSubscription.endpointHash` と同じ手）。
+ */
+model ApnsDevice {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// デバイストークン（16進。APNsへ送るときの宛先）。
+  token       String @db.VarChar(200)
+  /// `token` のSHA-256（hex 64文字）。一意制約はこちらに張る。
+  tokenHash   String @db.VarChar(64)
+  /// `production`（TestFlight・App Store）か `sandbox`（Xcodeからの実機ビルド）。トークンは環境ごとに別物。
+  environment String @db.VarChar(16)
+  deviceLabel String @db.VarChar(120)
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  lastNotifiedAt DateTime?
+
+  @@unique([tokenHash])
+  @@index([userId, createdAt])
+}
+
+/**
  * 送った通知の記録。**これは履歴ではなく抑制のための錠**（#79）。
- *
  * AIDEの `src/worker/notify.ts` が「成功を毎回送ると肝心の失敗が埋もれる」という失敗を
  * 既にしている。同じ理由（kind）・同じ状態（dedupeKey）の通知は一度しか送らない、を
  * DBの一意制約で守る。朝の見通しでは dedupeKey が日本時間の日付になるため、cronが
@@ -380,20 +233,17 @@ model NotificationLog {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  /// 通知の種類。`morning-briefing`（#79）・`urgent-notice`（#115）。
-  kind String @db.VarChar(40)
-  /// 同じ理由の通知を抑制するための鍵。朝の見通しでは `2026-08-26` の形、
-  /// 急ぎのお知らせ（#115）では `Notice.id` をそのまま使う。
+  /// 通知の種類。`morning-briefing`（#79）・`proactive-suggestion` ほか。`urgent-notice`（#115）は#663で廃止し、過去の行だけが残る。
+  kind      String @db.VarChar(40)
+  /// 同じ理由の通知を抑制するための鍵。朝の見通しでは `2026-08-26` の形。
   dedupeKey String @db.VarChar(120)
 
   title String @db.VarChar(120)
   /// 送った本文。空文字は「知らせることが無いと判断して黙った」ことを表す。
   body  String @db.Text
 
-  /// 通知を押したときに開く相談。黙ったときはnull。
-  conversationId String? @db.VarChar(191)
   /// 実際に届けられた端末の数。0なら購読が全部落ちていた。
-  deliveredCount Int     @default(0)
+  deliveredCount Int @default(0)
 
   createdAt DateTime @default(now())
 
@@ -401,76 +251,8 @@ model NotificationLog {
   @@index([userId, createdAt])
 }
 
-// --- お知らせの受け皿（#93） ---
-// **各アプリが「利用者に知らせたいこと」を積む場所。** 秘書は「話す」画面で待っている間、
-// ここから1件を選んで自分の言葉に直し、頭上の吹き出しに出す。
-//
-// 積むのはHTTP（`POST /api/notices`・共有シークレットのBearer）に限る。他アプリから同じ
-// MariaDBへ直に書かせると、このスキーマが外部の実装に固定されて動かせなくなる。
-//
-// **溜まっただけではモデルを呼ばない。** 未読が0件なら生成そのものを行わないため、
-// 黙っている間のAPI費用は0円になる（#79「知らせることが無ければ黙る」と同じ考え方）。
-
-model Notice {
-  id     String @id @default(cuid())
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId String
-
-  /// 積んだアプリ（`aide`・`dayspan` など）。画面には出さず、追跡と抑制の鍵に使う。
-  source String @db.VarChar(40)
-  /// 積んだ側から見た種類（`schedule`・`laundry` など）。抑制の鍵の一部。
-  kind   String @db.VarChar(40)
-  /// 同じ用件を二重に積まないための鍵。積む側が決める（`2026-08-27-dental` など）。
-  dedupeKey String @db.VarChar(120)
-
-  /// 情報の短いタイトル。画面の一覧や将来のタスク表示で使う。
-  title String @db.VarChar(120)
-
-  /// 知らせたいことの中身。秘書が言い直す前の、積んだ側の文面。
-  body String @db.Text
-  /// 押したときに開く先（任意）。急ぎの通知・吹き出し・一覧の遷移先に使う（#137）。
-  /// 受け付ける形は `safeNoticeUrl()`（src/lib/notice-url.ts）に閉じてあり、積むときと
-  /// 出すときの両方で通す（判定を足す前に積まれた行が残っているため）。
-  url  String? @db.VarChar(500)
-
-  /// 急ぎかどうかの申告。`urgent` は10分を待たずに出す引き金になる。
-  /// **最終的に「急ぎ」として出すかはモデルが決める**ので、これは手掛かりでしかない。
-  priority NoticePriority @default(NORMAL)
-
-  /// この時刻より前には出さない。未指定なら積んだ時点から出せる。
-  showAt    DateTime?
-  /// この時刻を過ぎたら出さない。予定の通知が翌日まで居座るのを防ぐ。
-  expiresAt DateTime?
-
-  /// 秘書が選んで書いた一言。**吹き出しに出るのはこちら**で、nullなら未読。
-  spokenText String? @db.Text
-  /// 選んだ時点で「急ぎ」として出したか。
-  spokenUrgent Boolean @default(false)
-  /// 選ばれて吹き出しに出た時刻。入っている＝もう出したので、二度は選ばない。
-  shownAt DateTime?
-
-  createdAt DateTime @default(now())
-
-  // 積む側が二重に投げても1行に畳む。source を含めるのは、別のアプリが同じ kind と
-  // dedupeKey を使っても衝突させないため。
-  @@unique([userId, source, kind, dedupeKey])
-  // 未読の取り出し（未読・出せる時刻・期限）と、直近に出したものの取り出しで引く。
-  @@index([userId, shownAt, createdAt])
-}
-
-/// お知らせの急ぎ具合。積む側が申告する。
-enum NoticePriority {
-  /// 出す価値はあるが急がない。溜まっていても後回しでよい。
-  LOW
-  NORMAL
-  /// 時間を逃すと意味が無くなる。届いた回は10分を待たずに選び直す。
-  URGENT
-}
-
 // --- 話題（#144） ---
 // **秘書が雑談の話題として振るために、ウェブ検索で仕入れたニュースを溜める場所。**
-// お知らせ（`Notice`）とは分ける——あちらは「逃すと困るか」で1件選ぶ受け皿で、ニュースを
-// 混ぜると選定基準がぶれ、支払い期限のような用件が候補から押し出される。
 //
 // 仕入れは `codex --search exec`（ChatGPTのサブスク枠。`src/lib/topics.ts`）で1日数回だけ走り、
 // 吹き出しへ出すときも相談の材料に添えるときもモデルは呼ばない（#93・#101「黙っている間の
@@ -492,88 +274,25 @@ model Topic {
   lead    String @db.VarChar(200)
 
   /// 出典の記事URL。`safeNoticeUrl()` を通した http(s) の絶対URLだけを入れる。
-  url     String @db.VarChar(500)
+  url         String @db.VarChar(500)
   /// `url` のSHA-256（hex 64文字）。一意制約はこちらに張る（`PushSubscription.endpointHash` と同じ手）。
-  urlHash String @db.VarChar(64)
+  urlHash     String @db.VarChar(64)
   /// 媒体名（「NHK」など）。モデルが書いたもの。
-  sourceName String @db.VarChar(120)
+  sourceName  String @db.VarChar(120)
   /// 記事の日付（`2026-09-02` の形）。モデルが書いたもので、取れなければ空文字。
   publishedOn String @default("") @db.VarChar(10)
 
   /// 仕入れた時刻。同じ記事が仕入れ直されたら更新する（新しい順の並びで前へ戻す）。
-  fetchedAt DateTime @default(now())
+  fetchedAt DateTime  @default(now())
   /// 秘書から話題として振った時刻（#278）。入っている＝もう振ったので、二度は振らない。
   /// 吹き出し（#144）の候補からは外さない——あちらは回り続ける表示で、一度だけの枠ではない。
   spokenAt  DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   // 同じ記事を二重に溜めない。
   @@unique([userId, urlHash])
   // 取り出しは「自分のぶんを新しい順・期間で切る」だけ。
   @@index([userId, fetchedAt])
-}
-
-// --- 継続記憶（#323） ---
-// 会話を区切っても（#322）、本人が続けてほしい希望・判断・進行中の用件を思い出せるようにする。
-// **会話の要約（`Conversation.summary`。#157）とは別物**——あちらは作業用の畳み込みで、出典も
-// 有効期限も直す導線も無い。要約を無条件にここへ移さない。`Conversation` には紐づけず利用者単位で持つ
-// （区切りをまたいで残るため）。「候補」は自動抽出しただけで、相談へ渡すのは利用者が残した「確定」だけ。
-
-enum MemoryKind {
-  /// 行きたい・やりたい。正本はNotionの「いつかやりたいこと」で、こちらは複製を作らない。
-  WISH
-  /// 本人が決めたこと・続けてほしい方針。
-  DECISION
-  /// 進行中の用件。
-  ONGOING
-}
-
-enum MemoryStatus {
-  CANDIDATE
-  CONFIRMED
-  /// 見送り。候補のまま採らなかったもの。同じ内容を再び候補にしない。
-  DISMISSED
-  /// 忘れる。確定を取り下げたもの。本文は残すが、回答の根拠には二度と使わない。
-  FORGOTTEN
-}
-
-enum MemoryConfidence {
-  HIGH
-  MEDIUM
-  LOW
-}
-
-model Memory {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  kind       MemoryKind
-  content    String           @db.VarChar(400)
-  status     MemoryStatus     @default(CANDIDATE)
-  confidence MemoryConfidence @default(MEDIUM)
-
-  /// 元の発言。**FKにしない**（発言を消す機能は無いが、記憶は発言より長く残す前提のため、
-  /// 引用と時刻を自分で持つ）。`sourceMessageId` は辿るためだけの参照。
-  sourceMessageId String?
-  sourceQuote     String   @db.VarChar(400)
-  /// 元の発言の日時。「いつ言ったことか」を画面と回答に出す。
-  sourceAt        DateTime
-
-  /// 正規化した本文のハッシュ。同じ内容の候補を作り直さず、忘れた・見送ったものを蘇らせない。
-  dedupeKey String @db.VarChar(64)
-
-  /// Notion側の状態（WISHのみ）: open / done / skipped / not_found。nullは未確認。
-  notionStatus    String?   @db.VarChar(20)
-  notionUrl       String?   @db.VarChar(500)
-  notionCheckedAt DateTime?
-
-  confirmedAt DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  @@unique([userId, dedupeKey])
-  @@index([userId, status, updatedAt])
 }
 
 // --- 話題の種類（#345） ---
@@ -623,6 +342,22 @@ model ScheduledPush {
   @@index([userId, createdAt])
 }
 
+/// 天気ページ（#695）に登録した地点。名前と座標（小数2桁に丸めた値）だけを持つ。
+/// 自宅（AIDEの地点）は持たず、画面が常に先頭へ足す。
+model WeatherPlace {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name      String   @db.VarChar(40)
+  latitude  Float
+  longitude Float
+  createdAt DateTime @default(now())
+
+  @@unique([userId, latitude, longitude])
+  @@index([userId, createdAt])
+}
+
 /// iOSアプリ（#441）のログインの引き継ぎ。認証シートの /auth/callback が作り、WKWebViewの
 /// /auth/native/consume が一度だけ消費する。ASWebAuthenticationSession と WKWebView はCookieを
 /// 共有しないため。コードはハッシュで持ち、トークンは暗号化して60秒だけ置く。
@@ -643,4 +378,108 @@ model NativeAuthHandoff {
   createdAt     DateTime  @default(now())
 
   @@index([expiresAt])
+}
+
+// --- メールの判定（#683） ---
+// メールそのものはAIDE（`/api/mail/*`）にあり、Morrowは持たない。ここに残すのは「このメールを判定した・
+// 知らせた」の印だけで、同じメールを二度判定・二度通知しないために使う。件名・差出人・本文は持たない。
+
+model MailTriage {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// AIDEのメッセージID（`isMessageId()` と同じく最大320文字）。
+  messageId  String    @db.VarChar(320)
+  /// Codexが「知らせるべき」と判定したか。
+  needed     Boolean
+  /// 判定の理由（モデルの一言。画面の「お知らせ済み」に添える）。不要と判定した回は空文字。
+  reason     String    @default("") @db.VarChar(200)
+  /// 通知を送った時刻。必要と判定しても、通知の種類がオフ・端末が無い回はnull。
+  notifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, messageId])
+  @@index([userId, createdAt])
+}
+
+// --- メールから登録した内容の控え（#750） ---
+// 「このメールをどうする？」で家計簿・タスク・予定へ流した（サブスクは一覧を開いた）ことを、あとからメール画面で
+// 見返すための控え。台帳の記録の複製の正ではなく、登録時点の要約（題名・金額・日付）だけを持つ。
+// 件名・差出人・本文は持たない。台帳側で後から変わっても追従しない。
+
+model MailFlowRecord {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// AIDEのメッセージID（最大320文字）。
+  messageId  String @db.VarChar(320)
+  /// payment / subscription / task / event（`SuggestKind`）。
+  kind       String @db.VarChar(20)
+  /// 登録時点の要約（画面にそのまま出す短い文）。
+  summary    String @db.VarChar(300)
+  /// done / pending / duplicate / opened（サブスクの一覧を開いた）。
+  status     String @db.VarChar(20)
+  /// 要約のハッシュ。同じメール・同じ種類・同じ内容の再実行を1件にまとめる。
+  contentKey String @db.VarChar(40)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, messageId, kind, contentKey])
+  @@index([userId, messageId])
+}
+
+// --- Hermes Agentの提案と実行の記録（#748。設計は docs/hermes-actions.md） ---
+// 取り消せない書き込みは、Hermesが提案だけを出し、利用者が確認カードで承認したらMorrowのサーバーが実行する。
+// **提案の引数（値）は `args` に、承認待ち・実行中・結果不明の間だけ持つ。** 成功・取り下げ・期限切れ・確定した失敗で消す
+// （金額・相手先・予定の内容をMorrowに残さない）。残すのは誰が・いつ・どの道具・結果の種類・対象idだけ。
+
+model HermesProposal {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Hermesのセッションid。
+  sessionId      String    @db.VarChar(128)
+  /// ストリームの道具呼び出しのid。同じ `tool.start` を二度取り込まないための一意キー（セッション内）。
+  callId         String    @db.VarChar(128)
+  /// 提案された道具名（`HERMES_PROPOSAL_TOOLS` のどれか）。
+  tool           String    @db.VarChar(64)
+  /// pending | executing | done | cancelled | expired | failed | unknown（結果不明。引数は持ったまま）。
+  status         String    @default("pending") @db.VarChar(16)
+  expiresAt      DateTime
+  /// `morrow-hermes-<提案ID>`。冪等キーを受ける道具だけが使う。道具ごとの重複防止は `proposal-core.ts` の表。
+  idempotencyKey String    @db.VarChar(80)
+  /// 結果の種類（`imported`・`duplicate`・`deleted` など）。本文は持たない。
+  outcome        String?   @db.VarChar(32)
+  /// 対象のid（receiptId・eventId・subscriptionIdなど）。
+  targetId       String?   @db.VarChar(191)
+  /// 承認待ちの間だけの値（正規化済みの引数・要約・削除前の確認）。確定したらnull。
+  args           Json?
+  /// 次の発言の先頭でHermesへ伝えた時刻。nullは未伝達。
+  reportedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, sessionId, callId])
+  @@index([userId, status])
+  @@index([status, expiresAt])
+  @@index([createdAt])
+}
+
+/// Hermesが自動で行った書き込みの記録（道具名と成否だけ）。90日で消す。
+model HermesActionLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId String   @db.VarChar(128)
+  tool      String   @db.VarChar(64)
+  ok        Boolean
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
 }

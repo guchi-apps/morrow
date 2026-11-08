@@ -34,7 +34,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", getRequestOrigin(request)), 303);
   }
 
-  const form = await request.formData();
+  // フォーム以外の本文（JSONなど）では formData() がTypeErrorを投げる。500にせず設定画面へ戻す。
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return backToSettings(request, { error: "操作の指定が正しくありません。" });
+  }
   const action = String(form.get("action") ?? "");
   const id = String(form.get("id") ?? "");
 

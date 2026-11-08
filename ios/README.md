@@ -8,9 +8,10 @@
 | 表示名 | Morrow |
 | Bundle ID | `com.gucchii.morrow` |
 | 署名 | Automatic（Apple Developer Program のチーム `6AA3WFTR94`。kurashio・YoteiFlow と同じチーム） |
-| 対応 | iPhone・縦向き・iOS 18以上 |
+| 対応 | iPhone（縦向き）・iPad（縦横・全向き）・iOS 18以上。iPadでもiPhone互換モードにならず、Web側の `md`（768px以上）の2カラム表示になる（#482） |
 | 認証シートの戻り先 | `morrow://auth-callback` |
-| Associated Domains / Push / App Group | 使わない（初版スコープ外） |
+| Push Notifications | 使う（#475。APNs）。`Morrow.entitlements` の `aps-environment` |
+| Associated Domains / App Group | 使わない（初版スコープ外） |
 
 ## 更新が要る場所
 
@@ -34,7 +35,7 @@
 
 ### 自動配布の流れ
 
-`Deploy to Production`（main）成功 → `ios-testflight-trigger.yml` が `ios-testflight.yml` を起動 → 判定（`ios/scripts/ios-changes.mjs`）→ 署名・アーカイブ・書き出し・アップロード → 処理待ち・内部グループへ配布（`ios/scripts/asc-api.mjs`）→ 印のタグ `ios-testflight/<ビルド番号>` ＋ Signaly通知。
+`Deploy to Production`（main）成功 → `ios-testflight-trigger.yml` が `ios-testflight.yml` を起動 → 判定（`ios/scripts/ios-changes.mjs`）→ 署名・アーカイブ・書き出し・アップロード → 処理待ち・内部グループへ配布（`ios/scripts/asc-api.mjs`）→ 印のタグ `ios-testflight/<ビルド番号>`。
 
 - **配るのは `ios/Morrow/`・`ios/Morrow.xcodeproj/` に実質的な変更があるときだけ**（README・scripts・版番号の行だけの差分は数えない）。Webだけの更新ではビルドしない。比べる相手は最後に配布し終えたタグ。タグが無い初回は必ず配る
 - 判定だけ見たいときは Actions →「iOS TestFlight」→ Run workflow で `dry_run` にチェック。sha を指定すればそのコミット（main上のもの）を配る
@@ -115,7 +116,8 @@ ios/scripts/remote-upload-testflight.sh    # Mac で main を取り込み、Test
 
 ### 外部リンク・通信失敗・ダイアログ
 
-- Morrowと同一オリジン（スキーム・ホスト・ポート）だけをWebView内で開き、他はSafariで開く（`AppConfig.isAppURL`）
+- **`https://asset.gucchii.com/…` はAsset ManagerのiOSアプリへ渡す**（#744。`AppConfig.assetManagerAppURL`。`assetmanager://open?path=<パス>`。受け側は asset-manager#1212）。アプリが無い・開けないときは `open` の完了ハンドラの失敗でSafariへ落とす。ホスト・スキーム（`asset.gucchii.com`・`assetmanager`）は asset-manager の `ios/AssetManager/AppConfig.swift` と手で揃える（別リポジトリのため自動照合なし）
+- Morrowと同一オリジン（スキーム・ホスト・ポート）だけをWebView内で開き、他はSafariで開く（`AppConfig.isAppURL`）。外へ渡すのは `http`・`https`・`mailto` だけ（`AppConfig.canOpenExternally`。`tel:`・`sms:`・独自スキームは確認なしで他アプリを起動しうるので無視する。#465）
 - 通信できない・5xx のときは `ConnectionErrorView` が理由と「再読み込み」を出す。回線が戻れば自動で読み直す。再接続後はサーバーの履歴がそのまま読める（送信中に切れた発言は、再読み込み後の履歴に残っているかで確認する）
 - `alert` / `confirm` は `WKUIDelegate` で実装（無いと確認が常に「キャンセル」になる）
 
@@ -123,9 +125,23 @@ ios/scripts/remote-upload-testflight.sh    # Mac で main を取り込み、Test
 
 音声バー（「話しかける」）はブラウザの Web Speech API（`SpeechRecognition`）に依存します。**WKWebView ではこの API が使えない可能性が高く**、使えない場合はWeb側がマイクを出さないので、文字での相談は妨げられません。**実機での可否は下の確認表に記録してください**（WebView化だけで既知の音声問題が解消するとは見なさない）。ネイティブの音声入出力は後続Issueです。
 
+### 位置情報（現在地の天気。#587）
+
+ダッシュボードの右上の「現在地」バッジは、Webの `navigator.geolocation` をそのまま使います。殻はビルド設定の `INFOPLIST_KEY_NSLocationWhenInUseUsageDescription`（利用目的）だけを持ち、Swiftのコードは足していません（iOSのWKWebViewに位置情報の許可を扱う公開の `WKUIDelegate` メソッドは無く、利用目的があればOSの許可ダイアログを経由して位置が渡る）。
+
+- 位置を取るのは「アプリを使っている間」だけ（#631）。許可済み（`navigator.permissions` が `granted`）のときは前面に来た時点で1回取り、バッジに市町村名を出す（5分以内の再取得はしない）。未許可・判定できないときはバッジを押したときだけ取る。常時の追跡・バックグラウンドの位置は使わない
+- 初回はOSの許可ダイアログの後に、WebKitの「（ドメイン）が現在地を使おうとしています」がもう一度出ることがある（公開APIでは止められない）
+- 利用目的を持たない古いビルドでは拒否として返り、Web側が「アプリを最新版に更新」を案内する
+
 ### オフライン表示について
 
-WKWebView では Service Worker を使えません。PWA の保存済み画面を使う仕組みはアプリ内では効かず、代わりに再試行の画面を出します。
+WKWebView では Service Worker を使えないので、殻が「最後に見た画面」を自分で持ちます（#643。`PageCache.swift`・`CachedPageView.swift`）。
+
+- 読み込みが終わった画面（と、アプリが裏へ回るとき開いていた画面）のDOMを、スクリプトを除きCSSを1つの `<style>` にまとめた読み取り専用のHTMLにして、端末の Application Support に保存する（パス＋クエリごと・最大30画面・3日で失効・バックアップ除外）。`/login`・`/auth`・`/api` は保存しない
+- 接続できない（圏外・5xx）ときは、再試行の画面の代わりにその画面の保存済みを出し、上に「最終更新」の帯と再読み込みを付ける。保存が無い画面は従来どおり再試行の画面
+- 読み込みが4秒で終わらないときは、保存済みを先に出し、本物が着いたら差し替える
+- **メインフレームが `/login` へ着いた・`/auth/signout` へ向かったときに全削除する**。ログアウト・許可の取り消し・別アカウントへの切り替えは必ず `/login` を経由するので、保存した内容が別の利用者や取り消し後に出ない
+- 保存済みの画面は読み取り専用（スクリプトを動かさない）。リンクを押すと通常の読み込みを試し、繋がらなければ移動先の保存済みへ移る。画像・フォントは保存しない
 
 ## 実機確認（本人がMacとiPhoneで行う。未実施）
 
@@ -138,12 +154,29 @@ PRのマージとTestFlight確認は別です。**この表が埋まるまで #4
 | Webの既存会話を読め、iOSから送った発言・返答がWebにも残る | 未確認 |
 | 完全終了して開き直してもログイン・会話が復元される／ログアウトで再ログインへ誘導される | 未確認 |
 | 日本語入力・変換確定（意図せず送信しない）・送信・返答表示 | 未確認 |
-| キーボード表示中に入力欄と最新の会話が使える | 未確認 |
+| キーボード表示中に入力欄と最新の会話が使える | 3.12.1（202610031350）: NG（入力欄が隠れる。#476で対応） |
 | 機内モードで再試行画面が出て、戻すと自動で読み込まれる | 未確認 |
 | Safari・PWA・PCの既存ログイン・会話・通知が今までどおり動く（アプリのログインでSafari側がログアウトされない） | 未確認 |
 | TestFlightから初回インストールでき、上記が通る | 未確認 |
-| 音声バー（マイク）が出るか・動くか | 未確認 |
+| 右上の「現在地」バッジで許可を求められ、現在地の市町村名と天気が出る（#587） | 未確認 |
+| 音声バー（マイク）が出るか・動くか | 3.12.1（202610031350）: NG（出るが、利用目的の宣言とWebViewの許可が無く使えない。#477で対応）。対応後のビルドで再確認する（未確認） |
 
 ## 初版スコープ外（後続Issue）
 
 ネイティブプッシュ通知・通知からの画面遷移 / 共有メニューから文章・URLを渡す機能 / App Intents・ショートカット・ウィジェット / 音声入出力のネイティブ実装・常時マイク / TestFlight配布のCI自動化 / App Store公開 / 会話画面のSwift化。
+
+## プッシュ通知（APNs。#475）
+
+WKWebViewにはWeb Pushが無いため、アプリはAPNsで通知を受ける。**送る中身・時刻はサーバーが決める**（朝の見通し・急ぎのお知らせ・先回りの提案・定時のお知らせが `sendPushToUser()` からWeb Pushと並んで届く）。
+
+- 殻（`PushRegistration.swift`）: ログイン後の画面が開けたら通知の許可を1回確認 → デバイストークンを取り、`WebViewModel` が WebView の中から `POST /api/push/apns` へ送る（未ログインの回は次に画面が開けたときにやり直す）。通知を押すと `url`（アプリ内のパスか外部URL）を `AppConfig.notificationTarget()` で検査して開く
+- サーバー: `ApnsDevice`（端末ごとに1行）・`src/lib/push/apns.ts`。依存は足さず、Node標準の `http2`・`crypto` でES256のJWTを作る。失効（410など）したトークンはその場で消す
+- **環境の区別**: Xcodeから入れるDebugビルドは sandbox、TestFlight・App Store（Release）は production のトークン。`PushRegistration.environment` が送り分ける。Debugで試す端末へはsandboxのAPNsへ送る
+- 通知を止めるのはiPhoneの設定アプリ（アプリ内の設定画面は状態と「試しに送る」だけ）
+
+### 手作業（本人の操作）
+
+1. Apple Developer の Identifiers で `com.gucchii.morrow` に **Push Notifications** を有効にする（CIのクラウド署名で自動更新されない場合）
+2. Keys で **APNs認証キー（.p8）** を作る（App Store Connect APIキーとは別物）。Key ID・Team ID（`6AA3WFTR94`）・.p8は1Passwordの `apps/AppStoreConnect` の「Apple Push Notification service (APNs)」セクションに `apns-key-id`・`apns-team-id`・`apns-auth-key`（`AuthKey_XXXX.p8` の中身をbase64で1行）として登録し、`scripts/sync-github-secrets.sh` で同期してデプロイ
+3. 3つのどれかが欠けるとAPNsの経路ごと無効（Web Pushだけが動く）。設定画面のアプリ内表示にもその旨が出る
+4. 実機（TestFlight）で通知の許可 → 設定画面の「試しに送る」で受信を確かめる。**subpcには Xcode が無いので、受信確認は Mac・実機で行う**

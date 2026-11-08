@@ -2,19 +2,22 @@ import { timingSafeEqual } from "node:crypto";
 
 import { NextResponse, after } from "next/server";
 
-import { runMorningBriefing } from "@/lib/briefing";
-import { refreshHomeProfiles } from "@/lib/home-profile";
-import { runProactiveSuggestions } from "@/lib/proactive";
+import { sweepProposals } from "@/lib/hermes/proposals";
+import { runMailChecks } from "@/lib/mail/triage";
 import { runScheduledPushes } from "@/lib/scheduled-push";
 
 /**
- * 朝の見通しを起動する（#79）。**cronから叩かれる、利用者のいない経路。**
+ * 定時のお知らせと、メールの新着確認（#683）を起動する。**cronから叩かれる、利用者のいない経路。**
+ * vpsの `cron/crontab.txt` から15分ごと（毎時0・15・30・45分。`scripts/aide-bot-briefing.sh`）に叩かれる。
+ *
+ * 以前は朝の見通し（#79）・先回りの提案（#325）もここから起動していたが、#675で廃止した。
+ * パスと `BRIEFING_TRIGGER_TOKEN` は、vpsのcrontabを変えずに済むよう名前のまま残している。
  *
  * 新しい常駐プロセスを足さないため、スケジューリングは外（`guchi-apps/vps` の
  * `cron/crontab.txt`）に任せ、ここはワンショットで走るだけにしてある。
  *
  * ```
- * 0 7 * * * curl -fsS -X POST -H "Authorization: Bearer <token>" http://127.0.0.1:3103/api/briefing
+ * 0,15,30,45 * * * /usr/local/bin/aide-bot-briefing.sh   # 中身は POST http://127.0.0.1:3103/api/briefing
  * ```
  *
  * ## 認証
@@ -59,27 +62,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "認証が必要です。" }, { status: 401 });
   }
 
-  const outcomes = await runMorningBriefing();
-
-  // 自宅の情報の取り込み（#167）。**朝の見通しとは独立**で、設定時刻の前でも走る
-  // （見通しを送ったかどうかとは関係が無い）。前回から1日あいていなければDBを1回引くだけで
-  // 戻るので、cronが30分ごとに叩いても取り込みは1日1回に収まる。
-  const homeProfiles = await refreshHomeProfiles();
-
-  // 先回りの提案（#325）。**応答を待たせない**——判定を通ればCodexが最大180秒かかるため、
-  // 朝の見通しの結果を返した後（`after()`）で走らせる。判定の大半はDBを引くだけで戻る。
-  // 朝の見通しとは抑制の単位（種類・上限）を分けてあり、その1日1本の枠を消費しない。
-  after(async () => {
-    try {
-      const results = await runProactiveSuggestions();
-      for (const { userId, status, delivered, detail } of results) {
-        console.info(`[aide-bot] 先回りの提案: ${userId} ${status}（${delivered}台）${detail ? ` ${detail}` : ""}`);
-      }
-    } catch (error) {
-      console.error("[aide-bot] 先回りの提案に失敗した", error);
-    }
-  });
-
   // 定時のお知らせ（#344）。モデルを呼ばずDBを引くだけなので、応答の後（`after()`）で走らせる。
   after(async () => {
     try {
@@ -92,16 +74,33 @@ export async function POST(request: Request) {
     }
   });
 
-  // cronのログ（メール）に流れる想定なので、届いたかどうかが一目で分かる形にする。
-  // 本文そのものは返さない——ログに秘書の返答が丸ごと残るのは行き過ぎ。
-  return NextResponse.json({
-    ran: outcomes.length,
-    outcomes: outcomes.map(({ userId, status, delivered, detail }) => ({
-      userId,
-      status,
-      delivered,
-      ...(detail ? { detail } : {}),
-    })),
-    homeProfiles,
+  // 必要なメールのお知らせ（#683）。新着があったときだけCodexで判定する。定時のお知らせとは独立に走らせる
+  // （片方の失敗・待ちでもう片方を止めない）。
+  after(async () => {
+    try {
+      for (const { userId, result } of await runMailChecks()) {
+        if (result.status === "checked" && result.judged === 0 && !result.partial) continue;
+        console.info(
+          `[aide-bot] メールの確認: ${userId} ${result.status}（判定${result.judged}・必要${result.needed}・${result.delivered}台）` +
+            `${result.partial ? " 一部のアカウントを取得できず" : ""}${result.failure ? ` ${result.failure}` : ""}`,
+        );
+      }
+    } catch (error) {
+      console.error("[aide-bot] メールの確認に失敗した", error);
+    }
   });
+
+  // Hermesの提案（#748）。期限切れ・実行中のまま止まった行を進め、90日を過ぎた記録を消す。独立に走らせる。
+  after(async () => {
+    try {
+      const { expired, stale, purged } = await sweepProposals();
+      if (expired + stale + purged > 0) {
+        console.info(`[aide-bot] Hermesの提案: 期限切れ${expired}・結果不明へ${stale}・削除${purged}`);
+      }
+    } catch (error) {
+      console.error("[aide-bot] Hermesの提案の掃除に失敗した", error);
+    }
+  });
+
+  return NextResponse.json({ ran: true });
 }

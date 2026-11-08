@@ -1,13 +1,11 @@
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 
 import { ChatShell } from "@/components/chat/chat-shell";
+import { MenuInfo } from "@/components/chat/menu-info";
 import { APP_VERSION } from "@/lib/app-version";
 import { getCurrentUser } from "@/lib/auth-user";
-import { jstDayKey } from "@/lib/day-key";
-import { listDays, primaryConversation } from "@/lib/day-log";
-import { pendingNoticeCount } from "@/lib/notice-list";
 import { recentTopicCount } from "@/lib/topics";
-import { formatUsd, startOfMonth, usageBreakdown, type UsageBreakdown } from "@/lib/usage";
 
 export default async function ChatLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser();
@@ -20,54 +18,22 @@ export default async function ChatLayout({ children }: { children: React.ReactNo
 
   const now = new Date();
 
-  // 今月の使用量（#51・#133）。一覧の下に出すため、相談の画面でも毎回引くことになる。
-  // モデル別に集計した数行しか返らないので、一覧の取得と一緒に流して待ち時間を足さない。
-  const monthlyUsagePromise = usageBreakdown({ userId: user.id, since: startOfMonth(now) });
-
-  // まだ秘書が出していないお知らせの件数（#114）。使用量と同じく相談の画面でも毎回引くことに
-  // なるが、`count` 1本なので一覧の取得と一緒に流して待ち時間を足さない。
-  const pendingNoticesPromise = pendingNoticeCount(user.id, now);
-
-  // 溜まっている話題の件数（#144）。こちらも `count` 1本なので同じく並行して流す。
-  const topicCountPromise = recentTopicCount(user.id, now);
-
-  // 左メニューに並べる日付（#157）。相談はテーマごとに分けなくなったので、一覧の元は
-  // スレッドではなく1本の連続セッションの発言になる。
-  const conversation = await primaryConversation(user.id);
-  const days = await listDays(conversation.id, now);
-
-  const [monthlyUsage, pendingNotices, topicCount] = await Promise.all([
-    monthlyUsagePromise,
-    pendingNoticesPromise,
-    topicCountPromise,
-  ]);
+  // 溜まっている話題の件数（#144）。`count` 1本なので待ち時間はほとんど足さない。
+  const topicCount = await recentTopicCount(user.id, now);
 
   return (
     <ChatShell
-      days={days}
-      todayKey={jstDayKey(now)}
-      monthlyUsageLabel={monthlyUsageLabel(monthlyUsage)}
-      pendingNoticeCount={pendingNotices}
       topicCount={topicCount}
       userLabel={user.name ?? user.email ?? "ログイン中"}
       userEmail={user.email}
       appVersion={APP_VERSION}
+      infoSlot={
+        <Suspense fallback={null}>
+          <MenuInfo userId={user.id} />
+        </Suspense>
+      }
     >
       {children}
     </ChatShell>
   );
-}
-
-/**
- * 左メニューに出す今月の一言（#133）。
- *
- * **従量課金ぶんの費用があるうちは金額、無くなったら定額ぶんの回数を出す。** #183で朝の見通しも
- * Codexへ移り、**新しく積まれる記録はすべて定額ぶん**になった（従量課金ぶんは移行前の記録が
- * 今月から外れれば0になる）。金額だけを出し続けると、実際には毎日使っているのに
- * 「今月 $0.00」が並び、使っていないように読める。**費用が出ている間は金額を優先する**
- * ——出ている額を隠す方が分かりにくい。
- */
-function monthlyUsageLabel(usage: UsageBreakdown): string {
-  if (usage.metered.costUsd > 0) return formatUsd(usage.metered.costUsd);
-  return `${usage.subscription.calls}回`;
 }

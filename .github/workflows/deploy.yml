@@ -8,7 +8,9 @@ on:
 
 concurrency:
   group: deploy-aide-bot-production
-  cancel-in-progress: true
+  # SSH 中の配布を打ち切ると、旧成果物を削除した後で PM2 の再起動前に止まりうる。
+  # 後続のデプロイは待機させ、実行中のデプロイは完了させる。
+  cancel-in-progress: false
 
 jobs:
   tag:
@@ -93,7 +95,7 @@ jobs:
     #
     # このブロックは scripts/generate-workflow-env-block.sh で生成する（guchi-apps/issue-deck#1307）。
     env:
-      SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_PRIVATE_KEY }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       HOST: ${{ secrets.SERVER_HOST }}
       USERNAME: ${{ secrets.SERVER_USERNAME }}
       SSH_PORT: ${{ secrets.SERVER_SSH_PORT }}
@@ -105,15 +107,14 @@ jobs:
       MIGRATE_DB_PASSWORD: ${{ secrets.SHARED_DB_MIGRATE_PASSWORD }}
       NEXT_PUBLIC_SUPABASE_URL: ${{ vars.SUPABASE_PROJECT_URL }}
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
-      TARGET_DIR: ${{ secrets.TARGET_DIR }}
       DB_NAME: ${{ secrets.DB_NAME }}
       ALLOWED_GOOGLE_EMAILS: ${{ secrets.ALLOWED_GOOGLE_EMAILS }}
-      SIGNALY_WEBHOOK_URL: ${{ secrets.SIGNALY_WEBHOOK_URL }}
       VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
       VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+      APNS_KEY_ID: ${{ secrets.APNS_KEY_ID }}
+      APNS_TEAM_ID: ${{ secrets.APNS_TEAM_ID }}
+      APNS_KEY_P8: ${{ secrets.APNS_KEY_P8 }}
       BRIEFING_TRIGGER_TOKEN: ${{ secrets.BRIEFING_TRIGGER_TOKEN }}
-      NOTICE_INGEST_TOKEN: ${{ secrets.NOTICE_INGEST_TOKEN }}
-      OPS_API_TOKEN: ${{ secrets.OPS_API_TOKEN }}
       SHARED_TOKEN_API_SECRET: ${{ secrets.SHARED_TOKEN_API_SECRET }}
       ISSUE_DECK_URL: ${{ vars.APP_BASE_URL }}
       NOTION_API_TOKEN: ${{ secrets.NOTION_API_TOKEN }}
@@ -156,8 +157,6 @@ jobs:
             .next \
             prisma \
             deploy \
-            scripts/construct-database-url.sh \
-            scripts/update-env-file.sh \
             next.config.mjs
 
       - name: Upload artifact
@@ -178,7 +177,7 @@ jobs:
     #
     # このブロックは scripts/generate-workflow-env-block.sh で生成する（guchi-apps/issue-deck#1307）。
     env:
-      SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_PRIVATE_KEY }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       HOST: ${{ secrets.SERVER_HOST }}
       USERNAME: ${{ secrets.SERVER_USERNAME }}
       SSH_PORT: ${{ secrets.SERVER_SSH_PORT }}
@@ -190,19 +189,20 @@ jobs:
       MIGRATE_DB_PASSWORD: ${{ secrets.SHARED_DB_MIGRATE_PASSWORD }}
       NEXT_PUBLIC_SUPABASE_URL: ${{ vars.SUPABASE_PROJECT_URL }}
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
-      TARGET_DIR: ${{ secrets.TARGET_DIR }}
       DB_NAME: ${{ secrets.DB_NAME }}
       ALLOWED_GOOGLE_EMAILS: ${{ secrets.ALLOWED_GOOGLE_EMAILS }}
-      SIGNALY_WEBHOOK_URL: ${{ secrets.SIGNALY_WEBHOOK_URL }}
       VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
       VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+      APNS_KEY_ID: ${{ secrets.APNS_KEY_ID }}
+      APNS_TEAM_ID: ${{ secrets.APNS_TEAM_ID }}
+      APNS_KEY_P8: ${{ secrets.APNS_KEY_P8 }}
       BRIEFING_TRIGGER_TOKEN: ${{ secrets.BRIEFING_TRIGGER_TOKEN }}
-      NOTICE_INGEST_TOKEN: ${{ secrets.NOTICE_INGEST_TOKEN }}
-      OPS_API_TOKEN: ${{ secrets.OPS_API_TOKEN }}
       SHARED_TOKEN_API_SECRET: ${{ secrets.SHARED_TOKEN_API_SECRET }}
       ISSUE_DECK_URL: ${{ vars.APP_BASE_URL }}
       NOTION_API_TOKEN: ${{ secrets.NOTION_API_TOKEN }}
       TASK_API_TOKEN: ${{ secrets.TASK_API_TOKEN }}
+      # Hermesブリッジの宛先（#737）。tailnet名を含むのでGitには入れず、GitHub変数で渡す。シークレットではない
+      HERMES_BRIDGE_URL: ${{ vars.HERMES_BRIDGE_URL }}
 
     steps:
       - name: Checkout code
@@ -217,6 +217,11 @@ jobs:
       - name: Construct DATABASE_URL
         run: bash scripts/construct-database-url.sh
 
+      # OPS_API_TOKEN は環境変数で配らず共有トークンから読む（#570）。未登録だと
+      # お知らせの受け口とAI利用APIが401で閉じるので、何も送る前にここで落とす（#581）。
+      - name: Check shared tokens are registered
+        run: bash scripts/check-shared-tokens.sh
+
       - name: Install SSH key
         uses: shimataro/ssh-key-action@v2
         with:
@@ -230,17 +235,28 @@ jobs:
           HOST: ${{ env.HOST }}
           SSH_PORT: ${{ env.SSH_PORT }}
 
+      # **VPSのgate（/usr/local/sbin/app-deploy-gate。guchi-apps/vps#275）へ渡す**（#567）。
+      # 鍵はこのアプリ専用で、VPSのauthorized_keysのcommand=がgateのアプリ名を固定する。
+      # gateのアプリ名は `aide-bot`（リポジトリ名morrowではない）。置き場の /home/github-user/apps/aide-bot と
+      # pm2のプロセス名 aide-bot（deploy/ecosystem.config.js）が旧名のまま残っており、gateはその2つを
+      # アプリ名から決めるため。任意のシェルコマンドは実行できず、upload・env・deployの3語だけが通る。
+      # 旧配布物の削除・展開・.env更新・pnpm install・prisma migrate deploy（MIGRATE_DATABASE_URLは
+      # .envへ書かずここだけで使う）・pm2の再起動・稼働版の照合（/api/app-versionのsha）はgate側が行う。
       - name: Upload archive
-        run: scp -P "${SSH_PORT}" deploy.tar.gz "${USERNAME}@${HOST}:${TARGET_DIR}/deploy.tar.gz"
+        run: ssh -p "${SSH_PORT}" "${USERNAME}@${HOST}" upload < deploy.tar.gz
         env:
           HOST: ${{ env.HOST }}
           USERNAME: ${{ env.USERNAME }}
           SSH_PORT: ${{ env.SSH_PORT }}
-          TARGET_DIR: ${{ env.TARGET_DIR }}
 
-      - name: Deploy and restart
-        uses: appleboy/ssh-action@v1
+      - name: Send environment variables
         env:
+          HOST: ${{ env.HOST }}
+          USERNAME: ${{ env.USERNAME }}
+          SSH_PORT: ${{ env.SSH_PORT }}
+          # 稼働中の版の確認に使う（#567）。gateが.envのAPP_COMMIT_SHAと稼働中の
+          # /api/app-versionのshaを照合する（guchi-apps/vps#298）。コミットのSHAは公開情報
+          APP_COMMIT_SHA: ${{ github.sha }}
           DATABASE_URL: ${{ env.DATABASE_URL }}
           MIGRATE_DATABASE_URL: ${{ env.MIGRATE_DATABASE_URL }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
@@ -248,157 +264,70 @@ jobs:
           ALLOWED_GOOGLE_EMAILS: ${{ env.ALLOWED_GOOGLE_EMAILS }}
           VAPID_PUBLIC_KEY: ${{ env.VAPID_PUBLIC_KEY }}
           VAPID_PRIVATE_KEY: ${{ env.VAPID_PRIVATE_KEY }}
+          APNS_KEY_ID: ${{ env.APNS_KEY_ID }}
+          APNS_TEAM_ID: ${{ env.APNS_TEAM_ID }}
+          APNS_KEY_P8: ${{ env.APNS_KEY_P8 }}
           BRIEFING_TRIGGER_TOKEN: ${{ env.BRIEFING_TRIGGER_TOKEN }}
-          NOTICE_INGEST_TOKEN: ${{ env.NOTICE_INGEST_TOKEN }}
-          OPS_API_TOKEN: ${{ env.OPS_API_TOKEN }}
           SHARED_TOKEN_API_SECRET: ${{ env.SHARED_TOKEN_API_SECRET }}
           ISSUE_DECK_URL: ${{ env.ISSUE_DECK_URL }}
           NOTION_API_TOKEN: ${{ env.NOTION_API_TOKEN }}
           TASK_API_TOKEN: ${{ env.TASK_API_TOKEN }}
-          TARGET_DIR: ${{ env.TARGET_DIR }}
-        with:
-          host: ${{ env.HOST }}
-          username: ${{ env.USERNAME }}
-          key: ${{ env.SSH_PRIVATE_KEY }}
-          port: ${{ env.SSH_PORT }}
-          # ここに無い変数はSSH先に存在しない。env: と同じ名前を必ず並べる。
-          envs: DATABASE_URL,MIGRATE_DATABASE_URL,NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,ALLOWED_GOOGLE_EMAILS,VAPID_PUBLIC_KEY,VAPID_PRIVATE_KEY,BRIEFING_TRIGGER_TOKEN,NOTICE_INGEST_TOKEN,OPS_API_TOKEN,SHARED_TOKEN_API_SECRET,ISSUE_DECK_URL,NOTION_API_TOKEN,TASK_API_TOKEN,TARGET_DIR
-          script: |
-            set -euo pipefail
-            cd "${TARGET_DIR}"
-
-            # 待受ポートはシークレットではなく設定値として平文で持つ
-            # （guchi-apps/docs の standards/ports.md「ポート番号は 1Password で管理しない」。#5）。
-            PORT=3103
-
-            echo "Cleaning up old release files..."
-            # 配布物を増やしたらこの行にも足す。永続させたいディレクトリは絶対に入れない。
-            rm -rf .next public package.json pnpm-lock.yaml prisma deploy next.config.mjs next.config.ts
-
-            echo "Extracting archive..."
-            tar -xzf deploy.tar.gz
-            rm deploy.tar.gz
-
-            update_env() {
-              bash scripts/update-env-file.sh .env "$1" "$2"
-            }
-
-            echo "Updating .env..."
-            update_env NODE_ENV production
-            update_env PORT "$PORT"
-            update_env DATABASE_URL "$DATABASE_URL"
-            update_env NEXT_PUBLIC_SUPABASE_URL "$NEXT_PUBLIC_SUPABASE_URL"
-            update_env NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY "$NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
-            update_env ALLOWED_GOOGLE_EMAILS "$ALLOWED_GOOGLE_EMAILS"
+          HERMES_BRIDGE_URL: ${{ env.HERMES_BRIDGE_URL }}
+        run: |
+          set -euo pipefail
+          # マイグレーション専用ユーザー（SHARED_DB_MIGRATE_*）が未設定なら通常ユーザーで流す。
+          # MIGRATE_DATABASE_URL はgateが.envへ書かずマイグレーションだけに使う。
+          MIGRATE_DATABASE_URL="${MIGRATE_DATABASE_URL:-$DATABASE_URL}"
+          # gateは標準入力を1行1変数（KEY=VALUE）で受けるため、改行を含む値は送れない。
+          # APNsの認証キーはマニフェスト上base64の1行だが、複数行のPEMのまま登録されていても送れるよう
+          # base64の1行へ直す（src/lib/push/apns-core.ts の normalizeP8() はbase64・PEM・`\n`を文字で
+          # 含むPEMのどれも受ける。`\n`を文字で含む1行のPEMはbase64にすると復元時に改行へ戻らないため触らない）。
+          case "$APNS_KEY_P8" in
+            *$'\n'*) APNS_KEY_P8="$(printf '%s' "$APNS_KEY_P8" | base64 -w0)" ;;
+          esac
+          for name in DATABASE_URL MIGRATE_DATABASE_URL NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY \
+            ALLOWED_GOOGLE_EMAILS VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY APNS_KEY_ID APNS_TEAM_ID APNS_KEY_P8 \
+            BRIEFING_TRIGGER_TOKEN SHARED_TOKEN_API_SECRET ISSUE_DECK_URL \
+            NOTION_API_TOKEN TASK_API_TOKEN HERMES_BRIDGE_URL; do
+            case "${!name}" in
+              *$'\n'*) echo "::error::${name} が改行を含むためgateへ送れません"; exit 1 ;;
+            esac
+          done
+          # 待受ポートはシークレットではなく設定値として平文で持つ
+          # （guchi-apps/docs の standards/ports.md「ポート番号は 1Password で管理しない」。#5）。
+          {
+            printf '%s\n' "NODE_ENV=production" "PORT=3103"
+            printf '%s\n' "APP_COMMIT_SHA=${APP_COMMIT_SHA}"
+            printf '%s\n' "DATABASE_URL=${DATABASE_URL}"
+            printf '%s\n' "MIGRATE_DATABASE_URL=${MIGRATE_DATABASE_URL}"
+            printf '%s\n' "NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}"
+            printf '%s\n' "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}"
+            printf '%s\n' "ALLOWED_GOOGLE_EMAILS=${ALLOWED_GOOGLE_EMAILS}"
             # プロアクティブ通知（#79）。VAPIDの鍵が片方でも空だと設定の画面に通知の導線が
             # 出ず、BRIEFING_TRIGGER_TOKEN が空だと cron からの POST /api/briefing が
             # 401 で閉じたままになる。
-            update_env VAPID_PUBLIC_KEY "$VAPID_PUBLIC_KEY"
-            update_env VAPID_PRIVATE_KEY "$VAPID_PRIVATE_KEY"
-            update_env BRIEFING_TRIGGER_TOKEN "$BRIEFING_TRIGGER_TOKEN"
-            # お知らせの受け皿（#93）。空だと他アプリからの POST /api/notices が401で
-            # 閉じたままになり、秘書の吹き出しに出るものが積まれない。
-            update_env NOTICE_INGEST_TOKEN "$NOTICE_INGEST_TOKEN"
-            # ops-dashboardのアプリ別のAI利用（#297）。空だと GET /api/ai-usage が401で閉じた
-            # ままになり、ops-dashboardの画面はこのアプリを「取得不可」と出す。
-            update_env OPS_API_TOKEN "$OPS_API_TOKEN"
-            # 共有トークンAPI（#403）。空だと共有トークンを取れず、上の2つの環境変数へのフォールバックで動く。
-            update_env SHARED_TOKEN_API_SECRET "$SHARED_TOKEN_API_SECRET"
-            update_env ISSUE_DECK_URL "$ISSUE_DECK_URL"
+            printf '%s\n' "VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY}"
+            printf '%s\n' "VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY}"
+            # iOSアプリへのAPNs通知（#475）。3つのどれかが空だとAPNsの経路ごと無効になる。
+            printf '%s\n' "APNS_KEY_ID=${APNS_KEY_ID}"
+            printf '%s\n' "APNS_TEAM_ID=${APNS_TEAM_ID}"
+            printf '%s\n' "APNS_KEY_P8=${APNS_KEY_P8}"
+            printf '%s\n' "BRIEFING_TRIGGER_TOKEN=${BRIEFING_TRIGGER_TOKEN}"
+            # OPS_API_TOKEN は共有トークンAPIから実行時に取る（#403・#570）ので配らない。
+            # 共有トークンAPI（#403）。空だと共有トークンを取れず、受け口（お知らせ・AI利用）とログイン判定が閉じる。
+            printf '%s\n' "SHARED_TOKEN_API_SECRET=${SHARED_TOKEN_API_SECRET}"
+            printf '%s\n' "ISSUE_DECK_URL=${ISSUE_DECK_URL}"
             # Notionのタスク管理API・MCP（#373）。空だと /api/tasks とタスクのMCPツールが503で閉じたままになる。
-            update_env NOTION_API_TOKEN "$NOTION_API_TOKEN"
-            update_env TASK_API_TOKEN "$TASK_API_TOKEN"
+            printf '%s\n' "NOTION_API_TOKEN=${NOTION_API_TOKEN}"
+            printf '%s\n' "TASK_API_TOKEN=${TASK_API_TOKEN}"
+            # Hermesブリッジの宛先（#737）。空だとチャット（#728）は「接続の設定に問題があります」で止まる。
+            # トークン MORROW_HERMES_BRIDGE_TOKEN は共有トークンAPIから実行時に取るので配らない。
+            printf '%s\n' "HERMES_BRIDGE_URL=${HERMES_BRIDGE_URL}"
+          } | ssh -p "${SSH_PORT}" "${USERNAME}@${HOST}" env
 
-            echo "Installing production dependencies..."
-            corepack enable pnpm >/dev/null 2>&1 || true
-            pnpm install --prod --frozen-lockfile
-
-            echo "Applying database migrations..."
-            DATABASE_URL="$MIGRATE_DATABASE_URL" pnpm exec prisma migrate deploy
-
-            echo "Restarting PM2..."
-            if command -v pm2 >/dev/null 2>&1; then
-              pm2 delete aide-bot 2>/dev/null || true
-              PORT="$PORT" pm2 start deploy/ecosystem.config.js --env production
-              pm2 save
-            else
-              echo "pm2 is required on the server. Install: npm install -g pm2"
-              exit 1
-            fi
-
-            echo "Health check..."
-            # Next.js は起動完了までに数秒かかる。1回だけのcurlでは起動が間に合わずに
-            # 失敗するため、一定時間リトライする。
-            for i in $(seq 1 30); do
-              if curl -fsS -o /dev/null "http://127.0.0.1:${PORT}/"; then
-                echo "Deployment successful."
-                exit 0
-              fi
-              sleep 2
-            done
-
-            echo "Health check failed after 60s."
-            pm2 describe aide-bot || true
-            pm2 logs aide-bot --lines 50 --nostream || true
-            exit 1
-
-  notify:
-    runs-on: ubuntu-latest
-    needs: [tag, build, deploy]
-    if: always()
-
-    env:
-      SIGNALY_WEBHOOK_URL: ${{ secrets.SIGNALY_WEBHOOK_URL }}
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Determine workflow status
-        id: status
-        run: |
-          tag="${{ needs.tag.result }}"
-          build="${{ needs.build.result }}"
-          deploy="${{ needs.deploy.result }}"
-          if [ "$tag" = "success" ] && [ "$build" = "success" ] && [ "$deploy" = "success" ]; then
-            result=success
-          elif [ "$tag" = "cancelled" ] || [ "$build" = "cancelled" ] || [ "$deploy" = "cancelled" ]; then
-            result=cancelled
-          else
-            result=failure
-          fi
-          echo "result=$result" >> "$GITHUB_OUTPUT"
-
-      - name: Signaly に通知
-        # 通知はCIやデプロイの合否そのものではない。ここが失敗してもrun全体を
-        # 落とさない（guchi-apps/issue-deck#1302）。
-        continue-on-error: true
+      - name: Deploy and restart
+        run: ssh -p "${SSH_PORT}" "${USERNAME}@${HOST}" deploy
         env:
-          SIGNALY_WEBHOOK_URL: ${{ env.SIGNALY_WEBHOOK_URL }}
-          NOTIFY_APP: aide-bot
-          NOTIFY_KIND: デプロイ
-          NOTIFY_STATUS: ${{ steps.status.outputs.result }}
-        run: bash .github/scripts/signaly-notify.sh
-
-  notify-release:
-    runs-on: ubuntu-latest
-    needs: [tag, deploy, release]
-    if: always() && needs.release.result != 'skipped'
-
-    env:
-      SIGNALY_WEBHOOK_URL: ${{ secrets.SIGNALY_WEBHOOK_URL }}
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Signaly に通知
-        continue-on-error: true
-        env:
-          SIGNALY_WEBHOOK_URL: ${{ env.SIGNALY_WEBHOOK_URL }}
-          NOTIFY_STATUS: ${{ needs.release.result }}
-          NOTIFY_APP: aide-bot
-          SIGNALY_RELEASE_WEBHOOK_URL: ${{ secrets.SIGNALY_RELEASE_WEBHOOK_URL }}
-          NOTIFY_KIND: リリース
-          NOTIFY_VERSION: ${{ needs.tag.outputs.tag }}
-        run: bash .github/scripts/signaly-notify.sh
+          HOST: ${{ env.HOST }}
+          USERNAME: ${{ env.USERNAME }}
+          SSH_PORT: ${{ env.SSH_PORT }}

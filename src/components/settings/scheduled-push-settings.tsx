@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, CircleAlert, Plus, Trash2 } from "lucide-react";
+import { CalendarClock, CircleAlert, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -9,12 +9,13 @@ import {
   maskToDays,
   daysToMask,
   SCHEDULED_PUSH_ALL,
+  sortSchedules,
 } from "@/lib/scheduled-push-rule";
 import type { TopicCategory } from "@/lib/topic-categories";
 import { cn } from "@/lib/utils";
 
 /**
- * 定時のお知らせ（#344）。曜日・時刻（30分刻み）・話題の種類を指定して、溜めてある話題を通知で届ける。
+ * 定時のお知らせ（#344）。曜日・時刻（30分刻み）・ニュースの種類を指定して、溜めてあるニュースを通知で届ける。
  * 読むのはcronの経路なのでDBに保存する。通知の購読（上の「お知らせ」）が前提。
  */
 
@@ -30,7 +31,7 @@ export type ScheduleRow = {
 /** 選べる種類。削除された種類を指したままの行は、その行にだけ「（削除された種類）」を足す。 */
 function categoryOptions(categories: TopicCategory[], current: string): { value: string; label: string }[] {
   const options = [
-    { value: SCHEDULED_PUSH_ALL, label: "すべての話題" },
+    { value: SCHEDULED_PUSH_ALL, label: "すべてのニュース" },
     ...categories.map((category) => ({ value: category.id, label: category.label })),
   ];
   if (!options.some((option) => option.value === current)) options.push({ value: current, label: "（削除された種類）" });
@@ -48,8 +49,9 @@ const selectClass = "rounded-lg border border-border bg-background px-3 py-2 tex
 type Props = { initial: ScheduleRow[]; hasDevice: boolean; categories: TopicCategory[] };
 
 export function ScheduledPushSettingsCard({ initial, hasDevice, categories }: Props) {
-  const [rows, setRows] = useState(initial);
+  const [rows, setRows] = useState(() => sortSchedules(initial));
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   async function call(method: string, body: unknown): Promise<Response | null> {
@@ -76,11 +78,29 @@ export function ScheduledPushSettingsCard({ initial, hasDevice, categories }: Pr
   }
 
   async function add() {
-    // 初期値は「平日の朝7:00・すべての話題」。作ってから画面で直す。
+    // 初期値は「平日の朝7:00・すべてのニュース」。作ってから画面で直す。
     const response = await call("POST", { days: [1, 2, 3, 4, 5], hour: 7, minute: 0, category: SCHEDULED_PUSH_ALL });
     if (!response) return;
     const { schedule } = (await response.json()) as { schedule: ScheduleRow };
-    setRows((current) => [...current, schedule]);
+    setRows((current) => sortSchedules([...current, schedule]));
+  }
+
+  /** 設定の一覧だけをサーバーから読み直す。曜日・時刻は再保存しない（仕入れ・送信も動かさない）。 */
+  async function refresh() {
+    setBusy(true);
+    setRefreshing(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/settings/scheduled-push", { cache: "no-store" });
+      if (!response.ok) throw new Error(String(response.status));
+      const { schedules } = (await response.json()) as { schedules: ScheduleRow[] };
+      setRows(sortSchedules(schedules));
+    } catch {
+      setMessage("読み込めませんでした。表示は更新前のままです。");
+    } finally {
+      setRefreshing(false);
+      setBusy(false);
+    }
   }
 
   async function patch(id: string, change: Partial<Omit<ScheduleRow, "id">> & { days?: number[] }) {
@@ -88,7 +108,9 @@ export function ScheduledPushSettingsCard({ initial, hasDevice, categories }: Pr
     const response = await call("PATCH", { id, ...rest, ...(days ? { days } : {}) });
     if (!response) return;
     setRows((current) =>
-      current.map((row) => (row.id === id ? { ...row, ...rest, ...(days ? { daysMask: daysToMask(days) } : {}) } : row)),
+      sortSchedules(
+        current.map((row) => (row.id === id ? { ...row, ...rest, ...(days ? { daysMask: daysToMask(days) } : {}) } : row)),
+      ),
     );
   }
 
@@ -102,8 +124,8 @@ export function ScheduledPushSettingsCard({ initial, hasDevice, categories }: Pr
       <header>
         <h3 className="text-sm font-medium">定時のお知らせ</h3>
         <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-muted">
-          決めた曜日・時刻に、溜めてある話題（ニュース）の見出しを通知でお届けします。話題は「話題」ページで
-          選んだ種類から仕入れたものを使い、24時間より古いものは送りません。届ける話題が無い日は通知しません。
+          決めた曜日・時刻に、溜めてあるニュースの見出しを通知でお届けします。ニュースは「ニュース」ページで
+          選んだ種類から仕入れたものを使い、24時間より古いものは送りません。届けるニュースが無い日は通知しません。
         </p>
       </header>
 
@@ -115,6 +137,21 @@ export function ScheduledPushSettingsCard({ initial, hasDevice, categories }: Pr
           <p className="text-xs leading-relaxed text-muted">
             時刻は30分刻みです。設定した時刻を過ぎた最初の確認（30分ごと）で届きます。
           </p>
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs text-muted" aria-live="polite">
+            {refreshing ? "読み込んでいます…" : "時刻の早い順に並びます。"}
+          </p>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void refresh()}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+          >
+            <RefreshCw className={cn("size-4", refreshing && "animate-spin")} aria-hidden="true" />
+            {refreshing ? "更新中…" : "更新"}
+          </button>
         </div>
 
         {rows.length === 0 && <p className="text-xs text-muted">まだ登録がありません。</p>}
@@ -165,7 +202,7 @@ export function ScheduledPushSettingsCard({ initial, hasDevice, categories }: Pr
                   ))}
                 </select>
                 <select
-                  aria-label="話題の種類"
+                  aria-label="ニュースの種類"
                   className={selectClass}
                   disabled={busy}
                   value={row.category}

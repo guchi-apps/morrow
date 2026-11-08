@@ -4,6 +4,7 @@ import type { TopicBoard } from "@/lib/topics";
 import { ScheduledPushSettingsCard, type ScheduleRow } from "@/components/settings/scheduled-push-settings";
 
 import { TopicCategoryPicker } from "./topic-category-picker";
+import { TopicRefreshButton } from "./topic-refresh-button";
 import { TopicSeenMarker } from "./topic-seen-marker";
 import { TopicTabs } from "./topic-tabs";
 
@@ -13,13 +14,13 @@ type Props = {
   now: Date;
   /** 前回この画面を開いた時刻（#418）。nullは初回で、全件を既読として出す。 */
   seenAt: Date | null;
-  /** 通知する時間（定時のお知らせ。#344）。設定画面から話題画面へ移した（#418）。 */
+  /** 通知する時間（定時のお知らせ。#344）。設定画面からニュース画面へ移した（#418）。 */
   schedules: ScheduleRow[];
   hasDevice: boolean;
 };
 
 /**
- * 仕入れた話題の一覧（#144）。
+ * 仕入れたニュースの一覧（#144）。
  *
  * `/notices` と同じくサーバーコンポーネントのまま置き、テーマ別タブ・種類を選ぶ部品だけを
  * クライアントにする（#404）。並べる順は新しい順。まずニュースをまとめて読めるようにし、
@@ -35,15 +36,17 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
       <div className="mx-auto flex w-full max-w-[900px] flex-col gap-4 px-3.5 py-4 md:gap-5 md:px-7 md:py-6">
         <TopicSeenMarker renderedAt={now.toISOString()} />
         <div className="flex items-baseline justify-between gap-3">
-          <h2 className="text-base font-bold tracking-tight">いまの話題</h2>
+          <h2 className="text-base font-bold tracking-tight">いまのニュース</h2>
           <span className="text-[0.6875rem] text-muted">
             {lastFetchedAt
               ? `最終取得 ${jstTimeLabel(lastFetchedAt)}（${elapsedLabel(lastFetchedAt, now)}）`
               : enabledCategories.length === 0
                 ? "仕入れを止めています"
-                : "今日の記録（トップ）を開くと仕入れます"}
+                : "まだ取得していません"}
           </span>
         </div>
+
+        <TopicRefreshButton />
 
         <details className="group rounded-xl border border-border bg-surface">
           <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3.5 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
@@ -76,8 +79,8 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
         {topics.length === 0 ? (
           <p className="rounded-xl border border-border bg-surface px-4 py-3 text-xs leading-relaxed text-muted">
             {enabledCategories.length === 0
-              ? "仕入れを止めています。下の種類を1つ以上チェックすると、次に今日の記録（トップ）を開いたときに仕入れます。"
-              : "まだ話題がありません。今日の記録（トップ）を開くと仕入れが始まり、30秒ほどで並びます（画面は読み込み直してください）。"}
+              ? "仕入れを止めています。下の種類を1つ以上チェックしてから「最近の記事を取得する」を押してください。"
+              : "まだニュースがありません。「最近の記事を取得する」を押すと仕入れが始まり、30秒ほどで並びます。"}
           </p>
         ) : (
           <TopicTabs categories={categories} allTopics={topics} byCategory={byCategory} mergedCount={mergedCount} seenAt={seenAt} now={now} />
@@ -104,7 +107,7 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
           </summary>
           <div className="border-t border-border px-4 py-3.5">
             <p className="mb-3 text-[0.6875rem] leading-relaxed text-muted">
-              チェックした種類だけを、アプリを開いたときにウェブで調べます。
+              チェックした種類だけを、定時のお知らせの前と「最近の記事を取得する」を押したときにウェブで調べます。
             </p>
             <TopicCategoryPicker initial={categories} />
           </div>
@@ -112,10 +115,9 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
 
         <p className="text-[0.6875rem] leading-relaxed text-muted">
           <b className="font-medium text-foreground">
-            話題はお知らせとは別の場所に溜まり、通知（Push）は上の「通知する時間」に設定した時刻にだけ届きます。
+            ニュースはお知らせとは別の場所に溜まり、通知（Push）は上の「通知する時間」に設定した時刻にだけ届きます。
           </b>
-          吹き出しに出るのは新しい{bubbleLimit}件だけで、{lifetimeHours}時間経つと入れ替わります。相談のときも、直近の話題を秘書が
-          材料として持っています（頼まれていないのに持ち出すことはありません）。要点と一言はモデルが
+          ダッシュボードに出るのは新しい{bubbleLimit}件だけで、{lifetimeHours}時間経つと入れ替わります。要点と一言はモデルが
           記事から書いたもので、細部は出典の記事で確かめてください。
         </p>
       </div>

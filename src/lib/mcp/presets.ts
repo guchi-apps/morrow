@@ -35,22 +35,10 @@ export type McpPreset = {
    */
   missing: string[];
   /**
-   * この接続を繋いでいるときだけ相談のシステムプロンプトへ足す指示（#184）。
-   *
-   * 道具の説明文だけでも呼び分けはできるが、**どの道具に何を渡せば問いに答えられるか**
-   * （予定なら日付と日数、時刻は読み替えない）までは説明文に頼りきれない。接続先ごとの
-   * 癖はここに置き、`connectedServiceRules()` が繋いでいる接続のぶんだけ並べる。
-   * 繋いでいない接続の指示を出すと、無い道具を探して往復を無駄にする。
-   *
-   * **道具の名前を書くのは、その道具が接続先に実在すると確かめてから。** 無い名前を
-   * 指示に書くと、モデルはそれを探してから諦める。
-   */
-  hints: string[];
-  /**
    * この接続先が持つ、**書き込みを伴う道具**の名前（#78）。
    *
    * 既定ではこれらを秘書へ渡さない。絞り込みは**ここに挙げた名前を名指しで止める形**
-   * （相談はCodexの `disabled_tools`、朝の見通しは `mcp_toolset` の `configs`。#131）なので、
+   * （Codexの `disabled_tools`。#131）なので、
    * **挙げ漏らした道具はそのまま渡る。**
    * 接続先が書き込みの道具を増やしたら、ここへ足すまで絞り込みは効かない。
    *
@@ -68,14 +56,6 @@ export type McpPreset = {
    * 未設定（undefined）の接続先は従来どおり名指しだけで止める。
    */
   readTools?: string[];
-  /**
-   * 朝の見通し（#79・#183）が材料として呼ぶ道具の許可リスト（#367）。設定すると、朝の見通しには
-   * **この接続先のここに挙げた道具だけ**を渡し、設定していない接続先はそもそも渡さない。
-   * 朝の見通しは利用者のいないところで動き、呼ぶ道具は `BRIEFING_MATERIAL_RULES` で決まっているので、
-   * 相談用の道具の定義まで毎回Codexへ載せる理由が無い。**材料の道具を足すときはここも足す**
-   * （足し忘れると、その道具は見通しから見えず、黙って材料が減る）。
-   */
-  briefingTools?: string[];
 };
 
 export const MCP_PRESETS: McpPreset[] = [
@@ -106,23 +86,6 @@ export const MCP_PRESETS: McpPreset[] = [
       // 変更・取り消しは#372で追加。繰り返しの元の予定（シリーズ全体）・日をまたぐ予定は対象外。
       "繰り返し予定のシリーズ全体・日をまたぐ予定の変更・取り消し（DaySpan から直す）",
     ],
-    hints: [
-      // `aide_daily_briefing` は無くなった（aide#373）。今日の見通しのように予定と天気の両方が
-      // 要る問いは、一方の道具では答えが割れるので、2本を呼ぶことを指示に書く。
-      "予定・空いている時間・何時なら入れられるかを聞かれたら aide_schedule を呼ぶ。起点の日付（date）と日数（days）を、今日の日付から数えて YYYY-MM-DD で渡す。今日はどんな感じか・今日の見通しのように天気も要る問いでは、aide_schedule に加えて aide_weather も呼ぶ（天気は aide_schedule では返らない）",
-      "今日と明日の天気・傘・気温を聞かれたら aide_weather を呼ぶ。返るのは予報で、いまの室温や屋外の実測ではない。state が ok 以外のときは予報を取れていないので、そういう天気だとは言わず「取れなかった」と言う",
-      "aide_schedule が返す時刻は日本時間の HH:MM なので、時差を足し引きせずそのまま伝える。configured や complete が false のときは「予定が無い」ではなく「取れなかった」と言う",
-      // hints は書き込みの許可状態に関わらず常にプロンプトへ入る（既定は書き込みoff）ので、
-      // aide_create_event が渡っていない回でも矛盾しない書き方にする。「渡っていません」の
-      // 一般則自体は connectedServiceRules() の writeToolsWithheld 分岐が別に伝える。
-      "予定の登録を頼まれたら aide_create_event を呼ぶ（道具の一覧に無ければ書き込みが許可されていないので、設定の画面で許可すれば使えると伝える）。作成できたら返る url を「入れました」の案内に添える。予定の変更・取り消しを頼まれたら、まず aide_schedule で対象を引いて events[].id・calendarId・title を確かめ（推測しない）、「どの予定（日時・タイトル）を、どう変えるか／消すか」を復唱して確認を取ってから aide_update_event（変えない項目は省く）・aide_delete_event（title に現在のタイトルを渡す）を呼ぶ。どれも道具の一覧に無ければ書き込みが許可されていないので、設定の画面で許可すれば使えると伝える。取り消しは元に戻せないので、候補が複数あるときは絞ってから確認する。結果が kind: conflict なら何も消えていない（currentTitle を伝えて確かめ直す）。繰り返しの元の予定・日をまたぐ予定は変更・取り消しできないので DaySpan で直してほしいと伝える。「中止になった」だけの記録は削除ではなく DaySpan の画面で中止にする",
-      // #214。「取れなかった」と「異常あり」「古い値」の区別が付かず、値が返っている回まで
-      // 「取得できませんでした」と答えていた。読み方をここに置く（道具の説明文にも書いて
-      // あるが、音声モードでは説明文まで読み切らずに済ませる回がある）。
-      "室温・湿度・CO2を聞かれたら aide_room_sensors を、エアコンの電源・設定温度・運転モードを聞かれたら aide_aircon_status を呼ぶ。sensors は部屋ごとに複数あるので、部屋の名前（name）ごとに答える。stale が true のセンサーは受信が止まっており、その値をいまの室温として答えない（聞かれた部屋がそれだけなら、いつから止まっているかを言う）。complete が false のときだけ「取れなかった」と言い、ok が false は「気になる点がある」であって取得の失敗ではない",
-      "VPS・サブPC・サーバーの稼働やディスクやメモリの空きを聞かれたら aide_host_status を、サイトの外形監視を聞かれたら aide_uptime_monitors を、AIやGitHub Actionsの残枠を聞かれたら aide_service_quotas を呼ぶ。problems が空でなければそこから先に伝える。complete が false のときだけ「取れなかったソースがある」と言い、ok が false は「異常あり」であって取得の失敗ではない",
-      "aide_room_sensors の sensors[].measuredAt と aide_host_status の hosts[].ageSeconds が、その値がいつ時点かを表す。室温や稼働状況を伝えるときは、そこから「1時10分ごろ測定」「30秒前の値」のように一言添える",
-    ],
     // `guchi-apps/aide` のMCP層が出している、あとから取り消せない結果が残る道具。
     // `aide_zaim_payment` は説明文に「この経路から取り消し・修正はできない」と明記されている。
     //
@@ -148,6 +111,9 @@ export const MCP_PRESETS: McpPreset[] = [
       "issue_deck_upload_image",
       "asset_manager_create_subscription",
       "asset_manager_add_subscription_price",
+      // #748。Hermesの提案を承認したあとだけMorrowのサーバーが呼ぶ（`HERMES_WRITE_TOOLS`）。台帳の更新。
+      "asset_manager_update_subscription",
+      "asset_manager_record_subscription_cancellation",
       "aide_research_desk_import_weekly_report",
     ],
     // #366。読み取り・疎通確認だけの道具。AIDEが道具を足しても、ここへ足すまでは
@@ -174,19 +140,6 @@ export const MCP_PRESETS: McpPreset[] = [
       "aide_garbage_collection",
       "aide_printer_status",
     ],
-    // #367。`BRIEFING_MATERIAL_RULES`（`src/lib/anthropic.ts`）が毎朝呼ばせる10本。
-    briefingTools: [
-      "aide_schedule",
-      "aide_weather",
-      "aide_room_sensors",
-      "aide_aircon_status",
-      "aide_host_status",
-      "aide_uptime_monitors",
-      "aide_service_quotas",
-      "aide_fixed_costs",
-      "aide_claude_sessions",
-      "aide_dev_status",
-    ],
   },
   {
     id: "notion",
@@ -200,7 +153,6 @@ export const MCP_PRESETS: McpPreset[] = [
       "「いつかやりたいこと」の希望リスト。空き時間（AIDE）と組み合わせた過ごし方の提案（#324）",
     ],
     missing: [],
-    hints: [],
     // **あえて空にしてある**（#78）。名前が違えばその道具は素通りするだけだが、
     // 逆に接続先が改名した名前を書いたまま残すと、相談のたびに実在しない道具を
     // 名指しすることになる。手元にAPIキーが無く実物で確かめられないため、
@@ -212,11 +164,6 @@ export const MCP_PRESETS: McpPreset[] = [
 /** 書き込みを渡さない回に許す読み取りの道具（#366）。許可リストを持たない接続先はundefined。 */
 export function readToolsFor(url: string): string[] | undefined {
   return findPreset(url)?.readTools;
-}
-
-/** 朝の見通しに渡す道具の許可リスト（#367）。持たない接続先はundefined。 */
-export function briefingToolsFor(url: string): string[] | undefined {
-  return findPreset(url)?.briefingTools;
 }
 
 export function findPreset(url: string): McpPreset | undefined {
@@ -232,13 +179,4 @@ export function findPreset(url: string): McpPreset | undefined {
  */
 export function writeToolsFor(url: string): string[] {
   return findPreset(url)?.writeTools ?? [];
-}
-
-/**
- * その接続先を繋いでいるときにプロンプトへ足す指示（#184）。
- *
- * プリセットに無い接続先では空。把握していない接続先に指示は書けない。
- */
-export function hintsFor(url: string): string[] {
-  return findPreset(url)?.hints ?? [];
 }

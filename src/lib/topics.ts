@@ -16,19 +16,16 @@ import { OTHER_CATEGORY_ID, type TopicCategory } from "@/lib/topic-categories";
  * 話題（#144）。**サーバー専用。**
  *
  * 秘書が雑談の話題として振れるように、ニュースをウェブ検索で仕入れて `Topic` に溜める。
- * 待機中の吹き出し（#101）にはここから新しい数件を回し、相談（`/api/chat`）にも直近のぶんを
- * 材料として添える。**どちらもモデルは呼ばない**——仕入れたときに一度だけ書かせた文を出す
+ * ダッシュボードの「話題」にはここから新しい数件を出す。**出すときにモデルは呼ばない**——仕入れたときに一度だけ書かせた文を出す
  * だけなので、#93・#101の「黙っている間の費用は0円」はそのまま守られる。
  *
- * ## 仕入れの起点はアプリを開いたときと、定時のお知らせの直前（#362）。専用のcronは足さない
- *
- * 常駐の仕入れは持たない。仕入れは今日の記録の画面の問い合わせ（`/api/notices/current`）の応答後に
- * バックグラウンドで走る
- * （`refreshTopicsIfStale()`）。前回から `TOPIC_REFRESH_INTERVAL_MS` あいていなければ何もしない
- * ので、開きっぱなしでも1時間に1回まで。1時間触られなければ問い合わせ自体が止まる
- * （`IDLE_LIMIT_MS`。`use-notice.ts`）ので、放置した画面が夜通し仕入れ続けることも無い。
- *
- * ## 検索は `codex --search exec`（ChatGPTのサブスク枠）
+ * ## 仕入れの起点は手動ボタンと、定時のお知らせの直前（#362・#660）。専用のcronは足さない
+
+常駐の仕入れは持たない。画面（ダッシュボード・話題）を開いただけでは仕入れない（#660）。
+走るのは、話題画面の「最近の記事を取得する」ボタン（`refreshTopicsNow()`）と、定時のお知らせ・
+定時のお知らせの直前（`refreshTopicsForSchedule()`）だけ。
+
+## 検索は `codex --search exec`（ChatGPTのサブスク枠）
  *
  * 新しいAPIキーも依存パッケージも増えない（Issue #144）。実測（サブPC・`codex-cli 0.152.1`・
  * `gpt-5.6-luna`・2026-09-02）では1回27秒、入力64,086トークン（うち29,952がキャッシュ読み）で
@@ -50,14 +47,11 @@ export const TOPIC_REFRESH_INTERVAL_MS = 60 * 60 * 1000;
  */
 const TOPIC_RETRY_INTERVAL_MS = 15 * 60 * 1000;
 
-/** 吹き出し・相談の材料として使う期間。これより古い記事は「最近の話題」ではない。 */
+/** ダッシュボードに出す期間。これより古い記事は「最近の話題」ではない。 */
 export const TOPIC_LIFETIME_MS = 24 * 60 * 60 * 1000;
 
-/** 吹き出しの輪へ渡す件数。多すぎると輪の半分がニュースになり、用件が薄まる。 */
+/** ダッシュボードの「話題」に出す件数。 */
 export const TOPIC_BUBBLE_LIMIT = 3;
-
-/** 相談の材料として添える件数。 */
-const TOPIC_CHAT_LIMIT = 8;
 
 /**
  * 定時のお知らせ（#362）の前に仕入れるときの最小の間隔。前回の仕入れからこれだけあいていなければ、
@@ -228,33 +222,6 @@ export async function topicsForBubble(userId: string, now = new Date()): Promise
   }
 }
 
-/**
- * 相談のプロンプトへ添える「最近の話題」の一覧。無ければ空文字。
- *
- * 出典URLも渡す。利用者が「それどこの記事？」と聞いたときに、モデルが作ったURLではなく
- * 仕入れたときの実物を答えられるようにするため。
- */
-export async function topicsForChat(userId: string, now = new Date()): Promise<string> {
-  let topics: Topic[];
-  try {
-    topics = groupDuplicateTopics(await recentTopics(userId, now, TOPIC_MERGE_FETCH))
-      .slice(0, TOPIC_CHAT_LIMIT)
-      .map((group) => group.primary);
-  } catch (error) {
-    console.error("[aide-bot] 相談の材料になる話題の取得に失敗した", error);
-    return "";
-  }
-
-  if (topics.length === 0) return "";
-
-  const lines = topics.map((topic) => {
-    const source = [topic.sourceName, topic.publishedOn].filter((part) => part !== "").join("・");
-    return `- ${topic.title}: ${topic.summary}（${source || "出典"}: ${topic.url}）`;
-  });
-
-  return lines.join("\n");
-}
-
 /** 「話題」ページに出す一式。 */
 export async function topicBoard(userId: string, now = new Date()): Promise<TopicBoard> {
   const [categories, topics, latest] = await Promise.all([
@@ -350,6 +317,9 @@ type ParsedTopic = {
   publishedOn: string;
 };
 
+/** `Topic.url` は `VarChar(500)`。超えるとupsertが例外になり、同じ返答の仕入れが失敗し続けるので読み飛ばす（#455）。 */
+const TOPIC_URL_MAX = 500;
+
 function clip(value: unknown, max: number): string {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
 }
@@ -362,6 +332,7 @@ function clip(value: unknown, max: number): string {
  *   だけでその回の仕入れが無駄になる
  * - `url` は `safeNoticeUrl()` を通し、かつ絶対URL（`http(s)://`）だけを受け付ける。
  *   アプリ内のパス（`/` 始まり）は記事ではない
+ * - `url` が `TOPIC_URL_MAX`（500文字）を超える記事は読み飛ばす（切り詰めると別のURLになる）
  * - `category` は今回仕入れる種類に含まれるものだけ。外した種類の記事が混じって来ても入れない
  */
 function parseTopics(answer: string, categories: TopicCategory[]): ParsedTopic[] {
@@ -388,7 +359,7 @@ function parseTopics(answer: string, categories: TopicCategory[]): ParsedTopic[]
     if (typeof category !== "string" || !categories.some((item) => item.id === category)) continue;
 
     const url = safeNoticeUrl(typeof record.url === "string" ? record.url : null);
-    if (!url || url.startsWith("/") || seen.has(url)) continue;
+    if (!url || url.startsWith("/") || url.length > TOPIC_URL_MAX || seen.has(url)) continue;
 
     const title = clip(record.title, 120);
     const summary = clip(record.summary, 400);
@@ -413,15 +384,14 @@ function parseTopics(answer: string, categories: TopicCategory[]): ParsedTopic[]
 /**
  * 仕入れを1回走らせ、溜めた件数を返す。**失敗は投げる**（呼び出し元が記録して黙る）。
  *
- * 使った量は、読める形で返ってきたかに関わらず `ApiUsage` へ残す（#133。`conversationId` は
- * 付かない）。上限に掛かった回は `usage` がnullで行が作られない——`turn.completed` が届いて
+ * 使った量は、読める形で返ってきたかに関わらず `ApiUsage` へ残す（#133）。上限に掛かった回は `usage` がnullで行が作られない——`turn.completed` が届いて
  * いないので、そこまでの消費量が分からない。
  */
 async function fetchTopics(userId: string, categories: TopicCategory[], now: Date): Promise<number> {
   const result = await runCodexRecorded({
     userId,
     feature: "topic",
-    label: "話題の仕入れ",
+    label: "ニュースの仕入れ",
     model: await modelFor(userId, "topic"),
     prompt: buildTopicPrompt(categories, now),
     timeoutMs: CODEX_TIMEOUT_MS,
@@ -454,37 +424,23 @@ async function fetchTopics(userId: string, categories: TopicCategory[], now: Dat
 }
 
 /**
- * 仕入れが要るなら走らせる。**必ずすぐ戻る。** 応答を返した後（`after()`）から呼ぶ想定。
+ * 手動ボタン（#660）の仕入れ。**待って結果を返す**。間隔（成功後の1時間・失敗後の15分）は見ず、
+ * 押されたら必ず取りに行く。同じ利用者の仕入れが走っている間は `busy`、仕入れる種類が0なら `disabled`。
+ * 仕入れ自体の失敗は `failed` で返し、前処理（種類の読み出しなど）で落ちた回だけ投げる。
  *
- * 走らせない条件は上から順に軽いものから見る。**1・2の判定を通ったら、DBを見る前に同期的に
- * 「走っている」印を立てる**（3・4のDBの待ちの間に重なった問い合わせが二重に走らせないため）。
- * 3・4で止まった回は印を外す。
- *
- * 1. 同じ利用者の仕入れがまだ走っている
- * 2. 前回叩いてから間隔（成功なら1時間・失敗なら15分）があいていない（プロセス内の記録）
- * 3. 仕入れる種類を1つも選んでいない（DBを1回引く。ここで止まれば費用は0）
- * 4. DBの最新の `fetchedAt` から1時間あいていない（プロセスが再起動した直後の歯止め）
- *
- * 失敗はログに残して黙る。吹き出しにも相談にも影響させない（#93「吹き出しにエラーを出さない」）。
+ * 画面を開いたときの自動仕入れは#660でやめた。仕入れの起点は、この口と定時のお知らせの直前だけ。
  */
-export function refreshTopicsIfStale(userId: string, now = new Date()): Promise<void> {
-  return startRefresh(userId, now, TOPIC_REFRESH_INTERVAL_MS).then(
-    () => undefined,
-    (error) => {
-      // 種類の読み出しなど、仕入れの前に落ちた回。次の問い合わせでやり直す。
-      console.error("[aide-bot] 話題の仕入れの前処理に失敗した", error);
-    },
-  );
+export function refreshTopicsNow(userId: string, now = new Date()): Promise<TopicRefreshResult> {
+  return startRefresh(userId, now, 0, true);
 }
 
 /** 仕入れを試みた結果。定時のお知らせ（#362）が「送る前に何が起きたか」を読むために返す。 */
 export type TopicRefreshResult = "fetched" | "fresh" | "busy" | "failed" | "disabled";
 
 /**
- * 定時のお知らせ（#362）の直前に仕入れる。**待って結果を返す**（`refreshTopicsIfStale()` は応答後に
- * すぐ戻るが、こちらは仕入れが終わるまで待つ。呼び出し元はcronの `after()` の中）。
+ * 定時のお知らせ（#362）の直前に仕入れる。**待って結果を返す**（呼び出し元はcronの `after()` の中）。
  *
- * 同じ利用者の仕入れと錠（`attempts`）を共有するので、画面を開いたときの仕入れと重ならない。
+ * 同じ利用者の仕入れと錠（`attempts`）を共有するので、手動ボタンの仕入れと重ならない。
  * 前回から `TOPIC_SCHEDULE_MIN_INTERVAL_MS` あいていなければ走らせず、溜まっているものを使う。
  * **例外は外へ出さず `failed` で返す**——仕入れに失敗しても、溜まっている話題があれば送れる。
  */
@@ -498,15 +454,20 @@ export async function refreshTopicsForSchedule(userId: string, now = new Date())
 }
 
 /**
- * 仕入れの共通の入口。判定の順は `refreshTopicsIfStale()` の説明のとおり。`intervalMs` は
+ * 仕入れの共通の入口。手動ボタン（`force`）は間隔とDB上の最新時刻を見ない。`intervalMs` は
  * 「成功した前回からこれだけあいていなければ走らせない」間隔。**仕入れ自体の失敗は投げず `failed`
  * で返し**、その前（種類・DBの読み出し）で落ちた回だけ投げる。
  */
-async function startRefresh(userId: string, now: Date, intervalMs: number): Promise<TopicRefreshResult> {
+async function startRefresh(
+  userId: string,
+  now: Date,
+  intervalMs: number,
+  force = false,
+): Promise<TopicRefreshResult> {
   const attempt = attempts.get(userId);
   if (attempt?.running) return "busy";
 
-  if (attempt) {
+  if (attempt && !force) {
     const interval = attempt.failed ? TOPIC_RETRY_INTERVAL_MS : intervalMs;
     if (now.getTime() - attempt.at < interval) return attempt.failed ? "failed" : "fresh";
   }
@@ -535,7 +496,7 @@ async function startRefresh(userId: string, now: Date, intervalMs: number): Prom
       orderBy: { fetchedAt: "desc" },
       select: { fetchedAt: true },
     });
-    if (latest && now.getTime() - latest.fetchedAt.getTime() < intervalMs) {
+    if (!force && latest && now.getTime() - latest.fetchedAt.getTime() < intervalMs) {
       // 再起動の直後など、プロセス内の記録は無いがDB上は仕入れたばかり。記録だけ復元して戻る。
       attempts.set(userId, { at: latest.fetchedAt.getTime(), failed: false, running: false });
       return "fresh";
@@ -593,7 +554,7 @@ export async function previewTopics(
     const result = await runCodexRecorded({
       userId,
       feature: "topic",
-      label: "話題の試し検索",
+      label: "ニュースの試し検索",
       model: await modelFor(userId, "topic"),
       prompt: buildTopicPrompt([category], now),
       timeoutMs: CODEX_TIMEOUT_MS,
@@ -642,14 +603,4 @@ export async function topicsForScheduledPush(
   return unspokenGroups(groupDuplicateTopics(topics))
     .slice(0, limit)
     .map(groupToRow);
-}
-
-/**
- * 朝の見通しに続けて届ける、まだ振っていない話題。種類は問わない。
- *
- * 定時のお知らせと同じ選び方にすることで、同じ記事を朝のニュース・声かけ・定時のお知らせで
- * 繰り返さない。件数の上限は呼び出し元が通知の読みやすさに合わせて決める。
- */
-export function topicsForMorningBriefing(userId: string, limit: number, now = new Date()): Promise<TopicRow[]> {
-  return topicsForScheduledPush(userId, SCHEDULED_PUSH_ALL, limit, now);
 }

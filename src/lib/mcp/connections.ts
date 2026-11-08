@@ -1,7 +1,7 @@
 import type { McpConnection } from "@prisma/client";
 
-import type { CodexMcpServer } from "@/lib/codex";
 import { db } from "@/lib/db";
+import { isPendingStateFresh } from "@/lib/mcp/pending-state";
 import {
   McpOAuthError,
   buildAuthorizeUrl,
@@ -12,7 +12,7 @@ import {
   refreshTokens,
   registerClient,
 } from "@/lib/mcp/oauth";
-import { briefingToolsFor, findPreset, readToolsFor, writeToolsFor } from "@/lib/mcp/presets";
+import { findPreset } from "@/lib/mcp/presets";
 
 /**
  * 外部サービスとの接続の出し入れ（#46）。
@@ -150,13 +150,15 @@ export async function startConnection(params: {
     label: label.slice(0, 60),
     slug,
     url,
-    authorizationEndpoint: endpoints.authorizationEndpoint,
-    tokenEndpoint: endpoints.tokenEndpoint,
-    clientId: client.clientId,
-    clientSecret: client.clientSecret,
+    // 資格情報は本体の列へ書かず、認可が成功するまで pending* に置く（#453）。
+    pendingAuthorizationEndpoint: endpoints.authorizationEndpoint,
+    pendingTokenEndpoint: endpoints.tokenEndpoint,
+    pendingClientId: client.clientId,
+    pendingClientSecret: client.clientSecret,
     pendingState: state,
     pendingVerifier: verifier,
     pendingRedirectUri: redirectUri,
+    pendingStartedAt: new Date(),
   };
 
   if (existing) {
@@ -189,14 +191,38 @@ export async function completeConnection(params: {
     where: { pendingState: params.state },
   });
 
-  if (!connection || !connection.tokenEndpoint || !connection.clientId || !connection.pendingVerifier) {
+  if (
+    !connection ||
+    !connection.pendingTokenEndpoint ||
+    !connection.pendingClientId ||
+    !connection.pendingVerifier
+  ) {
     throw new McpOAuthError("認可の途中経過が見つかりませんでした。もう一度やり直してください。");
   }
 
+  // stateは使い捨て。交換に進む前に条件付きで消し、同時に来た片方だけが先へ進めるようにする（#469）。
+  // 期限切れでも同じ更新で消すので、放棄された行の途中経過が残り続けない。
+  const claimed = await db.mcpConnection.updateMany({
+    where: { id: connection.id, pendingState: params.state },
+    data: {
+      pendingState: null,
+      pendingVerifier: null,
+      pendingRedirectUri: null,
+      pendingStartedAt: null,
+      pendingClientId: null,
+      pendingClientSecret: null,
+      pendingAuthorizationEndpoint: null,
+      pendingTokenEndpoint: null,
+    },
+  });
+  if (claimed.count !== 1 || !isPendingStateFresh(connection.pendingStartedAt)) {
+    throw new McpOAuthError("認可の有効期限が切れたか、すでに使われています。もう一度やり直してください。");
+  }
+
   const tokens = await exchangeCode({
-    tokenEndpoint: connection.tokenEndpoint,
-    clientId: connection.clientId,
-    clientSecret: connection.clientSecret,
+    tokenEndpoint: connection.pendingTokenEndpoint,
+    clientId: connection.pendingClientId,
+    clientSecret: connection.pendingClientSecret,
     code: params.code,
     redirectUri: connection.pendingRedirectUri ?? "",
     verifier: connection.pendingVerifier,
@@ -206,13 +232,15 @@ export async function completeConnection(params: {
   await db.mcpConnection.update({
     where: { id: connection.id },
     data: {
+      // 交換に成功した時点で、新しい資格情報へ切り替える（#453）。
+      authorizationEndpoint: connection.pendingAuthorizationEndpoint,
+      tokenEndpoint: connection.pendingTokenEndpoint,
+      clientId: connection.pendingClientId,
+      clientSecret: connection.pendingClientSecret,
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       expiresAt: tokens.expiresAt,
       enabled: true,
-      pendingState: null,
-      pendingVerifier: null,
-      pendingRedirectUri: null,
     },
   });
 
@@ -243,7 +271,41 @@ async function usableToken(connection: McpConnection): Promise<string | null> {
   if (!expiresSoon) return connection.accessToken;
   if (!connection.refreshToken || !connection.tokenEndpoint || !connection.clientId) return null;
 
+  return refreshOnce(connection);
+}
+
+/**
+ * 接続IDごとに更新を1本へ束ねる（#460）。ローテーション型の認可サーバーは更新のたびに
+ * リフレッシュトークンを使い捨てるので、cronと相談が同時に更新すると片方が
+ * `invalid_grant` になり、接続ごと使えなくなる。PM2で1プロセスという前提（`compact.ts` と同じ）。
+ */
+const refreshing = new Map<string, Promise<string | null>>();
+
+function refreshOnce(connection: McpConnection): Promise<string | null> {
+  const running = refreshing.get(connection.id);
+  if (running) return running;
+
+  const promise = doRefresh(connection).finally(() => {
+    refreshing.delete(connection.id);
+  });
+  refreshing.set(connection.id, promise);
+  return promise;
+}
+
+async function doRefresh(stale: McpConnection): Promise<string | null> {
   try {
+    // 呼び出し元が行を読んでから、先に更新が終わっていることがある。古いトークンで
+    // 更新し直すと失効済みを送ることになるので、DBの最新を読み直す。
+    const connection = (await db.mcpConnection.findUnique({ where: { id: stale.id } })) ?? stale;
+    if (
+      connection.accessToken &&
+      (connection.expiresAt === null ||
+        connection.expiresAt.getTime() - Date.now() >= REFRESH_MARGIN_MS)
+    ) {
+      return connection.accessToken;
+    }
+    if (!connection.refreshToken || !connection.tokenEndpoint || !connection.clientId) return null;
+
     const tokens = await refreshTokens({
       tokenEndpoint: connection.tokenEndpoint,
       clientId: connection.clientId,
@@ -265,7 +327,7 @@ async function usableToken(connection: McpConnection): Promise<string | null> {
   } catch (error) {
     // 1件の更新に失敗しても相談そのものは通す。繋がっていない状態で答えるほうが、
     // 秘書が黙り込むより実害が小さい。
-    console.error(`[aide-bot] MCP接続のトークン更新に失敗した: ${connection.label}`, error);
+    console.error(`[aide-bot] MCP接続のトークン更新に失敗した: ${stale.label}`, error);
     return null;
   }
 }
@@ -292,49 +354,4 @@ export async function listConnectedServers(userId: string): Promise<ConnectedSer
   }
 
   return servers;
-}
-
-/**
- * Codexへ渡す形に均す（相談は#131、朝の見通し・自宅の前提は#183・#167）。
- *
- * `-c mcp_servers.<slug>.…` の組み立てそのものは `runCodexExec()` の仕事で、ここでは
- * 「どの接続を・どの道具を止めて」渡すかだけを決める。止め方は名指し（`MCP_PRESETS` の
- * `writeTools`）で、**挙げ漏らした道具はそのまま渡る**（#78）。
- *
- * **#183で、繋ぎ先を組み立てる口はこれ1つになった**（朝の見通しもCodexへ移り、Messages API用の
- * `toMcpRequestParts()` を消した）。
- * 止めた道具の名前は `withheldTools` で返し、システムプロンプトで「渡っていない」と伝える。
- */
-export function toCodexMcpServers(
-  servers: ConnectedServer[],
-  allowWriteTools: boolean,
-  purpose: "default" | "briefing" = "default",
-): { mcpServers: CodexMcpServer[]; withheldTools: string[] } {
-  const withheldTools: string[] = [];
-
-  // 朝の見通しは、材料の許可リスト（`briefingTools`）を持つ接続先だけを渡す（#367）。
-  const targets =
-    purpose === "briefing" ? servers.filter((server) => briefingToolsFor(server.url)) : servers;
-
-  const mcpServers = targets.map((server) => {
-    const withheld = allowWriteTools ? [] : writeToolsFor(server.url);
-    withheldTools.push(...withheld);
-    // 許可リストのある接続先は、書き込みを渡さない回に読み取りの道具だけを見せる（#366）。
-    const enabledTools =
-      purpose === "briefing"
-        ? briefingToolsFor(server.url)
-        : allowWriteTools
-          ? undefined
-          : readToolsFor(server.url);
-
-    return {
-      name: server.slug,
-      url: server.url,
-      accessToken: server.accessToken,
-      disabledTools: withheld,
-      ...(enabledTools ? { enabledTools } : {}),
-    };
-  });
-
-  return { mcpServers, withheldTools };
 }

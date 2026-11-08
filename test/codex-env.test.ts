@@ -19,7 +19,6 @@ describe("codexChildEnv", () => {
       BRIEFING_TRIGGER_TOKEN: "briefing",
       NOTICE_INGEST_TOKEN: "notice",
       CI_LOGIN_BYPASS_SECRET: "bypass",
-      ALLOWED_GOOGLE_EMAILS: "a@example.com",
       NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co",
       SUPABASE_SECRET_KEY: "supabase",
       NODE_ENV: "production",

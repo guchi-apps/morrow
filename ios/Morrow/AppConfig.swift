@@ -17,6 +17,52 @@ enum AppConfig {
         return "Mobile/15E148 MorrowIOS/\(version)"
     }
 
+    /// 通知の `url`（サーバーの `PushPayload.url`）から開く先を決める。アプリ内のパス（`/` 始まり）か
+    /// `http(s)` の絶対URLだけ。`//host`・`/\host`・制御文字や空白を含む値は、同一オリジンのパスに
+    /// 見えて外へ出るので受け付けない（`src/lib/safe-path.ts` の `isInternalPath()` と同じ考え方）
+    static func notificationTarget(_ raw: String) -> URL? {
+        if raw.unicodeScalars.contains(where: { $0.value <= 0x20 || $0.value == 0x7f }) { return nil }
+
+        if raw.hasPrefix("/") {
+            guard !raw.hasPrefix("//"), !raw.contains("\\") else { return nil }
+            return URL(string: raw, relativeTo: baseURL)?.absoluteURL
+        }
+        guard let url = URL(string: raw), ["http", "https"].contains(url.scheme ?? "") else { return nil }
+        return url
+    }
+
+    /// アプリの外（Safari・メール等）へ渡してよいスキームの許可リスト。
+    /// `tel:`・`sms:`・独自スキームは確認なしで他アプリを起動しうるので渡さない
+    static let externalSchemes: Set<String> = ["http", "https", "mailto"]
+
+    static func canOpenExternally(_ url: URL) -> Bool {
+        externalSchemes.contains(url.scheme?.lowercased() ?? "")
+    }
+
+    /// Asset Managerのホスト・スキーム（#744）。アプリ側の `AppConfig.baseURL`・`authCallbackScheme`
+    /// （guchi-apps/asset-manager の `ios/AssetManager/AppConfig.swift`）と揃えること。別リポジトリなので自動照合はできない
+    static let assetManagerHost = "asset.gucchii.com"
+    static let assetManagerScheme = "assetmanager"
+
+    /// `https://asset.gucchii.com/…` を Asset Manager のiOSアプリへ渡す `assetmanager://open?path=<パス>` へ変える。
+    /// 独自スキームを `externalSchemes` へ広げず、ホスト完全一致のhttpsだけをここで組み立てる。
+    /// パスは `/` 始まり・`//`・`/\\`始まりでない・制御文字なしだけ通す（それ以外は nil＝従来どおりSafari）
+    static func assetManagerAppURL(for url: URL) -> URL? {
+        guard url.scheme?.lowercased() == "https", url.host?.lowercased() == assetManagerHost, url.port == nil,
+              let parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let path = parts.percentEncodedPath + (parts.percentEncodedQuery.map { "?" + $0 } ?? "")
+        guard path.hasPrefix("/"), !path.hasPrefix("//"), !path.hasPrefix("/\\"),
+              !path.unicodeScalars.contains(where: { $0.value <= 0x20 || $0.value == 0x7f }) else { return nil }
+        var out = URLComponents()
+        out.scheme = assetManagerScheme
+        out.host = "open"
+        // `?`・`&`・`=` も含めて丸ごとエンコードする（受け側は `path` の値を1回だけデコードする）
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~/")
+        guard let encoded = (path.removingPercentEncoding ?? path).addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+        out.percentEncodedQuery = "path=" + encoded
+        return out.url
+    }
+
     /// このURLがアプリで開くべきWeb版の画面か（ホスト・スキーム・ポートまで一致）。
     /// 一致しないURLはWebViewへ読み込まず、Safari等で開く
     static func isAppURL(_ url: URL) -> Bool {

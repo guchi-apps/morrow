@@ -11,6 +11,9 @@ export const metadata: Metadata = {
 const errorMessages: Record<string, string> = {
   auth_failed: "ログインに失敗しました。もう一度お試しください。",
   not_allowed: "このGoogleアカウントは利用を許可されていません。",
+  // 判定APIから答えを得られなかった（#537）。利用者の権限の問題ではないので、上と分けて伝える。
+  access_unavailable:
+    "利用の許可を確認できませんでした。サーバー側の問題のため、時間をおいてもう一度お試しください。",
 };
 
 export default async function LoginPage({

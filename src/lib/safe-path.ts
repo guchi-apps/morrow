@@ -35,7 +35,15 @@ export function isInternalPath(value: string): boolean {
   return !PROTOCOL_RELATIVE.test(value);
 }
 
-export function safeInternalPath(value: string | null, fallback: string): string {
+/** `NativeAuthHandoff.next`（VarChar(512)）に入る上限。超えるとINSERTが失敗してログインが通らない（#468）。 */
+export const NATIVE_NEXT_MAX_LENGTH = 512;
+
+export function safeInternalPath(
+  value: string | null,
+  fallback: string,
+  maxLength?: number,
+): string {
   if (!value) return fallback;
+  if (maxLength !== undefined && value.length > maxLength) return fallback;
   return isInternalPath(value) ? value : fallback;
 }

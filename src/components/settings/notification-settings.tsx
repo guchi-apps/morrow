@@ -22,8 +22,10 @@ import { cn } from "@/lib/utils";
 type Props = {
   /** VAPIDの公開鍵。サーバー側で環境変数から読んで渡す（`NEXT_PUBLIC_*` に置かない理由は `@/lib/push/config`）。 */
   publicKey: string;
-  /** サーバー側で数えた、登録済みの端末数。 */
+  /** サーバー側で数えた、登録済みの端末数（Web購読＋iOSアプリ）。 */
   initialDeviceCount: number;
+  /** APNs（iOSアプリへの通知。#475）の認証情報がサーバーに揃っているか。 */
+  apnsConfigured: boolean;
 };
 
 type PushState = {
@@ -34,6 +36,8 @@ type PushState = {
   subscribed: boolean;
   /** iOSで、ホーム画面に追加せずSafariのタブで開いているか。 */
   needsHomeScreen: boolean;
+  /** iOSアプリ（殻。UAに `MorrowIOS/` が付く）の中で開いているか。WKWebViewにPushManagerは無い（#475）。 */
+  inApp: boolean;
 };
 
 const LOADING: PushState = {
@@ -41,6 +45,7 @@ const LOADING: PushState = {
   permission: "default",
   subscribed: false,
   needsHomeScreen: false,
+  inApp: false,
 };
 
 /**
@@ -82,6 +87,11 @@ function isStandalone(): boolean {
  * （ESLintの `react-hooks/set-state-in-effect`。localStorageを直接読まないのと同じ理由）。
  */
 async function readPushState(): Promise<PushState> {
+  // アプリ内ではWeb Pushの購読を作れない。通知の許可と登録は殻（APNs）が行う
+  if (/MorrowIOS\//.test(navigator.userAgent)) {
+    return { ...LOADING, inApp: true };
+  }
+
   const supported =
     "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 
@@ -97,10 +107,11 @@ async function readPushState(): Promise<PushState> {
     permission: Notification.permission,
     subscribed: subscription !== null,
     needsHomeScreen: false,
+    inApp: false,
   };
 }
 
-export function NotificationSettings({ publicKey, initialDeviceCount }: Props) {
+export function NotificationSettings({ publicKey, initialDeviceCount, apnsConfigured }: Props) {
   const [state, setState] = useState<PushState>(LOADING);
   const [ready, setReady] = useState(false);
   const [deviceCount, setDeviceCount] = useState(initialDeviceCount);
@@ -186,11 +197,16 @@ export function NotificationSettings({ publicKey, initialDeviceCount }: Props) {
       if (subscription) {
         // **サーバー側から先に消す。** 先にunsubscribe()すると、失敗したときに
         // 送り先だけがDBに残り、毎朝失敗し続ける。
-        await fetch("/api/push", {
+        const response = await fetch("/api/push", {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ subscription: subscription.toJSON() }),
         });
+        if (!response.ok) {
+          // サーバーから消せていないのに端末側だけ解除すると、送り先がDBに残る。解除せずに知らせる。
+          const error = (await response.json().catch(() => ({}))) as { error?: string };
+          throw new Error(error.error ?? "通知を止められませんでした。もう一度お試しください。");
+        }
         await subscription.unsubscribe();
       }
 
@@ -207,52 +223,28 @@ export function NotificationSettings({ publicKey, initialDeviceCount }: Props) {
     }
   }, []);
 
-  const sendTest = useCallback(async () => {
-    setBusy(true);
-    setMessage(null);
-
-    try {
-      const response = await fetch("/api/push/test", { method: "POST" });
-      const result = (await response.json().catch(() => ({}))) as {
-        delivered?: number;
-        error?: string;
-      };
-
-      if (!response.ok) throw new Error(result.error ?? "テスト通知を送れませんでした。");
-
-      setMessage(
-        result.delivered && result.delivered > 0
-          ? { tone: "info", text: `${result.delivered}台へ送りました。数秒で届きます。` }
-          : {
-              tone: "error",
-              text: "送り先が1台もありませんでした。もう一度オンにし直してください。",
-            },
-      );
-    } catch (error) {
-      setMessage({
-        tone: "error",
-        text: error instanceof Error ? error.message : "テスト通知を送れませんでした。",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, []);
-
   return (
     <section className="flex flex-col gap-5">
       <header>
         <h3 className="text-sm font-medium">秘書からのお知らせ</h3>
         <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-muted">
-          毎朝1回、その日の予定・天気・部屋やシステムの状況をまとめて届けます。押すとその相談が
-          開くので、そのまま続きを聞けます。
-          <b className="font-medium text-foreground">
-            {" "}
-            届くのは1日1本まで。知らせることが無い日は届きません。
-          </b>
+          秘書からの通知を、この端末で受け取るかどうかを決めます。どんな通知を受け取るかは、
+          下の「通知の種類」で選べます。押すとダッシュボードが開き、届いた内容を読めます。
         </p>
       </header>
 
-      {publicKey === "" ? (
+      {ready && state.inApp ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2.5 rounded-xl border border-border bg-surface px-4 py-3">
+          <div className="min-w-0 flex-1">
+            <b className="text-sm font-medium">このアプリの通知</b>
+            <span className="mt-0.5 block text-[0.6875rem] text-muted">
+              {apnsConfigured
+                ? `アプリを開いたときに許可を確認します${deviceCount > 0 ? ` ／ 登録済みの端末: ${deviceCount}台` : ""}`
+                : "サーバー側の設定が済むまで、アプリへは通知を送れません"}
+            </span>
+          </div>
+        </div>
+      ) : publicKey === "" ? (
         <Notice tone="error">
           通知に必要な設定がサーバー側にありません。VAPIDの鍵が設定されるまで、この端末では
           通知を登録できません。
@@ -286,17 +278,6 @@ export function NotificationSettings({ publicKey, initialDeviceCount }: Props) {
           </div>
 
           <div className="flex shrink-0 items-center gap-1.5">
-            {state.subscribed && (
-              <button
-                type="button"
-                onClick={sendTest}
-                disabled={busy}
-                className="whitespace-nowrap rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-muted transition-colors hover:bg-rail-active disabled:opacity-50"
-              >
-                試しに送る
-              </button>
-            )}
-
             <button
               type="button"
               onClick={state.subscribed ? disable : enable}
@@ -318,8 +299,9 @@ export function NotificationSettings({ publicKey, initialDeviceCount }: Props) {
       {message && <Notice tone={message.tone}>{message.text}</Notice>}
 
       <p className="text-xs leading-relaxed text-muted">
-        通知は端末ごとに登録します。iPhoneとPCの両方で受け取りたいときは、それぞれの端末で
-        この画面を開いてオンにしてください。
+        {ready && state.inApp
+          ? "通知を止めたいときは、iPhoneの設定アプリの「通知」からMorrowを選んでください。"
+          : "通知は端末ごとに登録します。iPhoneとPCの両方で受け取りたいときは、それぞれの端末でこの画面を開いてオンにしてください。"}
       </p>
     </section>
   );

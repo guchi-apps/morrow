@@ -20,24 +20,29 @@
   /* 話題（#144）のチップ。用件（accent）と見分けるための落ち着いた青灰。 */
   --topic: #3b5b7d;
   --topic-surface: #e8eef5;
+  /* 天気の「降らない見込み」（#586）。雨（topic）・降るかも（accent）と見分ける落ち着いた緑。 */
+  --fair: #3f7a52;
+  --fair-surface: #e7f3eb;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0b1120;
-    --surface: #111a2e;
-    --foreground: #e2e8f0;
-    --muted: #94a3b8;
-    --border: #1e293b;
+    --background: #131314;
+    --surface: #1e1f20;
+    --foreground: #e3e3e3;
+    --muted: #9aa0a6;
+    --border: #2c2d2f;
     --accent: #ff8262;
     --danger: #fca5a5;
     --danger-surface: #2a1416;
-    --rail: #0d1424;
-    --rail-active: #172136;
+    --rail: #0e0e0f;
+    --rail-active: #2a2b2d;
     --accent-surface: #3d1f18;
     --accent-foreground: #3a120a;
     --topic: #9dbbe0;
-    --topic-surface: #16243a;
+    --topic-surface: #1b2530;
+    --fair: #8fd1a4;
+    --fair-surface: #14241a;
   }
 }
 
@@ -56,6 +61,8 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-topic: var(--topic);
   --color-topic-surface: var(--topic-surface);
+  --color-fair: var(--fair);
+  --color-fair-surface: var(--fair-surface);
 }
 
 /*
@@ -248,6 +255,97 @@ body {
 }
 
 /*
+ * メールの一覧⇔本文の切り替え（#699）。本文は右から、一覧へ戻るときは左から少しだけ滑り込む
+ * （全幅のスワイプではない）。押した側の画面は反対へ少し退く（`mail-pane-leave-*`）。
+ * 向きは `MailTransition` が前のパスから決める。
+ */
+.mail-pane-enter-forward {
+  animation: mail-pane-in-forward 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.mail-pane-enter-back {
+  animation: mail-pane-in-back 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.mail-pane-leave-forward {
+  animation: mail-pane-out-forward 0.2s ease-in forwards;
+}
+.mail-pane-leave-back {
+  animation: mail-pane-out-back 0.2s ease-in forwards;
+}
+
+@keyframes mail-pane-in-forward {
+  0% {
+    opacity: 0;
+    transform: translateX(56px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes mail-pane-in-back {
+  0% {
+    opacity: 0;
+    transform: translateX(-56px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes mail-pane-out-forward {
+  100% {
+    opacity: 0.35;
+    transform: translateX(-32px);
+  }
+}
+@keyframes mail-pane-out-back {
+  100% {
+    opacity: 0.35;
+    transform: translateX(32px);
+  }
+}
+
+/* 読み込み中のスケルトン（#699）。帯の上を明るい筋がゆっくり流れる。 */
+.mail-skeleton {
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--rail-active) 0%,
+    color-mix(in srgb, var(--rail-active) 45%, var(--surface)) 40%,
+    var(--rail-active) 80%
+  );
+  background-size: 300% 100%;
+  animation: mail-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes mail-skeleton-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0 0;
+  }
+}
+
+.mail-loading-dots > span {
+  animation: mail-loading-dot 1s ease-in-out infinite;
+}
+.mail-loading-dots > span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.mail-loading-dots > span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes mail-loading-dot {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/*
  * 動きを減らす設定の端末では、立ち絵の揺れとフェードを止める（絵の差し替えだけにする）。
  * 状態は文言（「はい、聞いていますよ」等）でも出しているため、止めても何が起きているかは分かる。
  *
@@ -269,7 +367,13 @@ body {
   .ind-spin,
   .ind-dots > span,
   .ind-bars > span,
-  .topic-tab-fade {
+  .topic-tab-fade,
+  .mail-pane-enter-forward,
+  .mail-pane-enter-back,
+  .mail-pane-leave-forward,
+  .mail-pane-leave-back,
+  .mail-skeleton,
+  .mail-loading-dots > span {
     animation: none !important;
   }
 }
@@ -289,5 +393,20 @@ body {
   textarea,
   select {
     font-size: 16px;
+  }
+}
+
+/* メールの提案のハーフモーダル（#766）。下から出す。動きを減らす設定では出さない */
+@media (prefers-reduced-motion: no-preference) {
+  .flow-sheet[open] {
+    animation: flow-sheet-up 0.22s ease-out;
+  }
+}
+@keyframes flow-sheet-up {
+  0% {
+    transform: translateY(100%);
+  }
+  100% {
+    transform: none;
   }
 }
