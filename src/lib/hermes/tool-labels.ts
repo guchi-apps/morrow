@@ -30,6 +30,10 @@ const READ_LABELS: Record<string, string> = {
   kurashio_utility_bill_contracts: "光熱費の契約の確認",
   aide_ping: "接続の確認",
   aide_connection_permissions: "接続の権限の確認",
+  // Hermes組み込みの道具（#809）。AIDEの道具が読み込めていない回は、これらだけが並ぶ
+  tool_search: "使える道具の検索",
+  web_search: "ウェブ検索",
+  web_extract: "ウェブページの読み取り",
 };
 
 /** 取り消せる書き込み（自動実行。実行後に結果カードを出す）。 */

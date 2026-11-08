@@ -273,6 +273,7 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
 詳細は `docs/hermes-route.md`。実装・設定を足すときはまずそこを読む。
 
 - **VPS→subpcの順向きで、tailnet越しにsubpc上の中継（ブリッジ）を叩く。** Hermes（`hermes -p morrow serve --isolated`）もブリッジも127.0.0.1に閉じ、外へ出すのは `tailscale serve` の専用ポートだけ
+- **AIDEのOAuthトークンはprofileごと**（#809）。Morrow profileで `hermes -p morrow mcp login aide` を通していないと、チャットは「接続中」のままAIDEの道具が使えない（「予定を確認できない」と答える）。見分け方は `docs/hermes-route.md`
 - **Hermesへ直接繋がない。** tailscale serveはHostヘッダーを書き換えず、ループバックにバインドしたHermesはHost違いを400で弾く（2026-11-08実測）。またHermesのトークンは設定の書き換えまでできる管理者権限なので、VPSへ置かない
 - 認証は共有トークン `MORROW_HERMES_BRIDGE_TOKEN`（正は1Password・Morrowはissue-deckの共有トークンから）＋送信元のtailnet IPの照合。ブラウザへは何も渡さない
 - 「届かない」「Hermesが落ちている」「会話が無い」を分けて出す（#214）。送れなかった指示は溜めずに入力欄へ戻す
