@@ -10,7 +10,7 @@ import { ConversationRail } from "./conversation-rail";
 import { useVisualViewportFit } from "./use-visual-viewport";
 
 type Props = {
-  /** 溜まっている話題の件数（#144）。一覧の下に出す。 */
+  /** 溜まっているニュースの件数（#144）。一覧の下に出す。 */
   topicCount: number;
   userLabel: string;
   userEmail: string | null;
@@ -63,7 +63,7 @@ export function ChatShell({
     : isSettings
       ? "設定"
       : isTopics
-        ? "話題"
+        ? "ニュース"
         : isModels
           ? "モデル"
           : isMail

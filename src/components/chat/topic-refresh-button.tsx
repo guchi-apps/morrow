@@ -6,7 +6,7 @@ import { useState } from "react";
 type State = { kind: "idle" } | { kind: "running" } | { kind: "done"; message: string; error: boolean };
 
 /**
- * 「最近の記事を取得する」ボタン（#660）。話題を取りに行く手段は、これと定時の時刻だけ。
+ * 「最近の記事を取得する」ボタン（#660）。ニュースを取りに行く手段は、これと定時の時刻だけ。
  * 1回30秒〜数分かかるので、待つあいだは押せなくして状況を出す。終わったら一覧を読み直す。
  */
 export function TopicRefreshButton() {

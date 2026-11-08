@@ -5,7 +5,7 @@
  * `@/lib/usage`（DBに触れる）とは別に置いてある。
  *
  * モデル名から機能を割り出す形は採らなかった。相談のモデルは設定の画面から選べる（Sol・Terra・
- * Luna）ため、お知らせ選定・話題（Luna）、要約・自宅の取り込み（Terra）、朝の見通し（Sol）と
+ * Luna）ため、お知らせ選定・ニュース（Luna）、要約・自宅の取り込み（Terra）、朝の見通し（Sol）と
  * 同じ名前が別の機能として現れる。**機能を足したら、ここへ足して呼び出し側の
  * `recordApiUsage()` に渡すこと**（渡し忘れは型で落ちる）。
  */
@@ -27,7 +27,7 @@ export const USAGE_FEATURE_LABELS: Record<UsageFeature, string> = {
   compact: "会話の要約",
   briefing: "朝の見通し",
   notice: "お知らせの選定",
-  topic: "話題の仕入れ",
+  topic: "ニュースの仕入れ",
   home_profile: "自宅情報の取り込み",
   memory: "継続記憶（候補の抽出・Notion照合）",
   proactive: "先回りの提案",

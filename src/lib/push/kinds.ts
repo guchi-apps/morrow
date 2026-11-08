@@ -25,10 +25,10 @@ export type PushKindInfo = {
 export const PUSH_KIND_INFO: Record<PushKind, PushKindInfo> = {
   "scheduled-push": {
     label: "定時のお知らせ",
-    hint: "話題の画面で決めた曜日・時刻に、ニュースの見出しを届けます。",
-    when: "話題の画面で設定した時刻",
+    hint: "ニュースの画面で決めた曜日・時刻に、ニュースの見出しを届けます。",
+    when: "ニュースの画面で設定した時刻",
     sample: {
-      title: "定時のお知らせ（話題）",
+      title: "定時のお知らせ（ニュース）",
       body: "（見本）見出しがここに並びます。",
       url: "/topics",
     },
