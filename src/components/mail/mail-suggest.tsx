@@ -188,7 +188,10 @@ export function MailSuggest({ id }: { id: string }) {
                   )}
                 </div>
                 {card.kind === "payment" && (f.place === null || f.amount === null || f.date === null) && (
-                  <p className="text-[0.6875rem] text-danger">要確認: 本文から読み取れなかった項目があります。入力してください。</p>
+                  <p className="text-[0.6875rem] text-danger">
+                    要確認: 本文から読み取れなかった項目があります。入力してください。
+                    {f.amount === null && f.originalAmount !== null && `（外貨建て ${f.originalCurrency} ${f.originalAmount}。金額は円に換算して入れてください）`}
+                  </p>
                 )}
                 <div>
                   {card.kind === "subscription" ? (
