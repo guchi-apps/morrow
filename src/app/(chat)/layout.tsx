@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 
 import { ChatShell } from "@/components/chat/chat-shell";
+import { MenuInfo } from "@/components/chat/menu-info";
 import { APP_VERSION } from "@/lib/app-version";
 import { getCurrentUser } from "@/lib/auth-user";
 import { recentTopicCount } from "@/lib/topics";
@@ -25,6 +27,11 @@ export default async function ChatLayout({ children }: { children: React.ReactNo
       userLabel={user.name ?? user.email ?? "ログイン中"}
       userEmail={user.email}
       appVersion={APP_VERSION}
+      infoSlot={
+        <Suspense fallback={null}>
+          <MenuInfo userId={user.id} />
+        </Suspense>
+      }
     >
       {children}
     </ChatShell>

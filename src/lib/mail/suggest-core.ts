@@ -32,9 +32,12 @@ const REASON_LIMIT = 80;
 const TITLE_LIMIT = 100;
 const MEMO_LIMIT = 500;
 const LOCATION_LIMIT = 100;
+const PLACE_LIMIT = 100;
 export const SUGGEST_MAX = 3;
 
 export type PaymentFields = {
+  /** 支払先（店名・サービス提供元）。Asset Managerの取り込みで必須（#743）。読み取れないときはnull。 */
+  place: string | null;
   name: string;
   /** 円建ての金額（整数）。読み取れないときはnull。 */
   amount: number | null;
@@ -119,6 +122,7 @@ export function buildSuggestPrompt(input: { from: string; subject: string; body:
       "confidence は 0〜1。本文から確かに読み取れたものだけ高くする",
       "本文に書かれていない値は推測しない。読み取れない項目は null にする（金額・日付・時刻を埋め合わせない）",
       "payment の amount は円建ての整数。外貨建てなら円へ換算せず amount を null にして originalAmount・originalCurrency（ISO 4217）に元の金額を入れる。date は購入日（YYYY-MM-DD）で、メールの受信日を使わない",
+      "payment の place は支払先（店名・サービスの提供元。例: Amazon・関西電力）、name は品目（例: 電気料金・○○プラン 1か月）。place が本文から分からなければ null",
       "subscription の amount は1回あたりの請求額（円なら整数）、currency は JPY か USD、cycle は MONTHLY か YEARLY、day は請求日（1〜31）、startDate は契約開始日（YYYY-MM-DD）。読み取れない項目は null",
       "task の title は「何をするか」が分かる短い題名。due は期限（YYYY-MM-DD）が本文にあるときだけ。memo に要点を1〜2文",
       "event の date は YYYY-MM-DD、startTime・endTime は HH:MM（両方分かるときだけ。分からなければ両方 null で終日）",
@@ -135,7 +139,7 @@ export function buildSuggestPrompt(input: { from: string; subject: string; body:
           kind: "payment",
           reason: "理由",
           confidence: 0.9,
-          fields: { name: "品目", amount: 1000, date: "2026-11-05", usage: null, originalAmount: null, originalCurrency: null },
+          fields: { place: "支払先", name: "品目", amount: 1000, date: "2026-11-05", usage: null, originalAmount: null, originalCurrency: null },
         },
         {
           kind: "subscription",
@@ -163,6 +167,7 @@ function paymentFields(raw: Record<string, unknown>): PaymentFields | null {
   const currency = typeof raw.originalCurrency === "string" && /^[A-Za-z]{3}$/.test(raw.originalCurrency) ? raw.originalCurrency.toUpperCase() : null;
   const usage = optionalText(raw.usage, 32);
   return {
+    place: optionalText(raw.place, PLACE_LIMIT),
     name,
     amount,
     date: validDate(raw.date),
@@ -301,8 +306,11 @@ export function toolCallFor(suggestion: Suggestion, mail: MailRef, userId: strin
       args: { title, date, ...(startTime && endTime ? { startTime, endTime } : {}), ...(location ? { location } : {}) },
     };
   }
-  const { name, amount, date, usage, originalAmount, originalCurrency } = suggestion.fields;
-  if (amount === null && originalAmount === null) return { ok: false, reason: "金額を入力してください。" };
+  const { place, name, amount, date, usage, originalAmount, originalCurrency } = suggestion.fields;
+  // Asset Managerの取り込み（/api/receipts/import）は place・amount（円の整数）を必須にしている（#743）。
+  // 送ってから断られるより、ここで足りない欄を示す。
+  if (!place) return { ok: false, reason: "支払先を入力してください。" };
+  if (amount === null) return { ok: false, reason: originalAmount !== null ? "円の金額を入力してください。" : "金額を入力してください。" };
   if (!date) return { ok: false, reason: "日付を入力してください。" };
   return {
     ok: true,
@@ -310,8 +318,9 @@ export function toolCallFor(suggestion: Suggestion, mail: MailRef, userId: strin
     args: {
       gmailMessageId: mail.messageId,
       date,
+      place,
       name,
-      ...(amount !== null ? { amount } : {}),
+      amount,
       ...(usage ? { usage } : {}),
       ...(originalAmount !== null && originalCurrency ? { originalAmount, originalCurrency } : {}),
       rawSubject: flattenText(mail.subject, SUBJECT_LIMIT),
