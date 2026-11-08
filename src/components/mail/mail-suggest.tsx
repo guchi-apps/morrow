@@ -74,6 +74,18 @@ export function MailSuggest({ id }: { id: string }) {
     );
   }
 
+  /** サブスク一覧を開いたことを控えに残す（#750）。登録できたかは分からないので「開いた」として残る。失敗しても開くのは止めない。 */
+  function recordOpened(card: Suggestion) {
+    fetch("/api/mail/flow/subscription", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id, fields: card.fields }),
+      keepalive: true,
+    })
+      .then(() => router.refresh())
+      .catch(() => {});
+  }
+
   async function run(card: Suggestion) {
     setRunning(card.kind);
     try {
@@ -92,7 +104,8 @@ export function MailSuggest({ id }: { id: string }) {
         ...o,
         [card.kind]: { text: `${data?.message ?? "実行しました。"}${data?.labeled ? "「処理済み」ラベルを付けました。" : ""}`, error: failed, done: !failed },
       }));
-      if (data?.labeled) router.refresh();
+      // 登録した内容の欄（#750）と「処理済み」ラベルを更新する
+      if (!failed) router.refresh();
     } catch {
       setOutcomes((o) => ({ ...o, [card.kind]: { text: "実行できませんでした（通信できませんでした）。", error: true, done: false } }));
     } finally {
@@ -199,6 +212,7 @@ export function MailSuggest({ id }: { id: string }) {
                       href={subscriptionLink(card.fields)}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={() => recordOpened(card)}
                       className={cn("inline-block rounded-[9px] px-3 py-1.5 text-xs font-bold transition-colors", recommended ? "bg-accent text-accent-foreground" : "border border-border bg-surface hover:bg-rail-active")}
                     >
                       {meta.run}
