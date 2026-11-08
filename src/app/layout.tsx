@@ -22,7 +22,12 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#344458",
+  // ステータスバーの色はヘッダーの背景（globals.css の --surface）に揃える（#740）。
+  // ロゴの青（#344458）のままだと、ダークモードでヘッダーとの間に青い帯が出る。
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#1e1f20" },
+  ],
   // ホーム画面から起動したときに、ノッチ側までレイアウトを広げる。
   viewportFit: "cover",
 };
