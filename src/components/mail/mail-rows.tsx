@@ -101,7 +101,7 @@ export function MailRows({ messages, labels, supportsLabels, inTrash, nowMs, bac
           return (
             <SwipeArchiveRow
               key={message.id}
-              enabled={!inTrash}
+              enabled={!inTrash && message.labelIds.includes("INBOX")}
               onArchive={() => archiveRow(message.id, message.unread)}
               className={cn(
                 "flex items-start gap-2.5 px-3 py-2.5 transition-colors md:items-center md:px-3.5",
