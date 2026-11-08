@@ -21,6 +21,7 @@ import {
   isMailViewKey,
   type MailViewKey,
 } from "@/lib/mail/contract";
+import { flowKindsFor } from "@/lib/mail/flow-record";
 import { neededTriages } from "@/lib/mail/triage";
 import { DEFAULT_MAIL_CRITERIA } from "@/lib/mail/triage-core";
 import { cn } from "@/lib/utils";
@@ -55,7 +56,8 @@ export default async function MailPage({ searchParams }: Props) {
 
   const now = new Date();
   const result = await listMail(user, { view, labelId, account, q, pageToken });
-  const notified = result.ok ? await neededTriages(user.id, result.value.messages.map((m) => m.id)) : new Map();
+  const listedIds = result.ok ? result.value.messages.map((m) => m.id) : [];
+  const [notified, flowKinds] = result.ok ? await Promise.all([neededTriages(user.id, listedIds), flowKindsFor(user.id, listedIds)]) : [new Map(), new Map<string, string[]>()];
 
   const self = new URLSearchParams();
   if (labelId) self.set("label", labelId);
@@ -210,7 +212,7 @@ export default async function MailPage({ searchParams }: Props) {
               </p>
             ) : (
               <MailRows
-                messages={result.value.messages.map((message) => ({ ...message, notified: notified.has(message.id) }))}
+                messages={result.value.messages.map((message) => ({ ...message, notified: notified.has(message.id), flowKinds: flowKinds.get(message.id) ?? [] }))}
                 labels={result.value.labels}
                 supportsLabels={result.value.supportsLabels}
                 inTrash={!labelId && view === "trash"}
