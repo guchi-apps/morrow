@@ -20,7 +20,8 @@ export type UsageFeature =
   | "memory"
   | "proactive"
   | "mail"
-  | "mail_suggest";
+  | "mail_suggest"
+  | "mail_summary";
 
 /** 使用量APIに出す機能名（ops-dashboardの画面にそのまま載る）。 */
 export const USAGE_FEATURE_LABELS: Record<UsageFeature, string> = {
@@ -34,6 +35,7 @@ export const USAGE_FEATURE_LABELS: Record<UsageFeature, string> = {
   proactive: "先回りの提案",
   mail: "メールの判定",
   mail_suggest: "メールの提案",
+  mail_summary: "メールの要約",
 };
 
 /**
