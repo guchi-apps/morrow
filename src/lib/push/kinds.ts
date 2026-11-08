@@ -9,6 +9,7 @@
 
 export const PUSH_KINDS = [
   "scheduled-push",
+  "mail-notice",
 ] as const;
 
 export type PushKind = (typeof PUSH_KINDS)[number];
@@ -30,6 +31,17 @@ export const PUSH_KIND_INFO: Record<PushKind, PushKindInfo> = {
       title: "定時のお知らせ（話題）",
       body: "（見本）見出しがここに並びます。",
       url: "/topics",
+    },
+  },
+  // 必要なメールのお知らせ（#683）。オフの間は新着の判定（Codex）も走らせない。
+  "mail-notice": {
+    label: "必要なメール",
+    hint: "新着メールのうち、メールの画面で決めた基準で「必要」と判定したものを知らせます。",
+    when: "15分ごとの新着確認と「いま確認」",
+    sample: {
+      title: "必要なメール（1通）",
+      body: "（見本）差出人：件名 — 理由がここに並びます。",
+      url: "/mail",
     },
   },
 };

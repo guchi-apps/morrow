@@ -5,12 +5,15 @@
 # issue-deckへ未登録のまま配ると、フォールバックが無いので GET /api/ai-usage が
 # 401 で閉じる（お知らせの受け口は#663で廃止したので、AIDE_BOT_NOTICE_INGEST_TOKEN は確かめない）（画面からは見えない）。**読めなければ、何も送る前に落とす。**
 #
+# AIDE_MAIL_API_TOKEN（#683）はメール画面・必要なメールのお知らせがAIDEの /api/mail/* を叩く値。未登録だと
+# メールの一覧も通知も全部「設定されていません」で止まる（AIDE側も同じ値を読む。aide#801）。
+#
 # 必要な環境変数: SHARED_TOKEN_API_SECRET・ISSUE_DECK_URL（`src/lib/shared-token.ts` と同じ）。
 # 値・Bearerは出力しない（HTTPステータスだけを見る）。読み取りは利用元 `aide-bot` として記録される。
 set -euo pipefail
 
 : "${SHARED_TOKEN_API_SECRET:=}" "${ISSUE_DECK_URL:=}"
-NAMES=(OPS_API_TOKEN)
+NAMES=(OPS_API_TOKEN AIDE_MAIL_API_TOKEN)
 
 if [[ -z "$SHARED_TOKEN_API_SECRET" || -z "$ISSUE_DECK_URL" ]]; then
   echo "::error::SHARED_TOKEN_API_SECRET と ISSUE_DECK_URL（organization変数 APP_BASE_URL）が空です。共有トークンを読めないため配布を止めます" >&2

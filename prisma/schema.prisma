@@ -40,6 +40,12 @@ model User {
   /// オフにした通知の種類（#488）。`src/lib/push/kinds.ts` のキーをカンマで繋ぐ。空文字なら全部オン。
   pushDisabledKinds String @default("") @db.VarChar(200)
 
+  /// 「必要なメール」の基準（#683）。利用者が書く自由記述で、判定のプロンプトへそのまま入る。空文字なら既定の基準。
+  mailCriteria  String    @default("") @db.VarChar(600)
+  /// メールの新着確認の既読位置（#683）。これ以降に受信したものを新着として判定する。nullは一度も確認していない
+  /// （初回は位置を置くだけで、溜まっている過去分は通知しない）。一覧が `partial` の回は進めない。
+  mailCheckedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -50,6 +56,7 @@ model User {
   notificationLogs  NotificationLog[]
   scheduledPushes   ScheduledPush[]
   topics            Topic[]
+  mailTriages       MailTriage[]
 }
 
 // --- APIの消費量（#51） ---
@@ -354,4 +361,28 @@ model NativeAuthHandoff {
   createdAt     DateTime  @default(now())
 
   @@index([expiresAt])
+}
+
+// --- メールの判定（#683） ---
+// メールそのものはAIDE（`/api/mail/*`）にあり、Morrowは持たない。ここに残すのは「このメールを判定した・
+// 知らせた」の印だけで、同じメールを二度判定・二度通知しないために使う。件名・差出人・本文は持たない。
+
+model MailTriage {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// AIDEのメッセージID（`isMessageId()` と同じく最大320文字）。
+  messageId String  @db.VarChar(320)
+  /// Codexが「知らせるべき」と判定したか。
+  needed    Boolean
+  /// 判定の理由（モデルの一言。画面の「お知らせ済み」に添える）。不要と判定した回は空文字。
+  reason    String  @default("") @db.VarChar(200)
+  /// 通知を送った時刻。必要と判定しても、通知の種類がオフ・端末が無い回はnull。
+  notifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, messageId])
+  @@index([userId, createdAt])
 }
