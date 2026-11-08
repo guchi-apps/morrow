@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { MailAccountChip } from "@/components/mail/mail-account-chip";
+import { MailFeedback } from "@/components/mail/mail-feedback";
 import { MailBackLink } from "@/components/mail/mail-back-link";
 import { MailAnalysis } from "@/components/mail/mail-analysis";
 import { MailBody } from "@/components/mail/mail-body";
@@ -14,7 +15,8 @@ import { safeMailBack } from "@/lib/mail/back-path";
 import { MAIL_FAILURE_MESSAGES, isMailMessageId, mailAccountKeyOf } from "@/lib/mail/contract";
 import { flowRowStates } from "@/lib/mail/flow-record-core";
 import { flowRecordsFor } from "@/lib/mail/flow-record";
-import { neededTriages } from "@/lib/mail/triage";
+import { mailTriageFor } from "@/lib/mail/triage";
+import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -49,13 +51,14 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
 
   // 本文と判定は同時に取る（#699。以前は本文→一覧→判定の順に1本ずつ待っていた）。
   // 判定はDBだけなので、本文が取れなかった回に引いても害は無い。
-  const [result, triages, flowRecords] = await Promise.all([
+  const [result, triage, feedback, flowRecords] = await Promise.all([
     isMailMessageId(id) ? getMail(user, id) : Promise.resolve({ ok: false, kind: "not_found", message: null } as const),
-    neededTriages(user.id, [id]),
+    mailTriageFor(user.id, id),
+    // 押した印（#833）。メッセージIDと向きだけ
+    db.mailFeedback.findUnique({ where: { userId_messageId: { userId: user.id, messageId: id } }, select: { notify: true } }),
     flowRecordsFor(user.id, id),
   ]);
   const flowStates = flowRowStates(flowRecords);
-  const triage = result.ok ? triages.get(id) : undefined;
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -91,14 +94,27 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
 
                 <MailFlowRecords records={flowRecords.map((r) => ({ ...r, createdAt: flowTimeLabel(r.createdAt) }))} />
 
-                {triage && (
-                  <p className="rounded-[10px] bg-accent-surface px-3 py-2.5 text-xs leading-relaxed">
-                    <b className="text-accent">
-                      {triage.notifiedAt ? `お知らせ済み（${jstTimeLabel(triage.notifiedAt)}）` : "必要と判定（通知は届けられませんでした）"}
-                    </b>
-                    {triage.reason && <>　{triage.reason}</>}
-                  </p>
-                )}
+                {/* 判定の結果と、学習の印（#833）。知らせなかったメールにも出して「これは知らせて」を押せるようにする */}
+                <div
+                  className={
+                    "rounded-[10px] px-3 py-2.5 text-xs leading-relaxed " + (triage?.needed ? "bg-accent-surface" : "bg-border/50")
+                  }
+                >
+                  {triage?.needed ? (
+                    <p>
+                      <b className="text-accent">
+                        {triage.notifiedAt ? `お知らせ済み（${jstTimeLabel(triage.notifiedAt)}）` : "必要と判定（通知は届けられませんでした）"}
+                      </b>
+                      {triage.reason && <>　{triage.reason}</>}
+                    </p>
+                  ) : (
+                    <p>
+                      <b className="text-muted">お知らせしていません</b>
+                      <span className="text-muted">{triage ? "（不要と判定）" : "（新着の判定の対象外）"}</span>
+                    </p>
+                  )}
+                  <MailFeedback key={message.id} id={message.id} initial={feedback?.notify ?? null} />
+                </div>
 
                 <article className="overflow-hidden rounded-xl border border-border bg-surface">
                   <header className="flex flex-col gap-2 px-4 py-4">
