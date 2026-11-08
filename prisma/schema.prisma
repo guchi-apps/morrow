@@ -55,6 +55,7 @@ model User {
   apnsDevices       ApnsDevice[]
   notificationLogs  NotificationLog[]
   scheduledPushes   ScheduledPush[]
+  weatherPlaces     WeatherPlace[]
   topics            Topic[]
   mailTriages       MailTriage[]
 }
@@ -338,6 +339,22 @@ model ScheduledPush {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([userId, createdAt])
+}
+
+/// 天気ページ（#695）に登録した地点。名前と座標（小数2桁に丸めた値）だけを持つ。
+/// 自宅（AIDEの地点）は持たず、画面が常に先頭へ足す。
+model WeatherPlace {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name      String   @db.VarChar(40)
+  latitude  Float
+  longitude Float
+  createdAt DateTime @default(now())
+
+  @@unique([userId, latitude, longitude])
   @@index([userId, createdAt])
 }
 

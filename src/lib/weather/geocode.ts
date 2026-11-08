@@ -1,5 +1,7 @@
 import {
   addressQueryOf,
+  municipalityCandidates,
+  type MunicipalityCandidate,
   municipalityFromReverse,
   parseGsiSearch,
   parseMuniTable,
@@ -85,4 +87,17 @@ export async function resolvePlace(placeText: string, near: Coordinates | null):
   }
   places.set(key, { value: place, expiresAt: Date.now() + TTL_MS });
   return place;
+}
+
+const searches = new Map<string, Entry<MunicipalityCandidate[]>>();
+
+/** 天気ページの地名検索（#695）。市町村の候補だけを返す（施設名・番地は引かない）。通信の失敗は投げる。 */
+export async function searchMunicipalities(query: string): Promise<MunicipalityCandidate[]> {
+  const text = query.trim().slice(0, 40);
+  if (!text) return [];
+  const hit = searches.get(text);
+  if (hit && hit.expiresAt > Date.now()) return hit.value;
+  const found = municipalityCandidates(text, parseGsiSearch(await fetchJson(`${SEARCH_URL}?q=${encodeURIComponent(text)}`)));
+  searches.set(text, { value: found, expiresAt: Date.now() + TTL_MS });
+  return found;
 }

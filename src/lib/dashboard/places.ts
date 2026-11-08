@@ -44,6 +44,8 @@ export type PlaceSegment = Stay & {
   verdict: RainVerdict;
   /** 自宅の区間をAIDEの日別予報（1日全体）で代用した。 */
   daily: boolean;
+  /** 予報を取った地点（天気ページへのリンクに使う。場所不明・自宅の地点が未着・日別予報で代用した区間はnull。#695）。 */
+  point: Coordinates | null;
 };
 
 /**
@@ -88,14 +90,14 @@ function homePoint(weather: WeatherView): Coordinates | null {
 type ResolvedSegment = { segment: PlaceSegment; point: Coordinates | null };
 
 async function segmentFor(stay: Stay, weather: WeatherView, home: Coordinates | null): Promise<ResolvedSegment> {
-  const base = { ...stay, placeName: null, weather: null, verdict: "unknown" as RainVerdict, daily: false };
+  const base = { ...stay, placeName: null, weather: null, verdict: "unknown" as RainVerdict, daily: false, point: null as Coordinates | null };
   try {
     if (stay.home) {
       const name = weather.status === "ok" ? (weather.location?.name ?? null) : null;
       if (home) {
         const summary = summarizeWindow(await forecastAt(home), stay.date, stay.start, stay.end);
         return {
-          segment: { ...base, placeName: name, status: summary ? "ok" : "failed", weather: summary, verdict: rainVerdict(summary?.pop ?? null) },
+          segment: { ...base, placeName: name, status: summary ? "ok" : "failed", weather: summary, verdict: rainVerdict(summary?.pop ?? null), point: home },
           point: home,
         };
       }
@@ -117,7 +119,7 @@ async function segmentFor(stay: Stay, weather: WeatherView, home: Coordinates | 
     if (!place) return { segment: { ...base, status: "unresolved" }, point: null };
     const summary = summarizeWindow(await forecastAt(place), stay.date, stay.start, stay.end);
     return {
-      segment: { ...base, placeName: place.name, status: summary ? "ok" : "failed", weather: summary, verdict: rainVerdict(summary?.pop ?? null) },
+      segment: { ...base, placeName: place.name, status: summary ? "ok" : "failed", weather: summary, verdict: rainVerdict(summary?.pop ?? null), point: { latitude: place.latitude, longitude: place.longitude } },
       point: place,
     };
   } catch (error) {
@@ -271,4 +273,12 @@ export async function dashboardDayWeather(userId: string, now: Date, date: strin
     console.error(`[aide-bot] ${date} の自宅の予報を取得できなかった`, error);
     return { status: "failed", detail: error instanceof Error ? error.message : "不明なエラー" };
   }
+}
+
+/** 天気ページの「自宅」（#695）。AIDEが地点を返していなければnull。名前が無ければ「自宅」。 */
+export async function dashboardHomePlace(userId: string, now: Date): Promise<{ name: string; latitude: number; longitude: number } | null> {
+  const weather = await dashboardWeather(userId, now);
+  const point = homePoint(weather);
+  if (!point) return null;
+  return { name: (weather.status === "ok" ? weather.location?.name : null) ?? "自宅", ...point };
 }

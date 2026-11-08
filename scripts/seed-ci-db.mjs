@@ -314,6 +314,15 @@ async function main() {
     ],
   });
 
+  // 天気ページ（#695）の登録地点のダミー。自宅はAIDEの地点から来るので持たない。
+  await db.weatherPlace.deleteMany({ where: { userId: user.id } });
+  await db.weatherPlace.createMany({
+    data: [
+      { userId: user.id, name: "三条市", latitude: 37.64, longitude: 138.96 },
+      { userId: user.id, name: "燕市", latitude: 37.67, longitude: 138.88 },
+    ],
+  });
+  console.log("[aide-bot] 天気の登録地点を2件投入しました");
 }
 
 main()

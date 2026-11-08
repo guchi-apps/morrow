@@ -58,6 +58,7 @@ export function ChatShell({
   const isTopics = pathname === "/topics";
   const isModels = pathname === "/models";
   const isMail = pathname === "/mail" || pathname.startsWith("/mail/");
+  const isWeather = pathname === "/weather";
   const heading = isDashboard
     ? "今日"
     : isSettings
@@ -68,7 +69,9 @@ export function ChatShell({
           ? "モデル"
           : isMail
             ? "メール"
-            : "Morrow";
+            : isWeather
+              ? "天気"
+              : "Morrow";
 
   // 開いたドロワーは、閉じるボタン・スクリム・中のリンク（onNavigate）で閉じる。
   // pathnameの変化をuseEffectで見て閉じる形にはしない——描画のたびにsetStateが走る。
@@ -112,6 +115,7 @@ export function ChatShell({
           isSettingsActive={isSettings}
           isTopicsActive={isTopics}
           isMailActive={isMail}
+          isWeatherActive={isWeather}
           isModelsActive={isModels}
           topicCount={topicCount}
           userLabel={userLabel}
@@ -148,6 +152,7 @@ export function ChatShell({
               isSettingsActive={isSettings}
               isTopicsActive={isTopics}
           isMailActive={isMail}
+          isWeatherActive={isWeather}
               isModelsActive={isModels}
               topicCount={topicCount}
               userLabel={userLabel}

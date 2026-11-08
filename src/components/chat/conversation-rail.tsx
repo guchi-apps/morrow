@@ -1,6 +1,6 @@
 "use client";
 
-import { Cpu, LayoutDashboard, Mail, Newspaper, Settings } from "lucide-react";
+import { Cpu, LayoutDashboard, Mail, Newspaper, Settings, Sun } from "lucide-react";
 import Link from "next/link";
 
 import { AppLogo } from "@/components/brand/app-icon";
@@ -15,6 +15,7 @@ type Props = {
   isTopicsActive: boolean;
   /** メールの画面を開いているか（#683）。 */
   isMailActive: boolean;
+  isWeatherActive: boolean;
   /** モデルの画面を開いているか（#349）。 */
   isModelsActive: boolean;
   /** 溜まっている話題の件数（#144）。0のときは数字を出さない。 */
@@ -35,6 +36,7 @@ export function ConversationRail({
   isSettingsActive,
   isTopicsActive,
   isMailActive,
+  isWeatherActive,
   isModelsActive,
   topicCount,
   userLabel,
@@ -61,6 +63,20 @@ export function ConversationRail({
       <div className="min-h-0 flex-1" />
 
       <div className="border-t border-border">
+        {/* 天気（#695）。登録した地点の1日の予報。 */}
+        <Link
+          href="/weather"
+          onClick={onNavigate}
+          aria-current={isWeatherActive ? "page" : undefined}
+          className={cn(
+            "mx-2.5 mt-2 flex items-center gap-1.5 rounded-[9px] px-2.5 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+            isWeatherActive && "bg-rail-active shadow-[inset_2px_0_0_var(--accent)]",
+          )}
+        >
+          <Sun className="size-3.5 text-muted" aria-hidden="true" />
+          天気
+        </Link>
+
         {/* メール（#683）。未読数は出さない——描画のたびにAIDEへ一覧を取りに行くことになるため。 */}
         <Link
           href="/mail"
