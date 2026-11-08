@@ -21,6 +21,7 @@ import {
   isMailViewKey,
   type MailViewKey,
 } from "@/lib/mail/contract";
+import { onlyInbox } from "@/lib/mail/archived-memory";
 import { flowKindsFor } from "@/lib/mail/flow-record";
 import { neededTriages } from "@/lib/mail/triage";
 import { DEFAULT_MAIL_CRITERIA } from "@/lib/mail/triage-core";
@@ -56,6 +57,9 @@ export default async function MailPage({ searchParams }: Props) {
 
   const now = new Date();
   const result = await listMail(user, { view, labelId, account, q, pageToken });
+  // 受信トレイでは、INBOXラベルの無い（アーカイブ済みの）メールを出さない（#795）。検索・ラベル絞り込み中は対象外
+  const inboxView = !labelId && view === "inbox" && !q;
+  if (result.ok && inboxView) result.value.messages = onlyInbox(result.value.messages);
   const listedIds = result.ok ? result.value.messages.map((m) => m.id) : [];
   const [notified, flowKinds] = result.ok ? await Promise.all([neededTriages(user.id, listedIds), flowKindsFor(user.id, listedIds)]) : [new Map(), new Map<string, string[]>()];
 
@@ -219,6 +223,7 @@ export default async function MailPage({ searchParams }: Props) {
                 showAccount={showAccounts && !account}
                 nowMs={now.getTime()}
                 back={back}
+                inboxView={inboxView}
               />
             )}
             <div className="flex items-center justify-between text-xs text-muted">
