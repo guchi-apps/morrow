@@ -18,7 +18,8 @@ export type UsageFeature =
   | "topic"
   | "home_profile"
   | "memory"
-  | "proactive";
+  | "proactive"
+  | "mail";
 
 /** 使用量APIに出す機能名（ops-dashboardの画面にそのまま載る）。 */
 export const USAGE_FEATURE_LABELS: Record<UsageFeature, string> = {
@@ -30,6 +31,7 @@ export const USAGE_FEATURE_LABELS: Record<UsageFeature, string> = {
   home_profile: "自宅情報の取り込み",
   memory: "継続記憶（候補の抽出・Notion照合）",
   proactive: "先回りの提案",
+  mail: "メールの判定",
 };
 
 /**

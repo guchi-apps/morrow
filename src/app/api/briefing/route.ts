@@ -2,10 +2,12 @@ import { timingSafeEqual } from "node:crypto";
 
 import { NextResponse, after } from "next/server";
 
+import { runMailChecks } from "@/lib/mail/triage";
 import { runScheduledPushes } from "@/lib/scheduled-push";
 
 /**
- * 定時のお知らせを起動する。**cronから叩かれる、利用者のいない経路。**
+ * 定時のお知らせと、メールの新着確認（#683）を起動する。**cronから叩かれる、利用者のいない経路。**
+ * vpsの `cron/crontab.txt` から15分ごと（毎時0・15・30・45分。`scripts/aide-bot-briefing.sh`）に叩かれる。
  *
  * 以前は朝の見通し（#79）・先回りの提案（#325）もここから起動していたが、#675で廃止した。
  * パスと `BRIEFING_TRIGGER_TOKEN` は、vpsのcrontabを変えずに済むよう名前のまま残している。
@@ -14,7 +16,7 @@ import { runScheduledPushes } from "@/lib/scheduled-push";
  * `cron/crontab.txt`）に任せ、ここはワンショットで走るだけにしてある。
  *
  * ```
- * 0 7 * * * curl -fsS -X POST -H "Authorization: Bearer <token>" http://127.0.0.1:3103/api/briefing
+ * 0,15,30,45 * * * /usr/local/bin/aide-bot-briefing.sh   # 中身は POST http://127.0.0.1:3103/api/briefing
  * ```
  *
  * ## 認証
@@ -68,6 +70,22 @@ export async function POST(request: Request) {
       }
     } catch (error) {
       console.error("[aide-bot] 定時のお知らせに失敗した", error);
+    }
+  });
+
+  // 必要なメールのお知らせ（#683）。新着があったときだけCodexで判定する。定時のお知らせとは独立に走らせる
+  // （片方の失敗・待ちでもう片方を止めない）。
+  after(async () => {
+    try {
+      for (const { userId, result } of await runMailChecks()) {
+        if (result.status === "checked" && result.judged === 0 && !result.partial) continue;
+        console.info(
+          `[aide-bot] メールの確認: ${userId} ${result.status}（判定${result.judged}・必要${result.needed}・${result.delivered}台）` +
+            `${result.partial ? " 一部のアカウントを取得できず" : ""}${result.failure ? ` ${result.failure}` : ""}`,
+        );
+      }
+    } catch (error) {
+      console.error("[aide-bot] メールの確認に失敗した", error);
     }
   });
 

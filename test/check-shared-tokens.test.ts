@@ -58,7 +58,7 @@ describe("scripts/check-shared-tokens.sh", () => {
     assert.equal(result.code, 0, result.out);
     assert.deepEqual(
       stub.seen.map((entry) => entry.url),
-      ["/api/shared-tokens?name=OPS_API_TOKEN"],
+      ["/api/shared-tokens?name=OPS_API_TOKEN", "/api/shared-tokens?name=AIDE_MAIL_API_TOKEN"],
     );
     assert.ok(stub.seen.every((entry) => entry.auth === `Bearer ${SECRET}` && entry.consumer === "aide-bot"));
     assert.ok(!result.out.includes(SECRET), "Bearerの値を出力してはいけない");
@@ -70,6 +70,14 @@ describe("scripts/check-shared-tokens.sh", () => {
     const result = await run({ SHARED_TOKEN_API_SECRET: SECRET, ISSUE_DECK_URL: stub.url });
     assert.equal(result.code, 1);
     assert.match(result.out, /OPS_API_TOKEN.*未登録/);
+  });
+
+  it("メールの共有トークン（#683）だけが未登録でも落ちる", async () => {
+    const stub = await startStub((name) => (name === "AIDE_MAIL_API_TOKEN" ? 404 : 200));
+    stubs.push(stub);
+    const result = await run({ SHARED_TOKEN_API_SECRET: SECRET, ISSUE_DECK_URL: stub.url });
+    assert.equal(result.code, 1);
+    assert.match(result.out, /AIDE_MAIL_API_TOKEN.*未登録/);
   });
 
   it("認証に失敗（401）したら落ちる", async () => {

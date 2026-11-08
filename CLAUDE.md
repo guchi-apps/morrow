@@ -664,10 +664,35 @@ pnpm dev:https    # tailnetへHTTPSで公開し、iPhoneで開くURLを出す
 - **`.env.local` のSupabaseの値を空にしない**（#121）。middlewareが全リクエストを500にする。
   `.env.local.example` の既定はCIと同じダミー値で、開発用ログインだけならこれで通る
 
+## メールの画面と必要なメールのお知らせ（#683）
+
+AIDEのメール受信をMorrowへ移した（aide#795）。**Gmail/IMAPの資格情報と取得処理はAIDEに残し、Morrowは持たない**（`imapflow`・Gmailの資格情報は足さない）。
+Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「Morrow向けのメールAPI（#795）」）を叩く。呼び出しは `src/lib/mail/aide-client.ts`、
+応答の検証・本人照合は純粋な `contract.ts`（`test/mail-contract.test.ts`）。画面は `/mail`（一覧）・`/mail/<id>`（本文）。
+
+- **認証は共有トークン `AIDE_MAIL_API_TOKEN`**（issue-deck。取れなければ同名の環境変数＝手元のスタブ用）。`scripts/check-shared-tokens.sh` が配布前に
+  読めるか確かめる。宛先は既定 `https://aide.gucchii.com`、`AIDE_MAIL_API_URL` で上書きできる（手元のスタブ用）
+- **トークンが表すのは「Morrowのサーバー」で利用者ではない。** 応答の `owner` とログイン中の人（cronでは判定する利用者）のメールを `isMailOwner()` で
+  必ず照合し、違えば中身を捨てて `not_owner`。一覧・本文・整理・新着確認のすべてが `aide-client.ts` を通る
+- **整理の操作はAIDEが変更した後でしか `owner` を返さない**ので、送る前に毎回1通目の本文を引いて照合し、応答の `owner` も事後に照合する。
+  **照合の結果をプロセス内に持ち回さない**——手元で、ページとRoute Handlerが別のモジュールを持ち、持ち主が変わった後も古い照合結果で操作が通った
+- **`partial`（一部のアカウントが読めない）を「メールが無い」と読ませない。** 一覧は赤い帯で知らせ、新着確認は既読位置（`User.mailCheckedAt`）を進めない
+- 本文のHTMLは加工されていないので、`sandbox="allow-popups allow-popups-to-escape-sandbox"`（`allow-scripts`・`allow-same-origin` なし）の
+  `iframe srcdoc` に閉じ込め、内側のCSPで外部画像を「画像を表示」まで止める（`mailSrcdoc()`）
+- **新着確認（`src/lib/mail/triage.ts`）の起点は、15分ごとのcron（`/api/briefing` の `after()`）と画面の「いま確認」（`POST /api/mail/check`。1分あける）。**
+  vpsの `cron/crontab.txt` は以前から `*/15` で `scripts/aide-bot-briefing.sh`（`/api/briefing`）を叩いているので、vps側の変更は要らなかった
+- 判定はCodex（用途「メールの判定」・機能 `mail`）。**渡すのは差出人・件名・冒頭（snippet。200字で切る）だけ**で、メッセージIDは `m1`…の仮番号にする
+  （`triage-core.ts`・`test/mail-triage.test.ts`）。通知の種類がオフ・判定していない新着が無い回はCodexを呼ばない。基準は利用者が書く `User.mailCriteria`（空なら既定）
+- **同じメールは二度判定・二度通知しない**（`MailTriage` の利用者×メールID一意）。**ただし必要と判定した行は、通知の試行（`sendPushToUser()`）が終わってから作る**（#693。先に作ると、作成と送信のあいだで止まった回の通知が永久に失われる）。不要・枠あふれの行は先に作る。送信後・確定前に止まった回は、次の確認で再判定されて再通知されうる（取りこぼすより重複を選ぶ。再判定はCodexなので結果は変わりうる）。件名・差出人・本文はMorrowのDBに残さない（`NotificationLog` の本文も件数だけ）。
+  初回は既読位置を置くだけで、溜まっている過去分は知らせない。返答が読めなかった回は何も記録せず次でやり直す
+- 開発DBのシードにメールのダミーは無い（メールはAIDEにしか無いため）。手元では、`initialize` 不要の小さなHTTPスタブ（`/api/mail/messages`・
+  `/api/mail/messages/<id>`・`/api/mail/actions` に答えるだけ）を立てて `.env.local` の `AIDE_MAIL_API_URL`・`AIDE_MAIL_API_TOKEN` を向け、
+  `CODEX_BIN` も判定のJSON配列を返すスタブにして確かめる。「いま確認」の前に `User.mailCheckedAt` を少し戻すと新着として拾われる
+
 ## 通知の種類ごとのオン・オフとテスト送信（#488）
 
 **端末の登録（Web Push購読・APNs）とは別に、利用者単位で「どの種類の通知を受け取るか」を持つ。**
-種類は#675から**定時のお知らせ（`scheduled-push`）の1つだけ**で、定義の正は
+種類は**定時のお知らせ（`scheduled-push`）と必要なメール（`mail-notice`。#683）**で、定義の正は
 `src/lib/push/kinds.ts`（`NotificationLog.kind` と同じキー。クライアントからもimportする）。
 
 - **保存は `User.pushDisabledKinds`（オフにした種類のキーをカンマ区切り。空文字＝全部オン）。** 種類ごとに列を

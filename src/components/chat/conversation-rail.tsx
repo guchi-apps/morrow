@@ -1,6 +1,6 @@
 "use client";
 
-import { Cpu, LayoutDashboard, Newspaper, Settings } from "lucide-react";
+import { Cpu, LayoutDashboard, Mail, Newspaper, Settings } from "lucide-react";
 import Link from "next/link";
 
 import { AppLogo } from "@/components/brand/app-icon";
@@ -13,6 +13,8 @@ type Props = {
   isSettingsActive: boolean;
   /** 話題の画面を開いているか（#144）。 */
   isTopicsActive: boolean;
+  /** メールの画面を開いているか（#683）。 */
+  isMailActive: boolean;
   /** モデルの画面を開いているか（#349）。 */
   isModelsActive: boolean;
   /** 溜まっている話題の件数（#144）。0のときは数字を出さない。 */
@@ -32,6 +34,7 @@ export function ConversationRail({
   isDashboardActive,
   isSettingsActive,
   isTopicsActive,
+  isMailActive,
   isModelsActive,
   topicCount,
   userLabel,
@@ -58,6 +61,20 @@ export function ConversationRail({
       <div className="min-h-0 flex-1" />
 
       <div className="border-t border-border">
+        {/* メール（#683）。未読数は出さない——描画のたびにAIDEへ一覧を取りに行くことになるため。 */}
+        <Link
+          href="/mail"
+          onClick={onNavigate}
+          aria-current={isMailActive ? "page" : undefined}
+          className={cn(
+            "mx-2.5 mt-2 flex items-center gap-1.5 rounded-[9px] px-2.5 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+            isMailActive && "bg-rail-active shadow-[inset_2px_0_0_var(--accent)]",
+          )}
+        >
+          <Mail className="size-3.5 text-muted" aria-hidden="true" />
+          メール
+        </Link>
+
         {/* 仕入れた話題（#144）。お知らせとは別の受け皿で、数字は「未読」ではなく溜まっている件数。
             用件ではないので、お知らせと違って数字を強調しない。 */}
         <Link

@@ -60,9 +60,9 @@ export function modelDisplayName(id: string): string {
  * （`User.modelSettings`）へ持つ。用途を足したら `MODEL_USES`・`MODEL_USE_META`・`DEFAULT_MODELS`
  * の3つを揃える（型で漏れは落ちる）。
  */
-export type ModelUse = "topic";
+export type ModelUse = "topic" | "mail";
 
-export const MODEL_USES: readonly ModelUse[] = ["topic"];
+export const MODEL_USES: readonly ModelUse[] = ["topic", "mail"];
 
 export type ModelUseGroup = "background";
 
@@ -72,6 +72,7 @@ export const MODEL_USE_GROUP_LABELS: Record<ModelUseGroup, string> = {
 
 export const MODEL_USE_META: Record<ModelUse, { group: ModelUseGroup; label: string; hint: string }> = {
   topic: { group: "background", label: "話題の仕入れ", hint: "ウェブ検索でニュース収集（重い）" },
+  mail: { group: "background", label: "メールの判定", hint: "新着メールが必要かを判定（#683）" },
 };
 
 /**
@@ -81,6 +82,7 @@ export const MODEL_USE_META: Record<ModelUse, { group: ModelUseGroup; label: str
  */
 export const DEFAULT_MODELS: Record<ModelUse, ChatModelId> = {
   topic: "gpt-6-luna",
+  mail: "gpt-6-luna",
 };
 
 export function isChatModelId(value: unknown): value is ChatModelId {
