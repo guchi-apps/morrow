@@ -58,6 +58,7 @@ model User {
   weatherPlaces     WeatherPlace[]
   topics            Topic[]
   mailTriages       MailTriage[]
+  mailFlowRecords   MailFlowRecord[]
 }
 
 // --- APIの消費量（#51） ---
@@ -402,4 +403,31 @@ model MailTriage {
 
   @@unique([userId, messageId])
   @@index([userId, createdAt])
+}
+
+// --- メールから登録した内容の控え（#750） ---
+// 「このメールをどうする？」で家計簿・タスク・予定へ流した（サブスクは一覧を開いた）ことを、あとからメール画面で
+// 見返すための控え。台帳の記録の複製の正ではなく、登録時点の要約（題名・金額・日付）だけを持つ。
+// 件名・差出人・本文は持たない。台帳側で後から変わっても追従しない。
+
+model MailFlowRecord {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// AIDEのメッセージID（最大320文字）。
+  messageId  String @db.VarChar(320)
+  /// payment / subscription / task / event（`SuggestKind`）。
+  kind       String @db.VarChar(20)
+  /// 登録時点の要約（画面にそのまま出す短い文）。
+  summary    String @db.VarChar(300)
+  /// done / pending / duplicate / opened（サブスクの一覧を開いた）。
+  status     String @db.VarChar(20)
+  /// 要約のハッシュ。同じメール・同じ種類・同じ内容の再実行を1件にまとめる。
+  contentKey String @db.VarChar(40)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, messageId, kind, contentKey])
+  @@index([userId, messageId])
 }

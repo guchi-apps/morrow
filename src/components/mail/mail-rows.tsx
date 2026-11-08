@@ -7,6 +7,8 @@ import { useState } from "react";
 import { mailAccountKeyOf, senderName, type MailAction, type MailLabel, type MailSummary } from "@/lib/mail/contract";
 import { cn } from "@/lib/utils";
 
+import { FLOW_KIND_META } from "@/lib/mail/flow-record-core";
+
 import { MailAccountChip } from "./mail-account-chip";
 import { mailTimeLabel } from "./mail-format";
 import { MailNotice } from "./mail-notice";
@@ -14,7 +16,7 @@ import { leaveMailPane } from "./mail-transition";
 import { SwipeArchiveRow } from "./swipe-archive-row";
 import { useMailAction } from "./use-mail-action";
 
-type Row = MailSummary & { notified: boolean };
+type Row = MailSummary & { notified: boolean; flowKinds: string[] };
 
 type Props = {
   messages: Row[];
@@ -161,6 +163,14 @@ export function MailRows({ messages, labels, supportsLabels, inTrash, showAccoun
                 </span>
                 <span className="line-clamp-2 min-w-0 text-xs text-muted md:line-clamp-1 md:text-[0.8125rem]">
                   {message.notified && <Chip className="bg-accent-surface text-accent">お知らせ済み</Chip>}
+                  {message.flowKinds.map((kind) => {
+                    const meta = FLOW_KIND_META[kind as keyof typeof FLOW_KIND_META];
+                    return meta ? (
+                      <Chip key={kind} className="bg-accent-surface text-accent">
+                        {meta.icon} {meta.label}
+                      </Chip>
+                    ) : null;
+                  })}
                   {accountKey && <MailAccountChip accountKey={accountKey} name={message.account ?? accountKey} className="mr-1.5" />}
                   <span className={cn("text-foreground", message.unread ? "font-bold" : "font-medium")}>
                     {message.subject || "（件名なし）"}
