@@ -27,22 +27,22 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0b1120;
-    --surface: #111a2e;
-    --foreground: #e2e8f0;
-    --muted: #94a3b8;
-    --border: #1e293b;
+    --background: #131314;
+    --surface: #1e1f20;
+    --foreground: #e3e3e3;
+    --muted: #9aa0a6;
+    --border: #2c2d2f;
     --accent: #ff8262;
     --danger: #fca5a5;
     --danger-surface: #2a1416;
-    --rail: #0d1424;
-    --rail-active: #172136;
+    --rail: #0e0e0f;
+    --rail-active: #2a2b2d;
     --accent-surface: #3d1f18;
     --accent-foreground: #3a120a;
     --topic: #9dbbe0;
-    --topic-surface: #16243a;
+    --topic-surface: #1b2530;
     --fair: #8fd1a4;
-    --fair-surface: #13291c;
+    --fair-surface: #14241a;
   }
 }
 

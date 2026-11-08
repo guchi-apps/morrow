@@ -146,6 +146,7 @@ curl -s -b /tmp/cookies.txt -o /dev/null -w '%{http_code}\n' http://localhost:<�
 - ログアウトはWebのフォーム（`/auth/signout`）のまま `signOutThisApp()`（scope: local）を通る。共有Supabaseの他アプリ・他端末は巻き込まない
 - **戻り先スキーム・横取りするパス・同一オリジン判定・エフェメラルはSwift（`ios/Morrow/`）とTS（`native-app.ts`）で二重に持つ**。
   `test/ios-consistency.test.ts`（`ios/scripts/check-consistency.mjs`）が照合する。**本番URL以外をコミットしない**
+- **ダークモードの背景色も二重に持つ**（#712）。`globals.css` のダーク時の `--background`（`#131314`）と、殻のアセット `HeaderBand` のダーク値（`ios/Morrow/Assets.xcassets/HeaderBand.colorset`）。**片方だけ変えると、殻の帯・読み込み中・オフライン表示とWebの画面に段差が出る**（照合テストは無い）
 - Web更新はデプロイだけで反映され、殻（`ios/`）を変えたときだけ新しいビルドをTestFlightへ上げる。**#448から、mainの
   `Deploy to Production` 成功後に `ios-testflight-trigger.yml` → `ios-testflight.yml`（macOSランナー）が自動で内部テストへ
   配る**（YoteiFlow・kurashioと同じ方式）。`ios/Morrow/`・`ios/Morrow.xcodeproj/` に実質的な差分があるときだけビルドし
