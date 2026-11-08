@@ -114,18 +114,17 @@ export default async function MailPage({ searchParams }: Props) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[900px] flex-col gap-3.5 px-3.5 py-4 md:px-7 md:py-6">
-        <div className="flex items-baseline justify-between gap-3">
-          <h2 className="text-base font-bold tracking-tight">{heading}</h2>
-          <span className="text-[0.6875rem] text-muted">
-            {user.mailCheckedAt
-              ? `最終確認 ${jstTimeLabel(user.mailCheckedAt)}（${elapsedLabel(user.mailCheckedAt, now)}）・15分ごとに自動で確認`
-              : "まだ新着を確認していません"}
-          </span>
-        </div>
+        <h2 className="text-base font-bold tracking-tight">{heading}</h2>
 
-        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-          <p className="text-[0.6875rem] leading-relaxed text-muted md:pt-2">新着のうち必要なものだけを通知でお知らせします。</p>
-          <MailCheckButton className="md:min-w-[220px] md:items-end" />
+        <div className="flex flex-col gap-2">
+          <MailCheckButton
+            status={
+              user.mailCheckedAt
+                ? `最終確認 ${jstTimeLabel(user.mailCheckedAt)}（${elapsedLabel(user.mailCheckedAt, now)}）・15分ごとに自動で確認`
+                : "まだ新着を確認していません"
+            }
+          />
+          <p className="text-[0.6875rem] leading-relaxed text-muted">新着のうち必要なものだけを通知でお知らせします。</p>
         </div>
 
         <details className="group rounded-xl border border-border bg-surface">
