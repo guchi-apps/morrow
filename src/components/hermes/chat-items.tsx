@@ -79,6 +79,7 @@ export function ChatItemView({ item, turnId, onApproval, onProposalChange }: Pro
             <Check className="size-3" aria-hidden="true" />
           )}
           <span className="truncate">{item.status === "running" ? `${item.label}…` : item.status === "unknown" ? `${item.label}（結果不明）` : item.label}</span>
+          {item.hint && <span className="min-w-0 truncate text-muted/70">{item.hint}</span>}
         </div>
       );
 

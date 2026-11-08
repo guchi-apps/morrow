@@ -1,6 +1,6 @@
 import type { BridgeEvent, BridgeEventType } from "./contract.ts";
 import type { ProposalView } from "./proposal-core.ts";
-import { argLines, isAutoWriteTool, knownToolKey, resultFailed, toolLabel, type ArgLine } from "./tool-labels.ts";
+import { argLines, isAutoWriteTool, knownToolKey, resultFailed, toolHint, toolLabel, type ArgLine } from "./tool-labels.ts";
 
 /**
  * チャット画面の状態（#794。純粋）。ブリッジのイベント（MorrowのRoute Handlerが中継する）を、画面の並びへ畳み込む。
@@ -30,6 +30,8 @@ export type ChatItem =
       id: number;
       name: string;
       label: string;
+      /** チップに添える短い手掛かり（検索語・読み込み先のドメイン・知らない道具の名前）。無ければ null。#814 */
+      hint: string | null;
       /** unknown: tool.completeを受けないままターンが終わった（中断・切断）。結果は分からない。 */
       status: "running" | "done" | "failed" | "unknown";
       /** 取り消せる書き込み（自動実行）。結果カードで出す。 */
@@ -143,7 +145,8 @@ export function applyEvent(state: ChatState, event: RelayEvent): ChatState {
         kind: "tool",
         id,
         name,
-        label: toolLabel(name),
+        label: toolLabel(name, event.data.args),
+        hint: toolHint(name, event.data.args),
         status: "running",
         auto,
         lines: auto ? argLines(event.data.args) : [],

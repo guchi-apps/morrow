@@ -70,10 +70,116 @@ export function isAutoWriteTool(name: string | undefined | null): boolean {
   return key !== null && key in AUTO_WRITE_LABELS;
 }
 
-/** 画面の表示名。 */
-export function toolLabel(name: string | undefined | null): string {
+/**
+ * Hermes組み込みの道具（AIDEの道具ではない。#814）。2026-11-08にmorrow profileの履歴で確認した名前。
+ * 読み取りだけで台帳は触らないので自動書き込みには含めない（`isAutoWriteTool()` は変わらない）。
+ */
+const BUILTIN_LABELS: Record<string, string> = {
+  web_search: "ウェブを検索",
+  web_extract: "ページを読み込む",
+  tool_search: "使える道具を探す",
+  tool_describe: "道具の使い方を確認",
+  desktop_project: "プロジェクトを確認",
+};
+
+/** 末尾照合（`mcp_<サーバー>_` 付きにも対応）。長い名前を先に。 */
+function builtinKey(name: string | undefined | null): string | null {
+  if (!name) return null;
+  for (const key of Object.keys(BUILTIN_LABELS)) {
+    if (name === key || name.endsWith(`_${key}`)) return key;
+  }
+  return null;
+}
+
+/** `tool_call`（他の道具を呼ぶ中継）の先頭の呼び先の名前。読めなければ null。 */
+function relayedName(name: string | undefined | null, rawArgs: unknown): string | null {
+  if (!name || !(name === "tool_call" || name.endsWith("_tool_call"))) return null;
+  const args = parseArgs(rawArgs);
+  const calls = args?.calls;
+  if (!Array.isArray(calls)) return null;
+  const first: unknown = calls[0];
+  if (typeof first !== "object" || first === null) return null;
+  const inner = (first as Record<string, unknown>).name;
+  return typeof inner === "string" && inner !== "" ? inner : null;
+}
+
+function parseArgs(rawArgs: unknown): Record<string, unknown> | null {
+  let args: unknown = rawArgs;
+  if (typeof args === "string") {
+    try {
+      args = JSON.parse(args);
+    } catch {
+      return null;
+    }
+  }
+  return typeof args === "object" && args !== null && !Array.isArray(args) ? (args as Record<string, unknown>) : null;
+}
+
+/** 画面の表示名。`tool_call` の中継は呼び先の名前で引く。 */
+export function toolLabel(name: string | undefined | null, rawArgs?: unknown): string {
+  const inner = relayedName(name, rawArgs);
+  if (inner) return toolLabel(inner);
   const key = knownToolKey(name);
-  return key ? KNOWN[key] : "その他の操作";
+  if (key) return KNOWN[key];
+  const builtin = builtinKey(name);
+  if (builtin) return BUILTIN_LABELS[builtin];
+  return "その他の操作";
+}
+
+const HINT_LIMIT = 40;
+
+function quoted(text: string | null): string | null {
+  const clipped = text === null ? null : clip(text);
+  return clipped === null ? null : `「${clipped}」`;
+}
+
+function clip(text: string): string | null {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (flat === "") return null;
+  return flat.length > HINT_LIMIT ? `${flat.slice(0, HINT_LIMIT)}…` : flat;
+}
+
+function firstString(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value) && typeof value[0] === "string") return value[0];
+  return null;
+}
+
+/** URLはドメインだけ（パス・クエリは出さない）。読めなければ null。 */
+function domainOf(raw: string): string | null {
+  try {
+    return new URL(raw).hostname || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * チップに添える短い手掛かり（検索語・読み込み先のドメイン）。無ければ null。
+ * 画面のstateにだけ持つ。知らない道具は道具の名前を小さく添える（何の操作か手掛かりが無いため）。
+ */
+export function toolHint(name: string | undefined | null, rawArgs: unknown): string | null {
+  if (!name) return null;
+  const inner = relayedName(name, rawArgs);
+  if (inner) return toolHint(inner, null);
+  if (knownToolKey(name)) return null;
+  const builtin = builtinKey(name);
+  if (builtin === null) return clip(name.replace(/^mcp_+/, ""));
+  const args = parseArgs(rawArgs);
+  if (!args) return null;
+  if (builtin === "web_search") {
+    const q = firstString(args.query);
+    return quoted(q);
+  }
+  if (builtin === "tool_search") {
+    const q = firstString(args.queries) ?? firstString(args.query);
+    return quoted(q);
+  }
+  if (builtin === "web_extract") {
+    const url = firstString(args.urls) ?? firstString(args.url);
+    return url ? domainOf(url) : null;
+  }
+  return null;
 }
 
 /** 結果カードに出す引数の項目名。ここに無い項目（冪等キー・version・ID類）は出さない。 */
