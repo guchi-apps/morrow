@@ -111,6 +111,9 @@ export const MCP_PRESETS: McpPreset[] = [
       "issue_deck_upload_image",
       "asset_manager_create_subscription",
       "asset_manager_add_subscription_price",
+      // #748。Hermesの提案を承認したあとだけMorrowのサーバーが呼ぶ（`HERMES_WRITE_TOOLS`）。台帳の更新。
+      "asset_manager_update_subscription",
+      "asset_manager_record_subscription_cancellation",
       "aide_research_desk_import_weekly_report",
     ],
     // #366。読み取り・疎通確認だけの道具。AIDEが道具を足しても、ここへ足すまでは

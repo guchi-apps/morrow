@@ -24,9 +24,9 @@ model User {
   // 利用者の画面とは別のタイミング（応答後のバックグラウンド）で走り、そこで読む必要があるため。
   // **#345から `TopicCategory`（利用者ごとの行）へ移した。この列は移行元としてだけ読む**（初回に
   // 3種類のオン・オフを引き継ぐ。`topicCategoriesReady` が立った後は読まない）。
-  topicCategories String @default("general,life,tech") @db.VarChar(120)
+  topicCategories      String          @default("general,life,tech") @db.VarChar(120)
   /// `TopicCategory` へ初期データを入れたか（#345）。立てるのは `updateMany` のCASで、二重に入れない。
-  topicCategoriesReady Boolean @default(false)
+  topicCategoriesReady Boolean         @default(false)
   topicCategoryList    TopicCategory[]
   /// 話題の画面を最後に開いた時刻（#418）。これより後に初めて取り込んだ記事（`Topic.createdAt`）を「NEW」にする。
   /// nullは一度も開いていない（全件を既読として出す）。書くのは `POST /api/topics/seen` だけ。
@@ -59,6 +59,8 @@ model User {
   topics            Topic[]
   mailTriages       MailTriage[]
   mailFlowRecords   MailFlowRecord[]
+  hermesProposals   HermesProposal[]
+  hermesActionLogs  HermesActionLog[]
 }
 
 // --- APIの消費量（#51） ---
@@ -132,18 +134,18 @@ model McpConnection {
 
   // --- 認可の途中（コールバックで消す） ---
   // 認可コードを受け取るまでの間だけ値が入る。残っていても害は無いが、繋ぎ直すたび上書きする。
-  pendingState       String? @db.VarChar(64)
-  pendingVerifier    String? @db.VarChar(128)
+  pendingState                 String?   @db.VarChar(64)
+  pendingVerifier              String?   @db.VarChar(128)
   /// 認可を始めたときのredirect_uri。トークン交換で同じ値を送る必要がある。
-  pendingRedirectUri String? @db.VarChar(500)
+  pendingRedirectUri           String?   @db.VarChar(500)
   /// 認可を始めた時刻。コールバックで10分を超えたstateは受け付けない（#469）。
-  pendingStartedAt   DateTime?
+  pendingStartedAt             DateTime?
   // 繋ぎ直しで取り直した資格情報とエンドポイント（#453）。開始時点で本体の列を上書きすると、認可を
   // 離脱したときに旧refresh tokenと食い違い、既存の接続が黙って使えなくなる。成功時に切り替える。
-  pendingClientId              String? @db.VarChar(255)
-  pendingClientSecret          String? @db.Text
-  pendingAuthorizationEndpoint String? @db.VarChar(500)
-  pendingTokenEndpoint         String? @db.VarChar(500)
+  pendingClientId              String?   @db.VarChar(255)
+  pendingClientSecret          String?   @db.Text
+  pendingAuthorizationEndpoint String?   @db.VarChar(500)
+  pendingTokenEndpoint         String?   @db.VarChar(500)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -162,7 +164,6 @@ model McpConnection {
 
 /**
  * Web Pushの購読先。**端末ごとに1行**になる（iPhone・PCで別々に購読する）。
- *
  * `endpoint` はブラウザベンダーのURLで、数百文字になることがあるためTEXTで持つ。
  * MariaDBは長いTEXTへそのまま一意制約を張れないので、SHA-256の64文字を別の列に持ち、
  * そちらへ張る（guchi-apps/signaly の PushSubscription と同じ手）。
@@ -172,7 +173,7 @@ model PushSubscription {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  endpoint String @db.Text
+  endpoint     String @db.Text
   /// `endpoint` のSHA-256（hex 64文字）。一意制約はこちらに張る。
   endpointHash String @db.VarChar(64)
 
@@ -183,8 +184,8 @@ model PushSubscription {
   /// どの端末かを画面で見分けるための覚え書き。User-Agentから機械的に作る。
   deviceLabel String @db.VarChar(120)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
   /// 最後に送信が通った時刻。届かなくなった購読を見分ける手掛かりにする。
   lastNotifiedAt DateTime?
 
@@ -194,7 +195,6 @@ model PushSubscription {
 
 /**
  * iOSアプリ（WKWebViewの殻。#441）のAPNsデバイストークン（#475）。**端末ごとに1行**。
- *
  * WKWebViewにはPushManagerが無くWeb Pushが使えないため、殻がAPNsのトークンを取って
  * サーバーへ登録し、`sendPushToUser()` がWeb Pushと並べて送る。
  * トークンは長さが可変（32バイト以上）なのでSHA-256の64文字を一意制約に使う
@@ -206,9 +206,9 @@ model ApnsDevice {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   /// デバイストークン（16進。APNsへ送るときの宛先）。
-  token String @db.VarChar(200)
+  token       String @db.VarChar(200)
   /// `token` のSHA-256（hex 64文字）。一意制約はこちらに張る。
-  tokenHash String @db.VarChar(64)
+  tokenHash   String @db.VarChar(64)
   /// `production`（TestFlight・App Store）か `sandbox`（Xcodeからの実機ビルド）。トークンは環境ごとに別物。
   environment String @db.VarChar(16)
   deviceLabel String @db.VarChar(120)
@@ -223,7 +223,6 @@ model ApnsDevice {
 
 /**
  * 送った通知の記録。**これは履歴ではなく抑制のための錠**（#79）。
- *
  * AIDEの `src/worker/notify.ts` が「成功を毎回送ると肝心の失敗が埋もれる」という失敗を
  * 既にしている。同じ理由（kind）・同じ状態（dedupeKey）の通知は一度しか送らない、を
  * DBの一意制約で守る。朝の見通しでは dedupeKey が日本時間の日付になるため、cronが
@@ -235,7 +234,7 @@ model NotificationLog {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   /// 通知の種類。`morning-briefing`（#79）・`proactive-suggestion` ほか。`urgent-notice`（#115）は#663で廃止し、過去の行だけが残る。
-  kind String @db.VarChar(40)
+  kind      String @db.VarChar(40)
   /// 同じ理由の通知を抑制するための鍵。朝の見通しでは `2026-08-26` の形。
   dedupeKey String @db.VarChar(120)
 
@@ -244,7 +243,7 @@ model NotificationLog {
   body  String @db.Text
 
   /// 実際に届けられた端末の数。0なら購読が全部落ちていた。
-  deliveredCount Int     @default(0)
+  deliveredCount Int @default(0)
 
   createdAt DateTime @default(now())
 
@@ -275,20 +274,20 @@ model Topic {
   lead    String @db.VarChar(200)
 
   /// 出典の記事URL。`safeNoticeUrl()` を通した http(s) の絶対URLだけを入れる。
-  url     String @db.VarChar(500)
+  url         String @db.VarChar(500)
   /// `url` のSHA-256（hex 64文字）。一意制約はこちらに張る（`PushSubscription.endpointHash` と同じ手）。
-  urlHash String @db.VarChar(64)
+  urlHash     String @db.VarChar(64)
   /// 媒体名（「NHK」など）。モデルが書いたもの。
-  sourceName String @db.VarChar(120)
+  sourceName  String @db.VarChar(120)
   /// 記事の日付（`2026-09-02` の形）。モデルが書いたもので、取れなければ空文字。
   publishedOn String @default("") @db.VarChar(10)
 
   /// 仕入れた時刻。同じ記事が仕入れ直されたら更新する（新しい順の並びで前へ戻す）。
-  fetchedAt DateTime @default(now())
+  fetchedAt DateTime  @default(now())
   /// 秘書から話題として振った時刻（#278）。入っている＝もう振ったので、二度は振らない。
   /// 吹き出し（#144）の候補からは外さない——あちらは回り続ける表示で、一度だけの枠ではない。
   spokenAt  DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   // 同じ記事を二重に溜めない。
   @@unique([userId, urlHash])
@@ -391,11 +390,11 @@ model MailTriage {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   /// AIDEのメッセージID（`isMessageId()` と同じく最大320文字）。
-  messageId String  @db.VarChar(320)
+  messageId  String    @db.VarChar(320)
   /// Codexが「知らせるべき」と判定したか。
-  needed    Boolean
+  needed     Boolean
   /// 判定の理由（モデルの一言。画面の「お知らせ済み」に添える）。不要と判定した回は空文字。
-  reason    String  @default("") @db.VarChar(200)
+  reason     String    @default("") @db.VarChar(200)
   /// 通知を送った時刻。必要と判定しても、通知の種類がオフ・端末が無い回はnull。
   notifiedAt DateTime?
 
@@ -430,4 +429,57 @@ model MailFlowRecord {
 
   @@unique([userId, messageId, kind, contentKey])
   @@index([userId, messageId])
+}
+
+// --- Hermes Agentの提案と実行の記録（#748。設計は docs/hermes-actions.md） ---
+// 取り消せない書き込みは、Hermesが提案だけを出し、利用者が確認カードで承認したらMorrowのサーバーが実行する。
+// **提案の引数（値）は `args` に、承認待ち・実行中・結果不明の間だけ持つ。** 成功・取り下げ・期限切れ・確定した失敗で消す
+// （金額・相手先・予定の内容をMorrowに残さない）。残すのは誰が・いつ・どの道具・結果の種類・対象idだけ。
+
+model HermesProposal {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Hermesのセッションid。
+  sessionId      String    @db.VarChar(128)
+  /// ストリームの道具呼び出しのid。同じ `tool.start` を二度取り込まないための一意キー（セッション内）。
+  callId         String    @db.VarChar(128)
+  /// 提案された道具名（`HERMES_PROPOSAL_TOOLS` のどれか）。
+  tool           String    @db.VarChar(64)
+  /// pending | executing | done | cancelled | expired | failed | unknown（結果不明。引数は持ったまま）。
+  status         String    @default("pending") @db.VarChar(16)
+  expiresAt      DateTime
+  /// `morrow-hermes-<提案ID>`。冪等キーを受ける道具だけが使う。道具ごとの重複防止は `proposal-core.ts` の表。
+  idempotencyKey String    @db.VarChar(80)
+  /// 結果の種類（`imported`・`duplicate`・`deleted` など）。本文は持たない。
+  outcome        String?   @db.VarChar(32)
+  /// 対象のid（receiptId・eventId・subscriptionIdなど）。
+  targetId       String?   @db.VarChar(191)
+  /// 承認待ちの間だけの値（正規化済みの引数・要約・削除前の確認）。確定したらnull。
+  args           Json?
+  /// 次の発言の先頭でHermesへ伝えた時刻。nullは未伝達。
+  reportedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, sessionId, callId])
+  @@index([userId, status])
+  @@index([status, expiresAt])
+  @@index([createdAt])
+}
+
+/// Hermesが自動で行った書き込みの記録（道具名と成否だけ）。90日で消す。
+model HermesActionLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId String   @db.VarChar(128)
+  tool      String   @db.VarChar(64)
+  ok        Boolean
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
 }
