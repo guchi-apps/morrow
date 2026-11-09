@@ -835,6 +835,7 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 - **開いた時点で自動で `POST /api/mail/flow/analyze` を叩き、要約と提案を1回のCodexで作る**（`analyze-core.ts`・`analyze.ts`・`test/mail-analyze.test.ts`）。以前は「要約する」「このメールをどうする？」の2つのボタンで別々に呼んでいた。プロンプトは `SUMMARY_RULES`・`SUGGEST_KIND_RULES`・`SUGGEST_RULES`・`SUGGEST_EXAMPLE` を並べて組み立て、返答は既存の `parseSummaryReply()`・`parseSuggestReply()` に通す
 - **結果は利用者×メールIDで30分だけプロセス内のメモリに持つ**（上限100件。DB・ログには残さない。再起動で消える）。開き直すたびにサブスク枠を使わないため。「↻ 分析し直す」（`refresh: true`）で取り直す。**覚えた結果を返すときも毎回 `getMail()` で持ち主を照合する**
 - Codexは利用者ごとに同時1件。同じメールの要求が重なれば走っている1回を共有し、別のメールは429（`busy`）。画面は5秒ごとに取り直す（前のメールの分析は画面を離れても最後まで走り、記憶に入る）
+- **画面の通信だけが途切れても分析は続く**（#840。iOSで別アプリへ移るとfetchが「通信できませんでした」で落ちる）。通信失敗・429は `shouldRetryAnalysis()`（`analyze-retry.ts`）で最大36回取り直し、取り直しは常に `refresh: false`（走っている1回か30分の記憶を拾う）。アプリへ戻った（`visibilitychange`）ときも分析中なら張り直す
 - **提案の行には入力欄を出さない。** 押すと `FlowSheet`（`<dialog>` の `showModal()`。下から出るハーフモーダル。幅560pxまで）に読み取った値を入れて出し、直して登録する（登録の経路は `/apply` のまま。家計簿だけは入力欄を持たずAsset Managerで入力する。#781）。下に記録の持ち主のアプリを開くリンク（`app-links.ts`。DaySpanのタスク・カレンダー、Asset Managerの家計簿連携）を置くが、**入力値は引き継がない**（受け側の口が各アプリに無い）
 - 行の「登録済み」は、その画面で登録できた回と、ページが読む控え（`MailFlowRecord`。#750）の `opened` 以外から出す。サブスクの主ボタンは今どおり「一覧を開いた」を控えに残す（登録済みとは出さない）
 

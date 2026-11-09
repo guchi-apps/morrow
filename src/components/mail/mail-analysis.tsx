@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FlowRowButton } from "@/components/mail/flow-row";
 import { MailChat } from "@/components/mail/mail-chat";
 import { useFlowCards, type FlowRow } from "@/components/mail/use-flow-cards";
+import { ANALYZE_RETRY_MS, shouldRetryAnalysis } from "@/lib/mail/analyze-retry";
 import type { ReceiptState } from "@/lib/mail/flow-record-core";
 import type { MailAnalysis as Analysis } from "@/lib/mail/analyze-core";
 
@@ -16,9 +17,6 @@ import type { MailAnalysis as Analysis } from "@/lib/mail/analyze-core";
  * 型だけをimportする（`*-core.ts` の値は読み込まない）。
  */
 
-/** 別のメールを分析中（429）のときに取り直すまでの待ちと回数。 */
-const BUSY_RETRY_MS = 5000;
-const BUSY_RETRY_MAX = 24;
 
 export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id: string; registeredKinds: string[]; receiptState?: ReceiptState | null }) {
   const [loading, setLoading] = useState(true);
@@ -70,6 +68,20 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
     // 初回は最初から読み込み中（loadingの初期値）。effectの中では同期にsetStateしない
     const abort = start(false);
     return () => abort.abort();
+  }, [start]);
+
+  // 別アプリから戻ったとき、分析中なら通信を張り直す（止まったままのfetchを待たない。#840）。
+  // サーバーの分析は続いているので、取り直しは走っている1回か保存済みの結果を拾う。
+  const loadingRef = useRef(true);
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && loadingRef.current) start(false);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, [start]);
 
   return (
@@ -163,28 +175,34 @@ type AnalyzeResponse = { ok: true; value: Analysis } | { ok: false; error: strin
 
 /** 分析を取りに行く。別のメールを分析中（429）なら待って取り直す。中断されたら「中断」として返す（画面には出さない）。 */
 async function requestAnalysis(id: string, refresh: boolean, signal: AbortSignal, onWaiting: () => void): Promise<AnalyzeResponse> {
-  try {
-    for (let attempt = 0; ; attempt++) {
+  const aborted: AnalyzeResponse = { ok: false, error: "中断しました。" };
+  for (let attempt = 0; ; attempt++) {
+    let status: number | "network";
+    let data: (Analysis & { error?: string }) | null = null;
+    try {
       const response = await fetch("/api/mail/flow/analyze", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id, refresh }),
+        // 取り直し（2回目以降）は分析し直さない。サーバーは走っている1回か保存済みの結果を返す（#840）
+        body: JSON.stringify({ id, refresh: refresh && attempt === 0 }),
         signal,
       });
-      const data = (await response.json().catch(() => null)) as (Analysis & { error?: string }) | null;
-      if (response.status === 429 && attempt < BUSY_RETRY_MAX) {
-        // 前に開いたメールの分析が終わるのを待つ（利用者ごとに同時1件）
-        onWaiting();
-        await new Promise((resolve) => setTimeout(resolve, BUSY_RETRY_MS));
-        if (signal.aborted) return { ok: false, error: "中断しました。" };
-        continue;
-      }
-      if (!response.ok || !data?.summary || !data.suggest) {
-        return { ok: false, error: data?.error ?? `分析できませんでした（HTTP ${response.status}）。` };
-      }
-      return { ok: true, value: { summary: data.summary, suggest: data.suggest } };
+      status = response.status;
+      data = (await response.json().catch(() => null)) as (Analysis & { error?: string }) | null;
+      if (response.ok && data?.summary && data.suggest) return { ok: true, value: { summary: data.summary, suggest: data.suggest } };
+    } catch {
+      // 別アプリへ移るなどで通信だけが途切れた。サーバーの分析は続いているので取り直す
+      if (signal.aborted) return aborted;
+      status = "network";
     }
-  } catch {
-    return { ok: false, error: "分析できませんでした（通信できませんでした）。" };
+    if (shouldRetryAnalysis(status, attempt)) {
+      // 前に開いたメールの分析が終わるのを待つ（429。利用者ごとに同時1件）／通信の復帰を待つ
+      onWaiting();
+      await new Promise((resolve) => setTimeout(resolve, ANALYZE_RETRY_MS));
+      if (signal.aborted) return aborted;
+      continue;
+    }
+    if (status === "network") return { ok: false, error: "分析できませんでした（通信できませんでした）。" };
+    return { ok: false, error: data?.error ?? `分析できませんでした（HTTP ${status}）。` };
   }
 }
