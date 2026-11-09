@@ -8,7 +8,15 @@ import { jstDayKey } from "@/lib/day-key";
 import { getMail, type MailUser } from "@/lib/mail/aide-client";
 import { acquireMailCodex, currentMailCodex } from "@/lib/mail/codex-lock";
 import type { MailFailureKind } from "@/lib/mail/contract";
-import { buildLearnPrompt, normalizeLearnedRules, parseLearnReply, type LearnedRule } from "@/lib/mail/learn-core";
+import {
+  buildLearnPrompt,
+  mergeLearnResult,
+  normalizeLearnedRules,
+  parseLearnReply,
+  ruleKey,
+  type LearnChange,
+  type LearnedRule,
+} from "@/lib/mail/learn-core";
 import { plainBody } from "@/lib/mail/suggest-core";
 import { SNIPPET_LIMIT } from "@/lib/mail/triage-core";
 
@@ -26,8 +34,8 @@ import { SNIPPET_LIMIT } from "@/lib/mail/triage-core";
 const LEARN_TIMEOUT_MS = 120_000;
 
 export type LearnOutcome =
-  | { ok: true; rules: LearnedRule[]; previous: LearnedRule[]; learned: LearnedRule | null }
-  | { ok: false; kind: MailFailureKind | "busy" | "failed"; message: string | null };
+  | { ok: true; rules: LearnedRule[]; change: LearnChange; learned: LearnedRule | null }
+  | { ok: false; kind: MailFailureKind | "busy" | "failed" | "conflict"; message: string | null };
 
 /** 保存済みの傾向を読む（壊れた値は落とす）。 */
 export async function learnedRulesOf(userId: string): Promise<LearnedRule[]> {
@@ -35,11 +43,31 @@ export async function learnedRulesOf(userId: string): Promise<LearnedRule[]> {
   return normalizeLearnedRules(row?.mailLearnedRules, jstDayKey(new Date()));
 }
 
-export async function saveLearnedRules(userId: string, rules: LearnedRule[]): Promise<void> {
-  await db.user.update({
-    where: { id: userId },
-    data: { mailLearnedRules: rules as unknown as Prisma.InputJsonValue },
-  });
+const UPDATE_ATTEMPTS = 5;
+
+/**
+ * 傾向の一覧を「いまの値から作り直して」保存する（#847）。`change` はいまの一覧を受け取り、新しい一覧
+ * （保存しないなら null）を返す。**読んだ後に別の書き込みが入っていたら（`updatedAt` が進んでいたら）読み直して
+ * やり直す**——読んだ一覧で丸ごと置き換えると、その間の別タブの削除・取り消し・学習を消すため。
+ * 何度やっても通らなければ投げる（呼び出し側は失敗として返す）。
+ */
+export async function updateLearnedRules<T>(
+  userId: string,
+  change: (current: LearnedRule[], today: string) => { rules: LearnedRule[] | null; result: T },
+): Promise<T> {
+  for (let attempt = 0; attempt < UPDATE_ATTEMPTS; attempt++) {
+    const row = await db.user.findUnique({ where: { id: userId }, select: { mailLearnedRules: true, updatedAt: true } });
+    if (!row) throw new Error("利用者が見つからない");
+    const today = jstDayKey(new Date());
+    const { rules, result } = change(normalizeLearnedRules(row.mailLearnedRules, today), today);
+    if (rules === null) return result;
+    const { count } = await db.user.updateMany({
+      where: { id: userId, updatedAt: row.updatedAt },
+      data: { mailLearnedRules: rules as unknown as Prisma.InputJsonValue },
+    });
+    if (count === 1) return result;
+  }
+  throw new Error("傾向の一覧の更新が他の書き込みと重なり続けた");
 }
 
 export async function learnFromMail(user: MailUser, messageId: string, notify: boolean): Promise<LearnOutcome> {
@@ -99,11 +127,25 @@ async function run(user: MailUser, messageId: string, notify: boolean): Promise<
     return { ok: false, kind: "failed", message: "学習の返答を読めませんでした。もう一度試してください。" };
   }
 
-  await saveLearnedRules(user.id, parsed.rules);
+  // Codexを待つ間に別のタブで一覧が変わっていたら、学習の差分だけを当てる（#847）
+  const merged = await updateLearnedRules(user.id, (current, now) => {
+    const merge = mergeLearnResult(current, previous, parsed.rules, now);
+    return merge.ok ? { rules: merge.rules, result: merge } : { rules: null, result: null };
+  });
+  if (!merged) {
+    return {
+      ok: false,
+      kind: "conflict",
+      message: "学習している間に別の画面で傾向が変わったため、学習の結果は保存しませんでした。もう一度押してください。",
+    };
+  }
   await db.mailFeedback.upsert({
     where: { userId_messageId: { userId: user.id, messageId } },
     create: { userId: user.id, messageId, notify },
     update: { notify },
   });
-  return { ok: true, rules: parsed.rules, previous, learned: parsed.learned };
+  // 取り消しは学習が当てた差分を逆に当てる（`revertLearnResult()`）ので、差分を返す
+  const target = parsed.learned;
+  const learned = target && merged.rules.some((rule) => ruleKey(rule) === ruleKey(target)) ? target : null;
+  return { ok: true, rules: merged.rules, change: merged.change, learned };
 }

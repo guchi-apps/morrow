@@ -135,3 +135,74 @@ export function parseLearnReply(answer: string, previous: readonly LearnedRule[]
     null;
   return { rules, learned };
 }
+
+/* ----------------------------------------------------------------------------------------------
+ * 競合の解消（#847）
+ *
+ * 学習はCodexを待つ数十秒のあいだ一覧を読んだまま持つので、その間に別のタブで傾向を削除・取り消しすると、
+ * 学習の終わりに「読んだ時点の一覧＋学習の変更」で丸ごと置き換えて利用者の操作を消していた。書き込みはどれも
+ * 「いまの一覧へ、自分の変更（差分）だけを当てる」形にし、当て方が決められないときは保存しない。
+ * 傾向の同一性は `notify` と `text` の組（`ruleKey()`）。文を直した・向きを変えたは「消して足した」として扱う。
+ * -------------------------------------------------------------------------------------------- */
+
+export function ruleKey(rule: Pick<LearnedRule, "text" | "notify">): string {
+  return `${rule.notify}:${rule.text}`;
+}
+
+/** 2つの一覧が、並びまで含めて同じか（`at` も比べる）。 */
+export function sameLearnedRules(a: readonly LearnedRule[], b: readonly LearnedRule[]): boolean {
+  return a.length === b.length && a.every((rule, i) => ruleKey(rule) === ruleKey(b[i]) && rule.at === b[i].at);
+}
+
+/** 学習が実際に当てた差分。「取り消す」はこれを逆に当てる（`revertLearnResult()`）。 */
+export type LearnChange = { removed: LearnedRule[]; added: LearnedRule[] };
+
+export type LearnMerge = { ok: true; rules: LearnedRule[]; change: LearnChange } | { ok: false };
+
+/**
+ * 学習の結果（`base` を見て作った `next`）を、保存の時点の一覧 `current` へ当てる。
+ *
+ * - `current` が `base` のままなら `next` をそのまま使う
+ * - 違えば学習の差分（`base` から消した傾向・足した傾向）だけを `current` へ当てる。利用者が別に消した傾向は戻さない
+ * - **学習が消した（＝直した・まとめた）傾向が `current` にもう無いときは決められないので `ok: false`**。
+ *   利用者が消した傾向を学習が書き直していると、足した側として生き返ってしまうため。呼び出し側は保存せず、押し直してもらう
+ */
+export function mergeLearnResult(
+  current: readonly LearnedRule[],
+  base: readonly LearnedRule[],
+  next: readonly LearnedRule[],
+  today: string,
+): LearnMerge {
+  const baseKeys = new Set(base.map(ruleKey));
+  const nextKeys = new Set(next.map(ruleKey));
+  const currentKeys = new Set(current.map(ruleKey));
+  const removed = base.filter((rule) => !nextKeys.has(ruleKey(rule)));
+  if (removed.some((rule) => !currentKeys.has(ruleKey(rule)))) return { ok: false };
+  const removedKeys = new Set(removed.map(ruleKey));
+  const added = next.filter((rule) => !baseKeys.has(ruleKey(rule)) && !currentKeys.has(ruleKey(rule)));
+  const rules = sameLearnedRules(current, base)
+    ? [...next]
+    : normalizeLearnedRules([...current.filter((rule) => !removedKeys.has(ruleKey(rule))), ...added], today);
+  // 件数の上限で切れた傾向は「足した」に数えない
+  const savedKeys = new Set(rules.map(ruleKey));
+  return { ok: true, rules, change: { removed, added: added.filter((rule) => savedKeys.has(ruleKey(rule))) } };
+}
+
+/**
+ * 学習の「取り消す」。学習が当てた差分（`change`）を、いまの一覧 `current` から逆に当てる。
+ * 学習が足した傾向は（まだあれば）消し、学習が消した傾向は戻す。**その後に別の画面で消した・直した傾向や、
+ * 別の印で足した傾向には触れない**（以前は学習の前の一覧で丸ごと置き換えていた）。
+ */
+export function revertLearnResult(current: readonly LearnedRule[], change: LearnChange, today: string): LearnedRule[] {
+  const addedKeys = new Set(change.added.map(ruleKey));
+  const kept = current.filter((rule) => !addedKeys.has(ruleKey(rule)));
+  const keptKeys = new Set(kept.map(ruleKey));
+  const restored = change.removed.filter((rule) => !keptKeys.has(ruleKey(rule)));
+  return normalizeLearnedRules([...kept, ...restored], today);
+}
+
+/** 傾向の削除。画面が見ていた一覧ではなく、いまの一覧から名指しの1件だけを外す。 */
+export function removeLearnedRule(current: readonly LearnedRule[], target: Pick<LearnedRule, "text" | "notify">): LearnedRule[] {
+  const key = ruleKey(target);
+  return current.filter((rule) => ruleKey(rule) !== key);
+}
