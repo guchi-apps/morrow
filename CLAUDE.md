@@ -850,6 +850,10 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 - **提案の行には入力欄を出さない。** 押すと `FlowSheet`（`<dialog>` の `showModal()`。下から出るハーフモーダル。幅560pxまで）に読み取った値を入れて出し、直して登録する（登録の経路は `/apply` のまま。家計簿だけは入力欄を持たずAsset Managerで入力する。#781）。下に記録の持ち主のアプリを開くリンク（`app-links.ts`。DaySpanのタスク・カレンダー、Asset Managerの家計簿連携）を置くが、**入力値は引き継がない**（受け側の口が各アプリに無い）
 - 行の「登録済み」は、その画面で登録できた回と、ページが読む控え（`MailFlowRecord`。#750）の `opened` 以外から出す。サブスクの主ボタンは今どおり「一覧を開いた」を控えに残す（登録済みとは出さない）
 
+### AI分析の表示——ストリームはしない（#838）
+
+**Codex CLIは本文をトークン単位で流さない**（実測: `codex-cli 0.167.0`の `exec --json` は完了時に `agent_message` 1件。約3.5秒待った後に一括）。実際の文字ストリーミングは、別経路（APIの直接呼び出し・`codex app-server`）が要るので採っていない。代わりに画面側だけで、分析中は「AIが分析中 N秒」（別の分析待ちは「前のAIの処理を待っています」）を出し、**新しく作られた結果（`cached: false`）だけ**要約・要点を文字送りしてから提案の行をふわっと出す（`typewriter.tsx`・純粋部は `typewriter-core.ts`・`test/typewriter-core.test.ts`。全体の上限1.6秒）。記憶から返った結果と `prefers-reduced-motion` は即表示。サーバー・APIは変えていない。
+
 ### 引き落とし前の残高確認（#842）
 
 引き落としのお知らせメールを開くと、AI分析のカードに「🏦 引き落とし前の残高確認」を出す（`withdrawal-core.ts`・`withdrawal.ts`・`test/mail-withdrawal.test.ts`）。

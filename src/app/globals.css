@@ -448,3 +448,29 @@ body {
     transform: none;
   }
 }
+
+/* メールのAI分析の文字送りのあと、提案の行を順にふわっと出す（#838）。動きを減らす設定では出さない */
+@media (prefers-reduced-motion: no-preference) {
+  .analysis-reveal {
+    animation: analysis-reveal 0.35s ease-out both;
+    animation-delay: var(--reveal-delay, 0s);
+  }
+  .analysis-caret {
+    animation: analysis-caret 1s steps(1) infinite;
+  }
+}
+@keyframes analysis-reveal {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes analysis-caret {
+  50% {
+    opacity: 0;
+  }
+}
