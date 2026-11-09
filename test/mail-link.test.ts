@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  CANDIDATE_MAX,
   createdIdFrom,
   findCreatedEvent,
   findCreatedTask,
@@ -65,6 +66,43 @@ describe("parseTaskCandidates", () => {
     const a = parseTaskCandidates({ tasks: [{ taskId: "t1", title: "精算", due: "2026-11-12" }, { id: 7, title: "予定日だけ", planned: "2026-11-13" }, { title: "idなし" }] });
     assert.deepEqual(a.map((t) => [t.targetId, t.dateText]), [["t1", "2026-11-12"], ["7", "2026-11-13"]]);
     assert.equal(parseTaskCandidates({ items: [{ taskId: "t2", title: "x" }] }).length, 1);
+  });
+});
+
+/**
+ * AIDE MCP `aide_tasks` の契約（#853。2026-11-09にAIDEの実物を読み取りで呼んで確認）。
+ * 入力: `status`（open / completed / skipped）・`limit`（1〜100）・`cursor`・`dateField`・`from`・`to`。
+ * 応答: `tasks[].{id, title, due, planned, …}`・`hasMore`・`nextCursor`。
+ * `link.ts` の呼び出し引数 `{ status: "open", limit: 60 }` は入力の範囲内。
+ */
+describe("aide_tasks の契約（#853）", () => {
+  const CALL_ARGS = { status: "open", limit: 60 } as const;
+  const RESPONSE = {
+    tasks: [
+      { id: "task-1", title: "請求書を確認する", due: "2026-11-12", planned: null, status: "open" },
+      { id: "task-2", title: "予定日だけのタスク", due: null, planned: "2026-11-13", status: "open" },
+      { id: "task-3", title: "日付なし", due: null, planned: null, status: "open" },
+    ],
+    hasMore: false,
+    nextCursor: null,
+  };
+
+  it("呼び出し引数は契約の入力の範囲内（statusは列挙値・limitは1〜100）", () => {
+    assert.ok(["open", "completed", "skipped"].includes(CALL_ARGS.status));
+    assert.ok(CALL_ARGS.limit >= 1 && CALL_ARGS.limit <= 100);
+    assert.equal(CALL_ARGS.limit, CANDIDATE_MAX);
+  });
+  it("実応答の形（tasks[].id・title・due・planned）をそのまま読める", () => {
+    const items = parseTaskCandidates(RESPONSE);
+    assert.deepEqual(items.map((t) => [t.kind, t.targetId, t.title, t.dateText, t.calendarId]), [
+      ["task", "task-1", "請求書を確認する", "2026-11-12", null],
+      ["task", "task-2", "予定日だけのタスク", "2026-11-13", null],
+      ["task", "task-3", "日付なし", null, null],
+    ]);
+  });
+  it("hasMore: true でも先頭ページだけを候補にする（cursorは辿らない）", () => {
+    const items = parseTaskCandidates({ ...RESPONSE, hasMore: true, nextCursor: "abc" });
+    assert.equal(items.length, 3);
   });
 });
 
