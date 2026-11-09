@@ -852,7 +852,7 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 
 ### AI分析の表示——ストリームはしない（#838）
 
-**Codex CLIは本文をトークン単位で流さない**（実測: `codex-cli 0.167.0`の `exec --json` は完了時に `agent_message` 1件。約3.5秒待った後に一括）。実際の文字ストリーミングは、別経路（APIの直接呼び出し・`codex app-server`）が要るので採っていない。代わりに画面側だけで、分析中は「AIが分析中 N秒」（別の分析待ちは「前のAIの処理を待っています」）を出し、**新しく作られた結果（`cached: false`）だけ**要約・要点を文字送りしてから提案の行をふわっと出す（`typewriter.tsx`・純粋部は `typewriter-core.ts`・`test/typewriter-core.test.ts`。全体の上限1.6秒）。記憶から返った結果と `prefers-reduced-motion` は即表示。サーバー・APIは変えていない。
+**Codex CLIは本文をトークン単位で流さない**（実測: `codex-cli 0.167.0`の `exec --json` は完了時に `agent_message` 1件。約3.5秒待った後に一括）。実際の文字ストリーミングは、別経路（APIの直接呼び出し・`codex app-server`）が要るので採っていない。代わりに画面側だけで、分析中は「AIが分析中 N秒」（別の分析待ちは「前のAIの処理を待っています」）を出し、**新しく作られた結果（`cached: false`）だけ**要約・要点を文字送りしてから提案の行をふわっと出す（`typewriter.tsx`・純粋部は `typewriter-core.ts`・`test/typewriter-core.test.ts`。全体の上限1.6秒）。記憶から返った結果と `prefers-reduced-motion` は即表示（通信が途切れて取り直した回は、その間にサーバーの分析が終わっていれば記憶から返るので文字送りされない）。待ち表示は理由（別の分析待ち／通信待ち）で出し分け、秒のタイマーは `ElapsedChip` に閉じる。サーバー・APIは変えていない。
 
 ### 引き落とし前の残高確認（#842）
 
