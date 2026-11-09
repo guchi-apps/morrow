@@ -347,6 +347,16 @@ async function main() {
     ],
   });
 
+  // メールと予定・タスクの紐づけ（#834）のダミー。予定・タスクのidはAIDEのものなので、実在しない値でもメール詳細の欄には出る
+  // （ダッシュボードの✉は、AIDEが同じidの予定を返したときだけ付く）。
+  await db.mailLink.deleteMany({ where: { userId: user.id } });
+  await db.mailLink.createMany({
+    data: [
+      { userId: user.id, messageId: "seed-mail-1", kind: "event", targetId: "seed-event-1", calendarId: "seed-calendar", title: "とき313号で東京→燕三条", dateText: "2026-11-09", source: "created" },
+      { userId: user.id, messageId: "seed-mail-1", kind: "task", targetId: "seed-task-1", calendarId: null, title: "出張精算の準備", dateText: "2026-11-12", source: "manual" },
+    ],
+  });
+
   // Hermesの提案（#748）のダミー。承認待ち（要確認の欄あり）・実行済み・期限切れを1件ずつ。実行はAIDE接続が要るので押しても通らない。
   await db.hermesProposal.deleteMany({ where: { userId: user.id } });
   const inOneHour = new Date(Date.now() + 60 * 60 * 1000);
