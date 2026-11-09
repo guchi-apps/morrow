@@ -172,6 +172,78 @@ describe("buildStays", () => {
     );
   });
 
+  it("移動から作った区間は、場所欄のある予定が半分以上を占めれば出さず、カレンダーの移動の予定は区間にしない（#852）", () => {
+    // 2026-11-10の本番の形（燕三条駅前のホテル → 三条市の出張 → 燕三条から高槻市へ。飛行機は「移動」カレンダー）
+    const days = buildStays({
+      configured: true,
+      days: [
+        {
+          date: "2026-11-10",
+          events: [
+            { title: "アパホテル〈新潟 燕三条駅前〉宿泊", allDay: false, startTime: "00:00", endTime: "08:00", location: "アパホテル〈新潟 燕三条駅前〉 新潟県燕市井土巻五丁目", calendarName: "カレンダー", outcome: null },
+            { title: "睡眠", allDay: false, startTime: "00:15", endTime: "06:25", location: null, calendarName: "活動記録", outcome: null },
+            { title: "出張（外山工業）", allDay: false, startTime: "09:00", endTime: "16:00", location: "外山工業 新潟県三条市南四日町三丁目", calendarName: "仕事", outcome: null },
+            { title: "JAL2250 新潟→伊丹", allDay: false, startTime: "19:10", endTime: "20:25", location: "新潟空港 → 大阪国際空港（伊丹）", calendarName: "移動", outcome: null },
+          ],
+          travels: [{ title: "燕三条 → 高槻市", origin: "燕三条", destination: "高槻市", startTime: "16:30", endTime: "21:32" }],
+        },
+      ],
+    });
+    // 出発地「燕三条」（00:00〜16:30）はホテル・出張が15時間を占めるので出さない。その間の「睡眠」も自宅にしない
+    assert.deepEqual(
+      days?.[0].stays.map((stay) => [stay.start, stay.end, stay.placeText, stay.home]),
+      [
+        ["00:00", "08:00", "アパホテル〈新潟 燕三条駅前〉 新潟県燕市井土巻五丁目", false],
+        ["09:00", "16:00", "外山工業 新潟県三条市南四日町三丁目", false],
+        ["21:32", "22:00", "高槻市", false],
+      ],
+    );
+  });
+
+  it("DaySpanの移動が無い日は、カレンダーの移動の予定の場所欄「A → B」を出発地・行き先にする。場所欄の無い移動の予定は行き先の区間を区切るだけ（#852）", () => {
+    const days = buildStays({
+      configured: true,
+      days: [
+        {
+          date: "2026-11-11",
+          events: [
+            { title: "JAL2251 伊丹→新潟", startTime: "09:00", endTime: "10:10", location: "大阪府豊中市 → 新潟県新潟市", calendarName: "移動" },
+            { title: "新幹線", startTime: "18:00", endTime: "20:00", location: null, calendarName: "移動" },
+          ],
+          travels: [],
+        },
+      ],
+    });
+    assert.deepEqual(
+      days?.[0].stays.map((stay) => [stay.start, stay.end, stay.placeText]),
+      [
+        ["00:00", "09:00", "大阪府豊中市"],
+        ["10:10", "18:00", "新潟県新潟市"],
+      ],
+    );
+  });
+
+  it("終日の予定は、移動から作った区間を押しのけない（#852）", () => {
+    const days = buildStays({
+      configured: true,
+      days: [
+        {
+          date: "2026-11-12",
+          events: [{ title: "研修", allDay: true, location: "草津" }],
+          travels: [{ title: "自宅 → 栗東", origin: HOME_ADDRESS, destination: "栗東", startTime: "06:30", endTime: "07:30" }],
+        },
+      ],
+    });
+    assert.deepEqual(
+      days?.[0].stays.map((stay) => [stay.start, stay.end, stay.placeText]),
+      [
+        ["00:00", "06:30", HOME_ADDRESS],
+        ["07:30", "22:00", "栗東"],
+        ["08:00", "22:00", "草津"],
+      ],
+    );
+  });
+
   it("未設定・形の読めない応答はnull", () => {
     assert.equal(buildStays({ configured: false }), null);
     assert.equal(buildStays({ configured: true, days: [] }), null);

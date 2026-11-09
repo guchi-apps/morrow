@@ -60,24 +60,87 @@ export function isHomePlace(text: string): boolean {
 
 type Travel = { origin: string | null; destination: string | null; start: string; end: string; title: string | null };
 
-/** 移動の行き先。`destination` が無い応答では、タイトルの `→` の右側を使う。 */
-function travelsOf(day: Record<string, unknown>): Travel[] {
+/** 予定のカレンダー名で、移動の予定を見分ける（専用の項目は無い。#852）。 */
+const TRAVEL_CALENDAR = "移動";
+
+function overlaps(a: { start: string; end: string }, b: { start: string; end: string }): boolean {
+  return a.start < b.end && a.end > b.start;
+}
+
+function sortByStart<T extends { start: string }>(items: T[]): T[] {
+  return items.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+}
+
+function minutesOf(hhmm: string): number {
+  return Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3));
+}
+
+/** `stay` の時間のうち、`others` のどれかに重なる分数（重なりは1回だけ数える）。 */
+function coveredMinutes(stay: { start: string; end: string }, others: { start: string; end: string }[]): number {
+  const from = minutesOf(stay.start);
+  const to = minutesOf(stay.end);
+  const parts = others
+    .map((other) => [Math.max(from, minutesOf(other.start)), Math.min(to, minutesOf(other.end))] as const)
+    .filter(([a, b]) => a < b)
+    .sort((a, b) => a[0] - b[0]);
+  let total = 0;
+  let cursor = from;
+  for (const [a, b] of parts) {
+    const start = Math.max(a, cursor);
+    if (b > start) total += b - start;
+    cursor = Math.max(cursor, b);
+  }
+  return total;
+}
+
+/** 「A → B」の左右。`→` が無ければ両方null。 */
+function arrowParts(text: string | null): [string | null, string | null] {
+  if (!text?.includes("→")) return [null, null];
+  const [from, to] = text.split("→").map((part) => part.trim());
+  return [from || null, to || null];
+}
+
+/**
+ * カレンダーの予定のうち、移動として扱うもの（#852）。カレンダー名が「移動」か、場所欄に `→` を含む
+ * （「新潟空港 → 大阪国際空港（伊丹）」）。居る場所の区間にはしない。
+ */
+function isTravelEvent(event: Record<string, unknown>): boolean {
+  return event.calendarName === TRAVEL_CALENDAR || Boolean(str(event.location)?.includes("→"));
+}
+
+/**
+ * 移動の一覧。DaySpanの移動（`travels`）に、それと時間が重ならないカレンダーの移動の予定（#852）を足す。
+ * 行き先は `destination`（カレンダーの予定は場所欄の `→` の右）、無ければタイトルの `→` の右側を使う。
+ */
+function travelsOf(day: Record<string, unknown>, travelEvents: Record<string, unknown>[]): Travel[] {
   const travels: Travel[] = [];
   for (const travel of list(day.travels)) {
     const start = time(travel.startTime);
     const end = time(travel.endTime);
     if (!start || !end) continue;
     const title = str(travel.title);
-    const [fromTitle, toTitle] = title?.includes("→") ? title.split("→").map((part) => part.trim()) : [null, null];
+    const [fromTitle, toTitle] = arrowParts(title);
     travels.push({
-      origin: str(travel.origin) ?? (fromTitle || null),
-      destination: str(travel.destination) ?? (toTitle || null),
+      origin: str(travel.origin) ?? fromTitle,
+      destination: str(travel.destination) ?? toTitle,
       start,
       end,
       title,
     });
   }
-  return travels.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+  const fromCalendar: Travel[] = [];
+  for (const event of travelEvents) {
+    if (event.allDay === true) continue;
+    const start = time(event.startTime);
+    const end = time(event.endTime);
+    if (!start || !end || start >= end) continue;
+    if (travels.some((travel) => overlaps(travel, { start, end }))) continue;
+    const title = str(event.title);
+    const [fromLocation, toLocation] = arrowParts(str(event.location));
+    const [fromTitle, toTitle] = arrowParts(title);
+    fromCalendar.push({ origin: fromLocation ?? fromTitle, destination: toLocation ?? toTitle, start, end, title });
+  }
+  return sortByStart([...travels, ...fromCalendar]);
 }
 
 /** 時間帯が重なる、場所の書かれていない予定のタイトル（行き先で何をするか）。 */
@@ -102,6 +165,11 @@ function cancelled(event: Record<string, unknown>): boolean {
  * - 移動があれば「最初の出発まで（出発地）→ 着いてから次に出るまで（行き先）→ …」。最後の行き先は日の終わりまで
  *   （自宅以外なら22:00まで）
  * - 場所欄のある予定は、その開始〜終了（終日なら8:00〜22:00）を行き先の区間として足す
+ * - **移動から作った自宅以外の区間は、場所欄のある予定（終日を除く）がその時間の半分以上を占めれば出さない**（#852。
+ *   予定の場所の方が具体的。「燕三条」のような駅名の出発地が、同じ時間のホテル・出張先と並んで「場所不明」になっていた）。
+ *   短い予定（行き先での1時間の打合せ）だけなら区間は残し、重なる時間は `placeAtHour()` が後に始まる予定を選ぶ。
+ *   出さなかった区間の時間も、場所欄の無い予定を自宅として足すときは塞いだままにする（出張先で「自宅」と出さない）
+ * - カレンダーの移動の予定（`isTravelEvent()`）は区間にせず、移動として扱う（#852）
  * - **`withHome` が真で、移動も場所欄も無い日は、自宅の1区間（終日）だけ**を返す
  * - 場所欄が空の予定は、移動中・他の区間と重ならなければ自宅の区間として足す（#597。ラベルは予定のタイトル）
  * - `withHome` が偽（明日以降）は、移動から作った自宅の区間（出発前・帰宅後）を出さない
@@ -110,35 +178,37 @@ function cancelled(event: Record<string, unknown>): boolean {
  */
 export function staysForDay(day: Record<string, unknown>, withHome: boolean): Stay[] {
   const date = str(day.date) ?? "";
-  const events = list(day.events).filter((event) => !cancelled(event));
-  const travels = travelsOf(day);
-  const stays: Stay[] = [];
+  const allEvents = list(day.events).filter((event) => !cancelled(event));
+  const events = allEvents.filter((event) => !isTravelEvent(event));
+  const travels = travelsOf(day, allEvents.filter(isTravelEvent));
 
-  const push = (stay: Omit<Stay, "date" | "home">) => {
-    if (stay.start >= stay.end) return;
-    stays.push({ date, home: isHomePlace(stay.placeText), ...stay });
-  };
+  const make = (stay: Omit<Stay, "date" | "home">): Stay | null =>
+    stay.start < stay.end ? { date, home: isHomePlace(stay.placeText), ...stay } : null;
 
+  const travelStays: Stay[] = [];
   if (travels.length > 0) {
     const first = travels[0];
     const origin = first.origin ?? HOME_PREFIX;
-    push({ start: DAY_START, end: first.start, placeText: origin, label: null, allDay: false });
+    const before = make({ start: DAY_START, end: first.start, placeText: origin, label: null, allDay: false });
+    if (before) travelStays.push(before);
 
     travels.forEach((travel, index) => {
       if (!travel.destination) return;
       const next = travels[index + 1];
       const home = isHomePlace(travel.destination);
       const end = next?.start ?? (home ? DAY_END : ALL_DAY_TO);
-      push({
+      const stay = make({
         start: travel.end,
         end,
         placeText: travel.destination,
         label: home ? null : labelFor(events, travel.end, end),
         allDay: false,
       });
+      if (stay) travelStays.push(stay);
     });
   }
 
+  const eventStays: Stay[] = [];
   for (const event of events) {
     const location = str(event.location);
     if (!location) continue;
@@ -146,8 +216,15 @@ export function staysForDay(day: Record<string, unknown>, withHome: boolean): St
     const start = allDay ? ALL_DAY_FROM : time(event.startTime);
     const end = allDay ? ALL_DAY_TO : time(event.endTime);
     if (!start || !end) continue;
-    push({ start, end, placeText: location, label: str(event.title), allDay });
+    const stay = make({ start, end, placeText: location, label: str(event.title), allDay });
+    if (stay) eventStays.push(stay);
   }
+
+  const timedEventStays = eventStays.filter((stay) => !stay.allDay);
+  const shadowed = travelStays.filter(
+    (stay) => !stay.home && coveredMinutes(stay, timedEventStays) * 2 >= minutesOf(stay.end) - minutesOf(stay.start),
+  );
+  const stays = [...travelStays.filter((stay) => !shadowed.includes(stay)), ...eventStays];
 
   if (withHome && stays.length === 0) {
     return [{ date, start: DAY_START, end: DAY_END, placeText: HOME_PREFIX, home: true, label: null, allDay: true }];
@@ -156,7 +233,8 @@ export function staysForDay(day: Record<string, unknown>, withHome: boolean): St
 
   // 場所欄が空の予定は自宅に居るものとして足す（#597）。移動中・他の区間と重なる予定は足さない
   // （行き先に居る間の予定はラベルに使い済み。移動前の自宅区間に重なる「睡眠」なども二重に出さない）。
-  const blockers: { start: string; end: string }[] = [...kept, ...travels];
+  // 予定の場所に譲って出さなかった区間（#852）も塞ぐ——そこは自宅ではない。
+  const blockers: { start: string; end: string }[] = [...kept, ...shadowed, ...travels];
   const homeEvents: Stay[] = [];
   const locationless = events
     .filter((event) => !str(event.location))
@@ -171,16 +249,15 @@ export function staysForDay(day: Record<string, unknown>, withHome: boolean): St
     })
     .filter((item): item is { start: string; end: string; label: string | null; allDay: boolean } =>
       Boolean(item.start && item.end && item.start < item.end),
-    )
-    .sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
-  for (const item of locationless) {
-    if (blockers.some((other) => item.start < other.end && item.end > other.start)) continue;
+    );
+  for (const item of sortByStart(locationless)) {
+    if (blockers.some((other) => overlaps(item, other))) continue;
     const stay: Stay = { date, placeText: HOME_PREFIX, home: true, ...item };
     homeEvents.push(stay);
     blockers.push(stay);
   }
 
-  return [...kept, ...homeEvents].sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+  return sortByStart([...kept, ...homeEvents]);
 }
 
 /**
