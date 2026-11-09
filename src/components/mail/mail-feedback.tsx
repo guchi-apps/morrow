@@ -2,16 +2,17 @@
 
 import { useState } from "react";
 
-import type { LearnedRule } from "@/lib/mail/learn-core";
+import type { LearnChange, LearnedRule } from "@/lib/mail/learn-core";
 
 /**
  * メール本文の帯の「今後このようなメールを［知らせる｜知らせない］」（#833）。押すとAIがこのメールから傾向を読み取り
- * （数十秒）、足した・直した傾向を出す。「取り消す」は印を外し、傾向の一覧を押す前へ戻す。
+ * （数十秒）、足した・直した傾向を出す。「取り消す」は印を外し、学習が足した・消した傾向だけを戻す（#847。
+ * その後に別の画面で変えた傾向には触れない）。
  */
 export function MailFeedback({ id, initial }: { id: string; initial: boolean | null }) {
   const [selected, setSelected] = useState<boolean | null>(initial);
   const [pending, setPending] = useState<boolean | null>(null);
-  const [learned, setLearned] = useState<{ rule: LearnedRule | null; previous: LearnedRule[] } | null>(null);
+  const [learned, setLearned] = useState<{ rule: LearnedRule | null; change: LearnChange } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function choose(notify: boolean) {
@@ -26,14 +27,14 @@ export function MailFeedback({ id, initial }: { id: string; initial: boolean | n
         body: JSON.stringify({ id, notify }),
       });
       const data = (await response.json().catch(() => null)) as
-        | { learned?: LearnedRule | null; previous?: LearnedRule[]; error?: string }
+        | { learned?: LearnedRule | null; change?: LearnChange; error?: string }
         | null;
-      if (!response.ok || !Array.isArray(data?.previous)) {
+      if (!response.ok || !data?.change || !Array.isArray(data.change.removed) || !Array.isArray(data.change.added)) {
         setError(data?.error ?? "学習できませんでした。");
         return;
       }
       setSelected(notify);
-      setLearned({ rule: data.learned ?? null, previous: data.previous });
+      setLearned({ rule: data.learned ?? null, change: data.change });
     } catch {
       setError("学習できませんでした（通信できませんでした）。");
     } finally {
@@ -48,10 +49,11 @@ export function MailFeedback({ id, initial }: { id: string; initial: boolean | n
       const response = await fetch("/api/mail/feedback", {
         method: "DELETE",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id, restore: learned.previous }),
+        body: JSON.stringify({ id, revert: learned.change }),
       });
       if (!response.ok) {
-        setError("取り消せませんでした。");
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        setError(data?.error ?? "取り消せませんでした。");
         return;
       }
       setSelected(null);

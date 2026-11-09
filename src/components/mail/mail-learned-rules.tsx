@@ -15,15 +15,17 @@ export function MailLearnedRules({ initial }: { initial: LearnedRule[] }) {
     setError(null);
     try {
       const response = await fetch("/api/mail/learned-rules", {
-        method: "PUT",
+        method: "DELETE",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ rules: rules.filter((rule) => rule !== target) }),
+        // 名指しで1件だけ消す。見えている一覧を送って置き換えると、別のタブの学習・取り消しを消す（#847）
+        body: JSON.stringify({ rule: { text: target.text, notify: target.notify } }),
       });
       const data = (await response.json().catch(() => null)) as { rules?: LearnedRule[]; error?: string } | null;
       if (!response.ok || !Array.isArray(data?.rules)) {
         setError(data?.error ?? "削除できませんでした。");
         return;
       }
+      // 応答はサーバーのいまの一覧（別のタブで学習した傾向もここで見える）
       setRules(data.rules);
     } catch {
       setError("削除できませんでした（通信できませんでした）。");
