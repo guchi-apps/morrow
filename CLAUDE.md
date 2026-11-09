@@ -1409,6 +1409,15 @@ VPS上で `pnpm exec prisma migrate resolve --rolled-back <マイグレーショ
 `00.check-user` と `01.check-blocked` を付与して停止する。シークレットの実値は、コミット・PR本文・
 Issueコメント・ログのいずれにも書かない。
 
+## 外部ツール（AIDE MCP等）の契約は同じPRでリポジトリに残す（#854）
+
+リリース候補のレビューは固定されたコミットの範囲しか読めず、AIDEなど別リポジトリの実装は見えない。契約がリポジトリに無いと、
+指摘0件でも「確認待ち（要確認）」になってリリースが止まる（RC-31・#853）。**外部の道具を呼ぶ処理を足す・変えるときは、同じPRで契約を残す。**
+
+- 入力の制約は `test/external-tool-contracts.test.ts` の `SCHEMAS` へ足し、呼び出し引数が範囲内であることをテストで固定する。応答は実例をテストに置き、パーサーで読めることを確かめる
+- 確かめた日付と方法をテストのコメントか `docs/external-tool-contracts.md` に書く。**「実物で未確認」の文章だけで呼び出しを足さない**
+- 呼んでいる道具の一覧・未固定のもの・契約が変わったときの手動の確認手順は `docs/external-tool-contracts.md`
+
 ## 並行Issueの意味的コンフリクト（develop向けPRを出す前に確認する）
 
 develop向けPRのCIは、PRを出した時点の `develop` に取り込んだ結果に対して走る。その後に別のIssueが
