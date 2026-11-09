@@ -8,6 +8,7 @@ import { useFlowCards, type FlowRow } from "@/components/mail/use-flow-cards";
 import { ANALYZE_RETRY_MS, shouldRetryAnalysis } from "@/lib/mail/analyze-retry";
 import type { ReceiptState } from "@/lib/mail/flow-record-core";
 import type { MailAnalysis as Analysis } from "@/lib/mail/analyze-core";
+import { shortageTask, type BalanceCheck } from "@/lib/mail/withdrawal-core";
 
 /**
  * メールのAI分析（#766）。開いた時点で自動で要約と処理の提案を取り（`POST /api/mail/flow/analyze`。Codexは1回）、
@@ -24,9 +25,36 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Analysis | null>(null);
   const [rowIds, setRowIds] = useState<string[]>([]);
+  const [balance, setBalance] = useState<BalanceCheck | null>(null);
+  const [balanceBusy, setBalanceBusy] = useState(false);
+  const [balanceError, setBalanceError] = useState<string | null>(null);
   const flow = useFlowCards(id);
   const { replace } = flow;
   const controller = useRef<AbortController | null>(null);
+
+  /** 残高確認の結果を反映する。不足のときだけ、入金のタスクを提案の行として共有する（#842。登録は既存の確認シート・`/apply` を通る）。 */
+  const showBalance = useCallback(
+    (check: BalanceCheck | null) => {
+      setBalance(check);
+      replace("w-", check?.status === "short" ? { "w-0": { card: { kind: "task", reason: "残高が足りません", confidence: 1, fields: shortageTask(check) }, recommended: true } } : {});
+    },
+    [replace],
+  );
+
+  const recheck = useCallback(async () => {
+    setBalanceBusy(true);
+    setBalanceError(null);
+    try {
+      const response = await fetch("/api/mail/flow/balance", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id }) });
+      const data = (await response.json().catch(() => null)) as { balance?: BalanceCheck | null; error?: string } | null;
+      if (!response.ok || !data) setBalanceError(data?.error ?? `確認できませんでした（HTTP ${response.status}）。`);
+      else showBalance(data.balance ?? null);
+    } catch {
+      setBalanceError("確認できませんでした（通信できませんでした）。");
+    } finally {
+      setBalanceBusy(false);
+    }
+  }, [id, showBalance]);
 
   /** 結果を画面へ反映する。中断された回（別の取得に置き換わった・画面を離れた）は何もしない。 */
   const apply = useCallback(
@@ -38,9 +66,10 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
         setError(outcome.error);
         return;
       }
-      const { summary, suggest } = outcome.value;
+      const { summary, suggest, withdrawal, balance: check } = outcome.value;
       setError(null);
-      setResult({ summary, suggest });
+      setResult({ summary, suggest, withdrawal });
+      showBalance(check);
       // おすすめを先頭に並べる
       const sorted = [...suggest.suggestions].sort((a, b) => Number(b.kind === suggest.recommended) - Number(a.kind === suggest.recommended));
       const next: Record<string, FlowRow> = {};
@@ -48,7 +77,7 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
       replace("a-", next);
       setRowIds(Object.keys(next));
     },
-    [replace],
+    [replace, showBalance],
   );
 
   const start = useCallback(
@@ -137,6 +166,26 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
             )}
           </div>
 
+          {balance && (
+            <BalanceCard
+              check={balance}
+              busy={balanceBusy}
+              error={balanceError}
+              onRecheck={recheck}
+              task={
+                flow.rows["w-0"] ? (
+                  <FlowRowButton
+                    card={flow.rows["w-0"].card}
+                    recommended
+                    registered={flow.outcomes["w-0"]?.done === true}
+                    receipt={null}
+                    onOpen={() => flow.setOpen("w-0")}
+                  />
+                ) : null
+              }
+            />
+          )}
+
           <div className="border-t border-border pt-2">
             <p className="mb-1.5 text-[0.6875rem] text-muted">おすすめの処理</p>
             {rowIds.length === 0 ? (
@@ -171,14 +220,14 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
   );
 }
 
-type AnalyzeResponse = { ok: true; value: Analysis } | { ok: false; error: string };
+type AnalyzeResponse = { ok: true; value: Analysis & { balance: BalanceCheck | null } } | { ok: false; error: string };
 
 /** 分析を取りに行く。別のメールを分析中（429）なら待って取り直す。中断されたら「中断」として返す（画面には出さない）。 */
 async function requestAnalysis(id: string, refresh: boolean, signal: AbortSignal, onWaiting: () => void): Promise<AnalyzeResponse> {
   const aborted: AnalyzeResponse = { ok: false, error: "中断しました。" };
   for (let attempt = 0; ; attempt++) {
     let status: number | "network";
-    let data: (Analysis & { error?: string }) | null = null;
+    let data: (Analysis & { balance?: BalanceCheck | null; error?: string }) | null = null;
     try {
       const response = await fetch("/api/mail/flow/analyze", {
         method: "POST",
@@ -188,8 +237,8 @@ async function requestAnalysis(id: string, refresh: boolean, signal: AbortSignal
         signal,
       });
       status = response.status;
-      data = (await response.json().catch(() => null)) as (Analysis & { error?: string }) | null;
-      if (response.ok && data?.summary && data.suggest) return { ok: true, value: { summary: data.summary, suggest: data.suggest } };
+      data = (await response.json().catch(() => null)) as (Analysis & { balance?: BalanceCheck | null; error?: string }) | null;
+      if (response.ok && data?.summary && data.suggest) return { ok: true, value: { summary: data.summary, suggest: data.suggest, withdrawal: data.withdrawal ?? null, balance: data.balance ?? null } };
     } catch {
       // 別アプリへ移るなどで通信だけが途切れた。サーバーの分析は続いているので取り直す
       if (signal.aborted) return aborted;
@@ -205,4 +254,60 @@ async function requestAnalysis(id: string, refresh: boolean, signal: AbortSignal
     if (status === "network") return { ok: false, error: "分析できませんでした（通信できませんでした）。" };
     return { ok: false, error: data?.error ?? `分析できませんでした（HTTP ${status}）。` };
   }
+}
+
+const yen = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
+const stamp = (iso: string) => iso.slice(0, 16).replace("T", " ");
+
+/** 引き落とし前の残高確認（#842）。足りると言い切れないときは理由を出す。他の引き落とし・入金は含まない。 */
+function BalanceCard({ check, busy, error, onRecheck, task }: { check: BalanceCheck; busy: boolean; error: string | null; onRecheck: () => void; task: React.ReactNode }) {
+  const badge =
+    check.status === "enough"
+      ? { text: "足りています", cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" }
+      : check.status === "short"
+        ? { text: `${yen(check.shortBy)} 足りません`, cls: "bg-danger-surface text-danger" }
+        : { text: "確認できません", cls: "bg-amber-500/15 text-amber-700 dark:text-amber-300" };
+  return (
+    <div className="flex flex-col gap-1.5 border-t border-border pt-2" aria-label="引き落とし前の残高確認">
+      <p className="flex flex-wrap items-center gap-2">
+        <span className="text-[0.6875rem] text-muted">🏦 引き落とし前の残高確認</span>
+        <span className={`rounded-full px-2.5 py-0.5 text-[0.6875rem] font-bold ${badge.cls}`}>{badge.text}</span>
+      </p>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 tabular-nums">
+        <dt className="text-muted">引き落とし額</dt>
+        <dd className="text-right">{yen(check.amount)}{check.payee ? `（${check.payee}）` : ""}</dd>
+        <dt className="text-muted">引き落とし日</dt>
+        <dd className="text-right">{check.date ?? "メールに記載なし"}</dd>
+        {check.status !== "unknown" && (
+          <>
+            <dt className="text-muted">{check.account}の残高</dt>
+            <dd className="text-right">{yen(check.balance)}</dd>
+            <dt className="text-muted">引き落とし後の見込み</dt>
+            <dd className={`text-right font-bold ${check.status === "short" ? "text-danger" : ""}`}>{yen(check.after)}</dd>
+          </>
+        )}
+      </dl>
+      {check.status === "unknown" ? (
+        <p className="text-muted">{check.reason}</p>
+      ) : (
+        <p className="text-[0.6875rem] text-muted">残高は{stamp(check.asOf)}時点（Zaim連携）。この日までの他の引き落とし・入金は含みません。</p>
+      )}
+      {error && (
+        <p role="alert" className="text-danger">
+          {error}
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onRecheck}
+          className="rounded-[9px] border border-border bg-background px-2.5 py-1 text-[0.6875rem] font-bold transition-colors hover:bg-rail-active disabled:opacity-60"
+        >
+          {busy ? "確認しています…" : "↻ 残高を確認し直す"}
+        </button>
+      </div>
+      {task}
+    </div>
+  );
 }
