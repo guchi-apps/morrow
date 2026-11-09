@@ -45,6 +45,9 @@ model User {
   /// メールの新着確認の既読位置（#683）。これ以降に受信したものを新着として判定する。nullは一度も確認していない
   /// （初回は位置を置くだけで、溜まっている過去分は通知しない）。一覧が `partial` の回は進めない。
   mailCheckedAt DateTime?
+  /// メールに付けた印（知らせる／知らせない）からAIが読み取った傾向（#833）。`learn-core.ts` の `LearnedRule[]`。
+  /// 判定のプロンプトへ基準と並べて入る。**件名・本文は持たず、傾向の文だけ**。nullは未学習。
+  mailLearnedRules Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -58,7 +61,10 @@ model User {
   weatherPlaces     WeatherPlace[]
   topics            Topic[]
   mailTriages       MailTriage[]
+  mailFeedbacks     MailFeedback[]
   mailFlowRecords   MailFlowRecord[]
+  mailLinks         MailLink[]
+  mailListSummaries MailListSummary[]
   hermesProposals   HermesProposal[]
   hermesActionLogs  HermesActionLog[]
 }
@@ -404,6 +410,44 @@ model MailTriage {
   @@index([userId, createdAt])
 }
 
+// --- メール一覧の要約（#851） ---
+// 受信トレイにあるメールの本文から作った要約（1〜2文）。#732の「メール由来の文面をDBに残さない」の例外。
+// 件名・差出人・本文は持たない。アーカイブ・ゴミ箱の操作で削除し、一覧でINBOXの無いと分かった行も削除、30日で掃除する。
+
+model MailListSummary {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// AIDEのメッセージID。
+  messageId String   @db.VarChar(320)
+  summary   String   @db.VarChar(400)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, messageId])
+  @@index([createdAt])
+}
+
+// --- メールに付けた印（#833） ---
+// メール本文の画面で「今後このようなメールを 知らせる／知らせない」を押した印。押した状態を画面に出すためだけに持ち、
+// 学習の中身（傾向の文）は `User.mailLearnedRules` にある。件名・差出人・本文は持たない。
+
+model MailFeedback {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// AIDEのメッセージID。
+  messageId String  @db.VarChar(320)
+  /// true＝知らせる、false＝知らせない。
+  notify    Boolean
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, messageId])
+}
+
 // --- メールから登録した内容の控え（#750） ---
 // 「このメールをどうする？」で家計簿・タスク・予定へ流した（サブスクは一覧を開いた）ことを、あとからメール画面で
 // 見返すための控え。台帳の記録の複製の正ではなく、登録時点の要約（題名・金額・日付）だけを持つ。
@@ -429,6 +473,38 @@ model MailFlowRecord {
 
   @@unique([userId, messageId, kind, contentKey])
   @@index([userId, messageId])
+}
+
+// --- メールと予定・タスクの紐づけ（#834） ---
+// どのメールがどの予定・タスクに紐づくかの控え。AIDEの予定作成にはメール参照を載せる欄が無いためMorrow側に持つ。
+// 台帳の記録の複製の正ではなく、押した操作の控え（#732）。件名・差出人・本文は持たない。
+// 持つのは紐づけ時点の題名だけ（台帳側で変わっても追従しない。台帳から消えても行は残り、利用者が解除できる）。
+
+model MailLink {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// AIDEのメッセージID（最大320文字）。
+  messageId  String  @db.VarChar(320)
+  /// event / task。
+  kind       String  @db.VarChar(10)
+  /// AIDEの予定id（`aide_schedule` の events[].id）またはタスクid（`taskId`）。
+  targetId   String  @db.VarChar(120)
+  /// 予定だけ: そのカレンダーのid（`events[].calendarId`）。
+  calendarId String? @db.VarChar(200)
+  /// 紐づけ時点の題名（画面にそのまま出す短い文）。
+  title      String  @db.VarChar(200)
+  /// 紐づけ時点の日付（YYYY-MM-DD。予定の日・タスクの期限。無ければnull）。
+  dateText   String? @db.VarChar(10)
+  /// created（メールから作成した）/ manual（あとから紐づけた）。
+  source     String  @db.VarChar(10)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, messageId, kind, targetId])
+  @@index([userId, messageId])
+  @@index([userId, kind, targetId])
 }
 
 // --- Hermes Agentの提案と実行の記録（#748。設計は docs/hermes-actions.md） ---

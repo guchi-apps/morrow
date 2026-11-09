@@ -3,10 +3,12 @@ import { runCodexRecorded } from "@/lib/codex-run";
 import { jstDayKey } from "@/lib/day-key";
 
 import { getMail, type MailUser } from "@/lib/mail/aide-client";
-import { acquireMailCodex } from "@/lib/mail/codex-lock";
+import { acquireMailCodex, currentMailCodex } from "@/lib/mail/codex-lock";
 import { analysisCacheKey, buildAnalyzePrompt, freshValue, parseAnalyzeReply, putCache, type CacheEntry, type MailAnalysis } from "@/lib/mail/analyze-core";
 import type { MailFailureKind } from "@/lib/mail/contract";
 import { plainBody } from "@/lib/mail/suggest-core";
+import { checkWithdrawal } from "@/lib/mail/withdrawal";
+import type { BalanceCheck } from "@/lib/mail/withdrawal-core";
 
 /**
  * メールのAI分析（#766）。**サーバー専用。** メールを開いたときに画面が自動で呼び、要約と提案を1回のCodexで作る。
@@ -34,7 +36,16 @@ export async function analyzeMail(user: MailUser, messageId: string, options: { 
   if (current?.key === key) return current.promise;
   const release = acquireMailCodex(user.id, { kind: "analyze", key });
   if (!release) {
-    return { ok: false, kind: "busy", message: current ? "別のメールを分析しています。少し待ってください。" : "指示への返事を作っています。少し待ってください。" };
+    const summarizing = currentMailCodex(user.id)?.kind === "list_summary";
+    return {
+      ok: false,
+      kind: "busy",
+      message: summarizing
+        ? "一覧の要約を作っています。少し待ってください。"
+        : current
+          ? "別のメールを分析しています。少し待ってください。"
+          : "指示への返事を作っています。少し待ってください。",
+    };
   }
 
   const promise = run(user, messageId, key, options.refresh === true);
@@ -85,4 +96,20 @@ async function run(user: MailUser, messageId: string, key: string, refresh: bool
     console.error("[aide-bot] メールの分析に失敗した", error instanceof Error ? error.message : error);
     return { ok: false, kind: "failed", message: "分析できませんでした。もう一度試してください。" };
   }
+}
+
+export type BalanceOutcome =
+  | { ok: true; check: BalanceCheck | null }
+  | { ok: false; kind: MailFailureKind | "no_analysis"; message: string | null };
+
+/**
+ * 残高だけを取り直す（#842）。Codexは走らせない。**先に `getMail()` で持ち主を照合する**。
+ * 引き落としの読み取りは分析の記憶から取る（記憶が無い・期限切れなら `no_analysis`＝分析のやり直しを促す）。
+ */
+export async function recheckBalance(user: MailUser, messageId: string): Promise<BalanceOutcome> {
+  const mail = await getMail(user, messageId);
+  if (!mail.ok) return mail;
+  const hit = freshValue(cache.get(analysisCacheKey(user.id, messageId)), Date.now());
+  if (!hit) return { ok: false, kind: "no_analysis", message: "分析の結果が残っていません。分析し直してください。" };
+  return { ok: true, check: hit.withdrawal ? await checkWithdrawal(user.id, hit.withdrawal) : null };
 }

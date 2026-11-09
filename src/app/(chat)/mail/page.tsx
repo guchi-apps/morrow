@@ -1,28 +1,39 @@
 import { Search } from "lucide-react";
 import Link from "next/link";
+import { after } from "next/server";
 import { redirect } from "next/navigation";
 
 import { MailAccountTabs } from "@/components/mail/mail-account-tabs";
 import { MailCheckButton } from "@/components/mail/mail-check-button";
 import { MailCriteriaForm } from "@/components/mail/mail-criteria-form";
+import { MailLearnedRules } from "@/components/mail/mail-learned-rules";
 import { elapsedLabel } from "@/components/mail/mail-format";
 import { MailRows } from "@/components/mail/mail-rows";
 import { getCurrentUser } from "@/lib/auth-user";
-import { jstTimeLabel } from "@/lib/day-key";
-import { listMailCached } from "@/lib/mail/aide-client";
+import { jstDayKey, jstTimeLabel } from "@/lib/day-key";
+import { listMailForPage } from "@/lib/mail/aide-client";
 import {
   MAIL_FAILURE_MESSAGES,
   MAIL_VIEWS,
-  inferMailAccounts,
-  isMailAccountKey,
   isMailPageToken,
   isMailViewKey,
   type MailViewKey,
 } from "@/lib/mail/contract";
+import {
+  KNOWN_ACCOUNT_NAMES,
+  accountParamOf,
+  mergeAccounts,
+  parseAccountFilter,
+  selectedAccountKeys,
+  singleAccountKey,
+  toggleAccountKey,
+} from "@/lib/mail/account-filter";
 import { onlyInbox } from "@/lib/mail/archived-memory";
+import { deleteListSummaries, getListSummaries, summarizeMissingSafely } from "@/lib/mail/list-summary";
 import { flowKindsFor } from "@/lib/mail/flow-record";
 import { neededTriages } from "@/lib/mail/triage";
 import { DEFAULT_MAIL_CRITERIA } from "@/lib/mail/triage-core";
+import { normalizeLearnedRules } from "@/lib/mail/learn-core";
 import { cn } from "@/lib/utils";
 
 // メールは開くたびにAIDEから取る（Morrowは保存しない）。
@@ -48,38 +59,45 @@ export default async function MailPage({ searchParams }: Props) {
 
   const query = await searchParams;
   const view: MailViewKey = isMailViewKey(query.view) ? query.view : "inbox";
-  const account = isMailAccountKey(query.acct) ? query.acct : null;
+  const filter = parseAccountFilter(query.acct);
+  // URLへ載せる選択（既定のときは付けない）。表示切替・検索・ページ送りで引き継ぐ
+  const account = filter.kind === "keys" ? filter.keys.join(",") : null;
   const q = (query.q ?? "").trim().slice(0, 200);
   const pageToken = isMailPageToken(query.page) ? query.page : null;
 
   const now = new Date();
-  const result = await listMailCached(user, { view, labelId: null, account, q, pageToken });
+  const result = await listMailForPage(user, { view, labelId: null, filter, q, pageToken });
   // 受信トレイでは、INBOXラベルの無い（アーカイブ済みの）メールを出さない（#795）。検索中は対象外
   const inboxView = view === "inbox" && !q;
+  // INBOXの無いメール（アーカイブ・ゴミ箱）の要約は消す（#851。Gmail側の直接操作の取りこぼしを拾う）
+  if (result.ok) {
+    const outside = result.value.messages.filter((m) => !m.labelIds.includes("INBOX")).map((m) => m.id);
+    if (outside.length > 0) after(() => deleteListSummaries(user.id, outside).catch(() => undefined));
+  }
   if (result.ok && inboxView) result.value.messages = onlyInbox(result.value.messages);
   const listedIds = result.ok ? result.value.messages.map((m) => m.id) : [];
+  // 一覧の要約は受信トレイ表示のときだけ。無い分は裏で作り、画面が取り直す
+  const summaries = result.ok && inboxView ? await getListSummaries(user.id, listedIds).catch(() => new Map<string, string>()) : new Map<string, string>();
+  if (result.ok && inboxView && listedIds.some((id) => !summaries.has(id))) after(() => summarizeMissingSafely(user, listedIds));
   const [notified, flowKinds] = result.ok ? await Promise.all([neededTriages(user.id, listedIds), flowKindsFor(user.id, listedIds)]) : [new Map(), new Map<string, string[]>()];
 
-  const self = new URLSearchParams();
-  if (view !== "inbox") self.set("view", view);
-  if (account) self.set("acct", account);
-  if (q) self.set("q", q);
-  if (pageToken) self.set("page", pageToken);
-  const back = `/mail${self.size > 0 ? `?${self}` : ""}`;
-
-  // アカウントのタブ。AIDEが `accounts` を返せばそれを使い、無ければ表示中の行から推定する（#711）。
-  // 推定は絞り込み中や行が無いアカウントで欠けうるので、絞り込み中のアカウントは必ず出して「すべて」へ戻れるようにする
+  // アカウントのチップ（#711・#829）。AIDEが `accounts` を返せばそれ、無ければ絞る前の全行から推定した一覧。
+  // 1アカウントだけ取った回は他のアカウントが分からないので、既知の鍵（メイン・サブ・フォーマル）を足して、押して戻せるようにする
   const accounts = (() => {
     if (!result.ok) return [];
-    const list = result.value.accounts ?? inferMailAccounts(result.value.messages);
-    return account && !list.some((item) => item.key === account) ? [...list, { key: account, name: account }] : list;
+    const base = result.value.accounts ?? [];
+    const extra = singleAccountKey(filter) ? [...(filter.kind === "keys" ? filter.keys : []), ...Object.keys(KNOWN_ACCOUNT_NAMES)] : filter.kind === "keys" ? filter.keys : [];
+    return base.length > 0 || extra.length > 0 ? mergeAccounts(base, extra) : base;
   })();
-  const showAccounts = result.ok && (accounts.length > 1 || account !== null);
-  /** タブの切り替え先。表示と検索語は引き継ぎ、ページ位置は捨てる。 */
-  const accountHref = (key: string | null) => {
+  const allKeys = accounts.map((item) => item.key);
+  const selected = selectedAccountKeys(filter, allKeys);
+  const showAccounts = result.ok && accounts.length > 1;
+  /** チップを押した後のURL。表示と検索語は引き継ぎ、ページ位置は捨てる。最後の1つを外す操作は今の選択のまま。 */
+  const accountHref = (key: string) => {
     const params = new URLSearchParams();
     if (view !== "inbox") params.set("view", view);
-    if (key) params.set("acct", key);
+    const acct = accountParamOf(toggleAccountKey(selected, allKeys, key), allKeys);
+    if (acct) params.set("acct", acct);
     if (q) params.set("q", q);
     return `/mail${params.size > 0 ? `?${params}` : ""}`;
   };
@@ -89,6 +107,13 @@ export default async function MailPage({ searchParams }: Props) {
     if (account) params.set("acct", account);
     return `/mail${params.size > 0 ? `?${params}` : ""}`;
   };
+
+  const self = new URLSearchParams();
+  if (view !== "inbox") self.set("view", view);
+  if (account) self.set("acct", account);
+  if (q) self.set("q", q);
+  if (pageToken) self.set("page", pageToken);
+  const back = `/mail${self.size > 0 ? `?${self}` : ""}`;
 
   const heading = MAIL_VIEWS.find((item) => item.key === view)!.label;
 
@@ -104,6 +129,9 @@ export default async function MailPage({ searchParams }: Props) {
     params.delete("page");
     return `/mail${params.size > 0 ? `?${params}` : ""}`;
   })();
+
+  // メールに付けた印から学んだ傾向（#833）
+  const learnedRules = normalizeLearnedRules(user.mailLearnedRules, jstDayKey(now));
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -136,15 +164,19 @@ export default async function MailPage({ searchParams }: Props) {
               <path d="m9 18 6-6-6-6" />
             </svg>
             <span className="text-[0.8125rem] font-bold">お知らせする基準</span>
-            <span className="ml-auto text-[0.6875rem] text-muted">{user.mailCriteria ? "設定済み・変更する" : "既定の基準・変更する"}</span>
+            <span className="ml-auto text-right text-[0.6875rem] text-muted">
+              {user.mailCriteria ? "設定済み" : "既定の基準"}
+              {learnedRules.length > 0 ? `・学習した傾向 ${learnedRules.length}件` : "・変更する"}
+            </span>
           </summary>
-          <div className="border-t border-border px-4 py-3.5">
+          <div className="flex flex-col gap-3.5 border-t border-border px-4 py-3.5">
             <MailCriteriaForm initial={user.mailCriteria} defaultCriteria={DEFAULT_MAIL_CRITERIA} />
+            <MailLearnedRules initial={learnedRules} />
           </div>
         </details>
 
         {showAccounts && result.ok && (
-          <MailAccountTabs accounts={accounts} current={account} hrefFor={accountHref} failedNames={result.value.failedAccounts} />
+          <MailAccountTabs accounts={accounts} selected={selected} hrefFor={accountHref} failedNames={result.value.failedAccounts} />
         )}
 
         <nav aria-label="表示するメール" className="flex flex-wrap gap-1.5 text-xs">
@@ -201,17 +233,19 @@ export default async function MailPage({ searchParams }: Props) {
               <p className="rounded-xl border border-border bg-surface px-4 py-3 text-xs text-muted">
                 {result.value.partial
                   ? "取得できたアカウントには、表示するメールがありません。"
-                  : q
-                    ? "検索に一致するメールはありません。"
-                    : "メールはありません。"}
+                  : result.value.nextPageToken
+                    ? "このページには選んだアカウントのメールがありません。「次へ」で続きを見られます。"
+                    : q
+                      ? "検索に一致するメールはありません。"
+                      : "メールはありません。"}
               </p>
             ) : (
               <MailRows
-                messages={result.value.messages.map((message) => ({ ...message, notified: notified.has(message.id), flowKinds: flowKinds.get(message.id) ?? [] }))}
+                messages={result.value.messages.map((message) => ({ ...message, notified: notified.has(message.id), summary: summaries.get(message.id) ?? null, flowKinds: flowKinds.get(message.id) ?? [] }))}
                 labels={result.value.labels}
                 supportsLabels={result.value.supportsLabels}
                 inTrash={view === "trash"}
-                showAccount={showAccounts && !account}
+                showAccount={showAccounts && selected.length > 1}
                 nowMs={now.getTime()}
                 back={back}
                 inboxView={inboxView}

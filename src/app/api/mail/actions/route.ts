@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth-user";
 import { readJsonObject } from "@/lib/json-body";
 import { applyMailAction } from "@/lib/mail/aide-client";
+import { deleteListSummaries } from "@/lib/mail/list-summary";
 import {
   MAIL_ACTION_DONE,
   MAIL_ACTION_MAX_IDS,
@@ -48,6 +49,13 @@ export async function POST(request: Request) {
       result.kind === "not_owner" ? 403 : result.kind === "invalid_request" ? 400 : result.kind === "not_found" ? 404 : 502;
     const reason = result.message ? `${MAIL_FAILURE_MESSAGES[result.kind]}（${result.message}）` : MAIL_FAILURE_MESSAGES[result.kind];
     return NextResponse.json({ error: reason, kind: result.kind }, { status });
+  }
+
+  // アーカイブ・ゴミ箱に移したメールの要約は消す（#851）。消せなくても操作の成功は返す（残りは一覧・30日掃除が拾う）
+  if (action === "archive" || action === "trash") {
+    await deleteListSummaries(user.id, [...new Set(rawIds)]).catch((error: unknown) =>
+      console.warn("[aide-bot] 一覧の要約の削除に失敗した", error instanceof Error ? error.message : error),
+    );
   }
 
   return NextResponse.json({ done: MAIL_ACTION_DONE[action], count: result.value.count });

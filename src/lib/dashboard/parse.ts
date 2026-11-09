@@ -53,6 +53,10 @@ export type ScheduleItem = {
   url: string | null;
   /** 活動記録（実績。睡眠・風呂など）。予定とは薄さで区別して出す（#626）。 */
   record: boolean;
+  /** AIDEの予定id・タスクid（紐づけ #834の鍵）。移動・リマインドや読めない値はnull。 */
+  id: string | null;
+  /** 予定だけ: カレンダーid。 */
+  calendarId: string | null;
 };
 
 export type ScheduleView =
@@ -84,6 +88,12 @@ function num(value: unknown): number | null {
 
 function list(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.map(record).filter((item): item is Record<string, unknown> => item !== null) : [];
+}
+
+/** 紐づけの鍵に使うid。文字列か整数で、印字可能な文字だけ。 */
+function itemId(value: unknown): string | null {
+  const raw = typeof value === "number" && Number.isSafeInteger(value) ? String(value) : typeof value === "string" ? value : "";
+  return raw !== "" && raw.length <= 200 && !/[\u0000-\u0020\u007f]/.test(raw) ? raw : null;
 }
 
 const TIME = /^\d{2}:\d{2}$/;
@@ -186,6 +196,8 @@ export function parseSchedule(json: unknown): ScheduleView {
       outcome,
       url: httpUrl(event.url),
       record: str(event.calendarName) === RECORD_CALENDAR_NAME,
+      id: itemId(event.id),
+      calendarId: itemId(event.calendarId),
     });
   }
 
@@ -201,6 +213,8 @@ export function parseSchedule(json: unknown): ScheduleView {
       outcome: null,
       url: null,
       record: false,
+      id: null,
+      calendarId: null,
     });
   }
 
@@ -216,6 +230,8 @@ export function parseSchedule(json: unknown): ScheduleView {
       outcome: null,
       url: null,
       record: false,
+      id: null,
+      calendarId: null,
     });
   }
 
@@ -231,6 +247,8 @@ export function parseSchedule(json: unknown): ScheduleView {
       outcome: null,
       url: httpUrl(task.url),
       record: false,
+      id: itemId(task.taskId) ?? itemId(task.id),
+      calendarId: null,
     });
   }
 

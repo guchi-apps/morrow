@@ -4,12 +4,14 @@ import { allowedUserIds } from "@/lib/allowed-user-ids";
 import { modelFor } from "@/lib/chat-model-server";
 import { runCodexRecorded } from "@/lib/codex-run";
 import { db } from "@/lib/db";
+import { summarizeMissingSafely } from "@/lib/mail/list-summary";
 import { isPushKindEnabled } from "@/lib/push/kinds-server";
 import { sendPushToUser, usersWithSubscriptions } from "@/lib/push/subscriptions";
 
 import { listMail } from "@/lib/mail/aide-client";
 import type { MailFailureKind } from "@/lib/mail/contract";
 import { gmailPushConfigFrom, isMainAccountMessage } from "@/lib/mail/gmail-push-core";
+import { normalizeLearnedRules } from "@/lib/mail/learn-core";
 import {
   SINCE_OVERLAP_MS,
   TRIAGE_BATCH_LIMIT,
@@ -68,7 +70,7 @@ export type MailCheckResult = {
   message?: string;
 };
 
-type CheckUser = { id: string; email: string | null; mailCriteria: string; mailCheckedAt: Date | null };
+type CheckUser = { id: string; email: string | null; mailCriteria: string; mailCheckedAt: Date | null; mailLearnedRules: unknown };
 
 const running = new Set<string>();
 /** 判定中にpush通知が重なった利用者。終わったらもう一度確かめる（#769）。 */
@@ -87,7 +89,7 @@ export async function checkMailNow(userId: string, now = new Date()): Promise<Ma
 
   const user = await db.user.findUnique({
     where: { id: userId },
-    select: { id: true, email: true, mailCriteria: true, mailCheckedAt: true },
+    select: USER_SELECT,
   });
   if (!user) return empty("failed", { message: "利用者が見つかりません。" });
   return checkMailForUser(user, now);
@@ -142,6 +144,9 @@ async function check(user: CheckUser, now: Date): Promise<MailCheckResult> {
     return empty("initialized", base);
   }
 
+  // 新着の要約（#851）。排他が空いていなければ飛ばす。判定と通知を待たせないよう待たずに走らせる
+  void summarizeMissingSafely(user, messages.map((m) => m.id));
+
   const judgedRows = await db.mailTriage.findMany({
     where: { userId: user.id, messageId: { in: messages.map((m) => m.id) } },
     select: { messageId: true },
@@ -168,7 +173,8 @@ async function check(user: CheckUser, now: Date): Promise<MailCheckResult> {
       feature: "mail",
       label: "メールの判定",
       model: await modelFor(user.id, "mail"),
-      prompt: buildTriagePrompt(user.mailCriteria, items),
+      // 学んだ傾向（#833）も添える。DBの値も外から来た値と同じく均してから入れる
+      prompt: buildTriagePrompt(user.mailCriteria, items, normalizeLearnedRules(user.mailLearnedRules, "")),
       timeoutMs: TRIAGE_TIMEOUT_MS,
     });
     decisions = parseTriageReply(result.messages.at(-1) ?? result.text, items.map((item) => item.key));
@@ -263,7 +269,7 @@ export async function runMailChecks(now = new Date()): Promise<{ userId: string;
   return outcomes;
 }
 
-const USER_SELECT = { id: true, email: true, mailCriteria: true, mailCheckedAt: true } as const;
+const USER_SELECT = { id: true, email: true, mailCriteria: true, mailCheckedAt: true, mailLearnedRules: true } as const;
 
 /** 確認の対象: 通知を受け取れる端末があり、許可されている利用者。 */
 async function checkTargets(): Promise<CheckUser[]> {
@@ -324,4 +330,12 @@ export async function neededTriages(userId: string, messageIds: string[]) {
     select: { messageId: true, reason: true, notifiedAt: true, createdAt: true },
   });
   return new Map(rows.map((row) => [row.messageId, { reason: row.reason, notifiedAt: row.notifiedAt, judgedAt: row.createdAt }]));
+}
+
+/** 本文の画面の帯（#833）のための、このメールの判定結果（判定していなければ null）。 */
+export async function mailTriageFor(userId: string, messageId: string) {
+  return db.mailTriage.findUnique({
+    where: { userId_messageId: { userId, messageId } },
+    select: { needed: true, reason: true, notifiedAt: true },
+  });
 }

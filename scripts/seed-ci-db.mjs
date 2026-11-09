@@ -156,6 +156,19 @@ async function main() {
 
   console.log(`[aide-bot] バイパス用ユーザーをupsertしました: id=${user.id} name=${user.name}`);
 
+  // メール通知の学習（#833）で学んだ傾向。画面の「学習した傾向」の一覧を確かめるため。未学習（null）のときだけ入れる
+  if (user.mailLearnedRules === null) {
+    await db.user.update({
+      where: { id: user.id },
+      data: {
+        mailLearnedRules: [
+          { text: "予約済みの列車・きっぷの出発前案内（変更・運休は知らせる）", notify: false, at: "2026-11-01" },
+          { text: "カードの利用代金の確定・引き落としの案内", notify: true, at: "2026-11-02" },
+        ],
+      },
+    });
+  }
+
   // 使用量の記録（#133）。**これが無いと、使用量の画面の従量課金の節が「今日ぶん1件」だけになり、
   // 日別のグラフも表も空に近い状態でしか確かめられない。**
   //
@@ -331,6 +344,16 @@ async function main() {
       { userId: user.id, messageId: "seed-mail-1", kind: "payment", summary: "東京電力 / 8,420円 / 11/5", status: "done", contentKey: "seed-payment" },
       { userId: user.id, messageId: "seed-mail-1", kind: "task", summary: "契約更新の書類を出す / 期限 11/20", status: "done", contentKey: "seed-task" },
       { userId: user.id, messageId: "seed-mail-1", kind: "subscription", summary: "動画配信 / 1,290円 / 毎月", status: "opened", contentKey: "seed-sub" },
+    ],
+  });
+
+  // メールと予定・タスクの紐づけ（#834）のダミー。予定・タスクのidはAIDEのものなので、実在しない値でもメール詳細の欄には出る
+  // （ダッシュボードの✉は、AIDEが同じidの予定を返したときだけ付く）。
+  await db.mailLink.deleteMany({ where: { userId: user.id } });
+  await db.mailLink.createMany({
+    data: [
+      { userId: user.id, messageId: "seed-mail-1", kind: "event", targetId: "seed-event-1", calendarId: "seed-calendar", title: "とき313号で東京→燕三条", dateText: "2026-11-09", source: "created" },
+      { userId: user.id, messageId: "seed-mail-1", kind: "task", targetId: "seed-task-1", calendarId: null, title: "出張精算の準備", dateText: "2026-11-12", source: "manual" },
     ],
   });
 
