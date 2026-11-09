@@ -30,7 +30,10 @@ export async function chatAboutMail(user: MailUser, messageId: string, message: 
     return {
       ok: false,
       kind: "busy",
-      message: busy?.kind === "analyze" ? "分析が終わってから送れます。少し待ってください。" : "前の指示への返事を作っています。少し待ってください。",
+      message:
+        busy?.kind === "analyze" || busy?.kind === "list_summary"
+          ? "分析が終わってから送れます。少し待ってください。"
+          : "前の指示への返事を作っています。少し待ってください。",
     };
   }
   try {

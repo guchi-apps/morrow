@@ -2,6 +2,7 @@
 
 import { Star } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { hideArchived, readArchived, subscribeArchived, type ArchivedMap } from "@/lib/mail/archived-memory";
@@ -17,7 +18,11 @@ import { leaveMailPane } from "./mail-transition";
 import { SwipeArchiveRow } from "./swipe-archive-row";
 import { useMailAction } from "./use-mail-action";
 
-type Row = MailSummary & { notified: boolean; flowKinds: string[] };
+type Row = MailSummary & { notified: boolean; flowKinds: string[]; /** 一覧の要約（#851）。無ければnull。 */ summary: string | null };
+
+/** 要約待ちの間、一覧を取り直す間隔と回数（作れなかった行は最後に何も出さなくなる）。 */
+const SUMMARY_POLL_MS = 8000;
+const SUMMARY_POLL_MAX = 6;
 
 type Props = {
   messages: Row[];
@@ -51,6 +56,18 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
     return subscribeArchived(load);
   }, [listed]);
   const messages = hideArchived(listed, archived, inboxView);
+  // 要約待ちの行があるあいだ、一覧を数回だけ取り直す（#851）
+  const router = useRouter();
+  const [polls, setPolls] = useState(0);
+  const waiting = inboxView && polls < SUMMARY_POLL_MAX && messages.some((m) => m.summary === null);
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = window.setTimeout(() => {
+      setPolls((n) => n + 1);
+      router.refresh();
+    }, SUMMARY_POLL_MS);
+    return () => window.clearTimeout(timer);
+  }, [waiting, polls, router]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // 押した行（#699）。本文の画面へ移るまでの一瞬、押したことが分かるよう色を付ける
   const [opening, setOpening] = useState<string | null>(null);
@@ -197,6 +214,18 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
                   </span>
                   {message.snippet && <> — {message.snippet}</>}
                 </span>
+                {inboxView &&
+                  (message.summary ? (
+                    <span className="mt-0.5 line-clamp-2 rounded-lg bg-rail px-2.5 py-1 text-xs leading-relaxed text-foreground md:col-span-3">
+                      <b className="mr-1.5 text-[0.65625rem] text-accent">AI要約</b>
+                      {message.summary}
+                    </span>
+                  ) : waiting ? (
+                    <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted md:col-span-3">
+                      <span aria-hidden className="size-2.5 shrink-0 animate-spin rounded-full border-2 border-border border-t-accent" />
+                      要約を作成しています…
+                    </span>
+                  ) : null)}
               </Link>
             </SwipeArchiveRow>
           );

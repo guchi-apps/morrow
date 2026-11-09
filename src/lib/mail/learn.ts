@@ -78,7 +78,7 @@ export async function learnFromMail(user: MailUser, messageId: string, notify: b
     const message =
       busyWith === "learn"
         ? "別の印から学習しています。少し待ってから、もう一度押してください。"
-        : busyWith === "analyze"
+        : busyWith === "analyze" || busyWith === "list_summary"
           ? "AIの分析が終わるまで少し待ってから、もう一度押してください。"
           : "指示への返事を作っています。少し待ってから、もう一度押してください。";
     return { ok: false, kind: "busy", message };

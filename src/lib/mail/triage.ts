@@ -4,6 +4,7 @@ import { allowedUserIds } from "@/lib/allowed-user-ids";
 import { modelFor } from "@/lib/chat-model-server";
 import { runCodexRecorded } from "@/lib/codex-run";
 import { db } from "@/lib/db";
+import { summarizeMissingSafely } from "@/lib/mail/list-summary";
 import { isPushKindEnabled } from "@/lib/push/kinds-server";
 import { sendPushToUser, usersWithSubscriptions } from "@/lib/push/subscriptions";
 
@@ -142,6 +143,9 @@ async function check(user: CheckUser, now: Date): Promise<MailCheckResult> {
     await db.user.update({ where: { id: user.id }, data: { mailCheckedAt: now } });
     return empty("initialized", base);
   }
+
+  // 新着の要約（#851）。排他が空いていなければ飛ばす。判定と通知を待たせないよう待たずに走らせる
+  void summarizeMissingSafely(user, messages.map((m) => m.id));
 
   const judgedRows = await db.mailTriage.findMany({
     where: { userId: user.id, messageId: { in: messages.map((m) => m.id) } },

@@ -25,6 +25,7 @@ export type UsageFeature =
   | "mail_chat"
   | "mail_chat_query"
   | "mail_learn"
+  | "mail_list_summary"
   | "hermes_chat";
 
 /** 使用量APIに出す機能名（ops-dashboardの画面にそのまま載る）。 */
@@ -43,6 +44,7 @@ export const USAGE_FEATURE_LABELS: Record<UsageFeature, string> = {
   mail_chat: "メールへの指示",
   mail_chat_query: "チャットのメール検索条件づくり",
   mail_learn: "メール通知の学習",
+  mail_list_summary: "メール一覧の要約",
   hermes_chat: "Hermesのチャット",
 };
 

@@ -6,7 +6,7 @@
  * プロセス内のメモリだけ（再起動で消える）。
  */
 
-export type MailCodexKind = "analyze" | "chat" | "learn";
+export type MailCodexKind = "analyze" | "chat" | "learn" | "list_summary";
 export type MailCodexHold = { kind: MailCodexKind; key: string };
 
 const holds = new Map<string, MailCodexHold>();
