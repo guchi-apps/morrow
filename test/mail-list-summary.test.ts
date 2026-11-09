@@ -6,6 +6,7 @@ import {
   LIST_SUMMARY_MAX_LEN,
   LIST_SUMMARY_RETRY_MS,
   buildListSummaryPrompt,
+  createTombstones,
   inRetryWait,
   parseListSummaryReply,
   selectMissing,
@@ -37,5 +38,27 @@ describe("一覧の要約（#851）", () => {
     assert.equal(inRetryWait(undefined, 1000), false);
     assert.equal(inRetryWait(0, LIST_SUMMARY_RETRY_MS - 1), true);
     assert.equal(inRetryWait(0, LIST_SUMMARY_RETRY_MS), false);
+  });
+});
+
+
+describe("生成中の削除の取消し印（#860）", () => {
+  it("生成の開始より後に消された分だけを検出する", () => {
+    const t = createTombstones();
+    t.mark("u1", ["old"], 100);
+    t.mark("u1", ["a"], 1000);
+    assert.deepEqual(t.deletedSince("u1", ["old", "a", "b"], 500), ["a"]);
+    assert.deepEqual(t.deletedSince("u2", ["a"], 500), []);
+  });
+  it("受信トレイへ戻した後の新しい生成は、古い印に止められない", () => {
+    const t = createTombstones();
+    t.mark("u1", ["a"], 1000);
+    assert.deepEqual(t.deletedSince("u1", ["a"], 2000), []);
+  });
+  it("期限を過ぎた印は掃除される", () => {
+    const t = createTombstones(1000);
+    t.mark("u1", ["a"], 0);
+    t.mark("u1", ["b"], 5000);
+    assert.deepEqual(t.deletedSince("u1", ["a"], 0), []);
   });
 });
