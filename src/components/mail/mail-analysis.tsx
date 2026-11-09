@@ -4,8 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { FlowRowButton } from "@/components/mail/flow-row";
 import { MailChat } from "@/components/mail/mail-chat";
+import { useTypewriter } from "@/components/mail/typewriter";
 import { useFlowCards, type FlowRow } from "@/components/mail/use-flow-cards";
 import { ANALYZE_RETRY_MS, shouldRetryAnalysis } from "@/lib/mail/analyze-retry";
+import { TYPEWRITER_MAX_MS, elapsedLabel, splitVisible } from "@/lib/mail/typewriter-core";
 import type { ReceiptState } from "@/lib/mail/flow-record-core";
 import type { MailAnalysis as Analysis } from "@/lib/mail/analyze-core";
 import { shortageTask, type BalanceCheck } from "@/lib/mail/withdrawal-core";
@@ -21,9 +23,12 @@ import { shortageTask, type BalanceCheck } from "@/lib/mail/withdrawal-core";
 
 export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id: string; registeredKinds: string[]; receiptState?: ReceiptState | null }) {
   const [loading, setLoading] = useState(true);
-  const [waiting, setWaiting] = useState(false);
+  const [waiting, setWaiting] = useState<"busy" | "network" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Analysis | null>(null);
+  /** 新しく作られた結果だけ文字送りする（記憶から返った結果は即表示。#838）。`runId` は結果ごとの鍵。 */
+  const [animate, setAnimate] = useState(false);
+  const [runId, setRunId] = useState(0);
   const [rowIds, setRowIds] = useState<string[]>([]);
   const [balance, setBalance] = useState<BalanceCheck | null>(null);
   const [balanceBusy, setBalanceBusy] = useState(false);
@@ -61,7 +66,7 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
     (abort: AbortController, outcome: AnalyzeResponse) => {
       if (abort.signal.aborted || controller.current !== abort) return;
       setLoading(false);
-      setWaiting(false);
+      setWaiting(null);
       if (!outcome.ok) {
         setError(outcome.error);
         return;
@@ -69,6 +74,8 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
       const { summary, suggest, withdrawal, balance: check } = outcome.value;
       setError(null);
       setResult({ summary, suggest, withdrawal });
+      setAnimate(!outcome.value.cached);
+      setRunId((n) => n + 1);
       showBalance(check);
       // おすすめを先頭に並べる
       const sorted = [...suggest.suggestions].sort((a, b) => Number(b.kind === suggest.recommended) - Number(a.kind === suggest.recommended));
@@ -85,8 +92,8 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
       controller.current?.abort();
       const abort = new AbortController();
       controller.current = abort;
-      void requestAnalysis(id, refresh, abort.signal, () => {
-        if (!abort.signal.aborted) setWaiting(true);
+      void requestAnalysis(id, refresh, abort.signal, (reason) => {
+        if (!abort.signal.aborted) setWaiting(reason);
       }).then((outcome) => apply(abort, outcome));
       return abort;
     },
@@ -119,8 +126,10 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
         <p className="text-[0.6875rem] text-muted">
           ✨ AIの分析
           {loading
-            ? waiting
+            ? waiting === "busy"
               ? "　前のAIの処理が終わるのを待っています…"
+              : waiting === "network"
+                ? "　通信が戻るのを待っています…"
               : "　本文を読んでいます…（30秒ほどかかることがあります）"
             : "（本文を読んで作成。外れることがあります）"}
         </p>
@@ -140,6 +149,18 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
       </div>
 
       {loading && (
+        <p role="status" className="flex flex-wrap items-center gap-1.5 text-[0.6875rem]">
+          {waiting === "busy" ? (
+            <span className="rounded-full bg-rail-active px-2.5 py-0.5 font-bold text-muted">前のAIの処理を待っています</span>
+          ) : waiting === "network" ? (
+            <span className="rounded-full bg-rail-active px-2.5 py-0.5 font-bold text-muted">通信を待っています（分析は続いています）</span>
+          ) : (
+            <ElapsedChip />
+          )}
+        </p>
+      )}
+
+      {loading && (
         <div aria-hidden className="flex flex-col gap-2 py-1">
           <div className="h-2.5 w-[92%] animate-pulse rounded bg-rail-active" />
           <div className="h-2.5 w-[70%] animate-pulse rounded bg-rail-active" />
@@ -155,16 +176,7 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
 
       {!loading && result && (
         <>
-          <div>
-            <p>{result.summary.summary}</p>
-            {result.summary.points.length > 0 && (
-              <ul className="mt-1 list-disc pl-4">
-                {result.summary.points.map((point, index) => (
-                  <li key={index}>{point}</li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <SummaryReveal summary={result.summary.summary} points={result.summary.points} animate={animate} resetKey={runId} />
 
           {balance && (
             <BalanceCard
@@ -186,7 +198,7 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
             />
           )}
 
-          <div className="border-t border-border pt-2">
+          <div className={`border-t border-border pt-2 ${animate ? "analysis-reveal" : ""}`} style={animate ? ({ "--reveal-delay": `${TYPEWRITER_MAX_MS}ms` } as React.CSSProperties) : undefined}>
             <p className="mb-1.5 text-[0.6875rem] text-muted">おすすめの処理</p>
             {rowIds.length === 0 ? (
               <p className="text-muted">このメールには、とくに必要な処理は見つかりませんでした。</p>
@@ -220,14 +232,55 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
   );
 }
 
-type AnalyzeResponse = { ok: true; value: Analysis & { balance: BalanceCheck | null } } | { ok: false; error: string };
+/** 「AIが分析中 N秒」。秒のタイマーはここに閉じる（親の `MailChat`・シートを毎秒再描画しない。#838）。 */
+function ElapsedChip() {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const started = Date.now();
+    const timer = setInterval(() => setElapsed((Date.now() - started) / 1000), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return <span className="rounded-full bg-accent px-2.5 py-0.5 font-bold text-white">AIが分析中 {elapsedLabel(elapsed)}</span>;
+}
+
+/** 要約と要点の文字送り（#838）。`animate` が偽なら最初から全部出す。 */
+function SummaryReveal({ summary, points, animate, resetKey }: { summary: string; points: string[]; animate: boolean; resetKey: number }) {
+  const parts = [summary, ...points];
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
+  const shown = useTypewriter(total, animate, resetKey);
+  const [head, ...rest] = splitVisible(parts, shown);
+  const typing = animate && shown < total;
+  const lastIndex = rest.findLastIndex((text) => text !== "");
+  return (
+    <div>
+      <p>
+        {head}
+        {typing && lastIndex < 0 && <span aria-hidden className="analysis-caret ml-px inline-block h-[1em] w-0.5 bg-accent align-text-bottom" />}
+      </p>
+      {points.length > 0 && (
+        <ul className="mt-1 list-disc pl-4">
+          {rest.map((text, index) =>
+            text === "" ? null : (
+              <li key={index}>
+                {text}
+                {typing && index === lastIndex && <span aria-hidden className="analysis-caret ml-px inline-block h-[1em] w-0.5 bg-accent align-text-bottom" />}
+              </li>
+            ),
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+type AnalyzeResponse = { ok: true; value: Analysis & { balance: BalanceCheck | null; cached: boolean } } | { ok: false; error: string };
 
 /** 分析を取りに行く。別のメールを分析中（429）なら待って取り直す。中断されたら「中断」として返す（画面には出さない）。 */
-async function requestAnalysis(id: string, refresh: boolean, signal: AbortSignal, onWaiting: () => void): Promise<AnalyzeResponse> {
+async function requestAnalysis(id: string, refresh: boolean, signal: AbortSignal, onWaiting: (reason: "busy" | "network") => void): Promise<AnalyzeResponse> {
   const aborted: AnalyzeResponse = { ok: false, error: "中断しました。" };
   for (let attempt = 0; ; attempt++) {
     let status: number | "network";
-    let data: (Analysis & { balance?: BalanceCheck | null; error?: string }) | null = null;
+    let data: (Analysis & { balance?: BalanceCheck | null; cached?: boolean; error?: string }) | null = null;
     try {
       const response = await fetch("/api/mail/flow/analyze", {
         method: "POST",
@@ -237,8 +290,8 @@ async function requestAnalysis(id: string, refresh: boolean, signal: AbortSignal
         signal,
       });
       status = response.status;
-      data = (await response.json().catch(() => null)) as (Analysis & { balance?: BalanceCheck | null; error?: string }) | null;
-      if (response.ok && data?.summary && data.suggest) return { ok: true, value: { summary: data.summary, suggest: data.suggest, withdrawal: data.withdrawal ?? null, balance: data.balance ?? null } };
+      data = (await response.json().catch(() => null)) as (Analysis & { balance?: BalanceCheck | null; cached?: boolean; error?: string }) | null;
+      if (response.ok && data?.summary && data.suggest) return { ok: true, value: { summary: data.summary, suggest: data.suggest, withdrawal: data.withdrawal ?? null, balance: data.balance ?? null, cached: data.cached === true } };
     } catch {
       // 別アプリへ移るなどで通信だけが途切れた。サーバーの分析は続いているので取り直す
       if (signal.aborted) return aborted;
@@ -246,7 +299,7 @@ async function requestAnalysis(id: string, refresh: boolean, signal: AbortSignal
     }
     if (shouldRetryAnalysis(status, attempt)) {
       // 前に開いたメールの分析が終わるのを待つ（429。利用者ごとに同時1件）／通信の復帰を待つ
-      onWaiting();
+      onWaiting(status === "network" ? "network" : "busy");
       await new Promise((resolve) => setTimeout(resolve, ANALYZE_RETRY_MS));
       if (signal.aborted) return aborted;
       continue;
