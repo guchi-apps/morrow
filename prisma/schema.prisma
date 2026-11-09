@@ -64,6 +64,7 @@ model User {
   mailFeedbacks     MailFeedback[]
   mailFlowRecords   MailFlowRecord[]
   mailLinks         MailLink[]
+  mailListSummaries MailListSummary[]
   hermesProposals   HermesProposal[]
   hermesActionLogs  HermesActionLog[]
 }
@@ -407,6 +408,24 @@ model MailTriage {
 
   @@unique([userId, messageId])
   @@index([userId, createdAt])
+}
+
+// --- メール一覧の要約（#851） ---
+// 受信トレイにあるメールの本文から作った要約（1〜2文）。#732の「メール由来の文面をDBに残さない」の例外。
+// 件名・差出人・本文は持たない。アーカイブ・ゴミ箱の操作で削除し、一覧でINBOXの無いと分かった行も削除、30日で掃除する。
+
+model MailListSummary {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// AIDEのメッセージID。
+  messageId String   @db.VarChar(320)
+  summary   String   @db.VarChar(400)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, messageId])
+  @@index([createdAt])
 }
 
 // --- メールに付けた印（#833） ---

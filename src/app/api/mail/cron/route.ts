@@ -1,6 +1,7 @@
 import { NextResponse, after } from "next/server";
 
 import { hasValidBearer } from "@/lib/bearer-auth";
+import { pruneListSummaries } from "@/lib/mail/list-summary";
 import { runMailChecks } from "@/lib/mail/triage";
 
 /**
@@ -33,6 +34,8 @@ export async function POST(request: Request) {
     } catch (error) {
       console.error("[aide-bot] メールの確認に失敗した", error);
     }
+    // 30日を過ぎた一覧の要約を掃除する（#851）
+    await pruneListSummaries().catch((error: unknown) => console.error("[aide-bot] 一覧の要約の掃除に失敗した", error));
   });
 
   return NextResponse.json({ ran: true });

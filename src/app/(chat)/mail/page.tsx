@@ -1,5 +1,6 @@
 import { Search } from "lucide-react";
 import Link from "next/link";
+import { after } from "next/server";
 import { redirect } from "next/navigation";
 
 import { MailAccountTabs } from "@/components/mail/mail-account-tabs";
@@ -28,6 +29,7 @@ import {
   toggleAccountKey,
 } from "@/lib/mail/account-filter";
 import { onlyInbox } from "@/lib/mail/archived-memory";
+import { deleteListSummaries, getListSummaries, summarizeMissingSafely } from "@/lib/mail/list-summary";
 import { flowKindsFor } from "@/lib/mail/flow-record";
 import { neededTriages } from "@/lib/mail/triage";
 import { DEFAULT_MAIL_CRITERIA } from "@/lib/mail/triage-core";
@@ -67,8 +69,16 @@ export default async function MailPage({ searchParams }: Props) {
   const result = await listMailForPage(user, { view, labelId: null, filter, q, pageToken });
   // 受信トレイでは、INBOXラベルの無い（アーカイブ済みの）メールを出さない（#795）。検索中は対象外
   const inboxView = view === "inbox" && !q;
+  // INBOXの無いメール（アーカイブ・ゴミ箱）の要約は消す（#851。Gmail側の直接操作の取りこぼしを拾う）
+  if (result.ok) {
+    const outside = result.value.messages.filter((m) => !m.labelIds.includes("INBOX")).map((m) => m.id);
+    if (outside.length > 0) after(() => deleteListSummaries(user.id, outside).catch(() => undefined));
+  }
   if (result.ok && inboxView) result.value.messages = onlyInbox(result.value.messages);
   const listedIds = result.ok ? result.value.messages.map((m) => m.id) : [];
+  // 一覧の要約は受信トレイ表示のときだけ。無い分は裏で作り、画面が取り直す
+  const summaries = result.ok && inboxView ? await getListSummaries(user.id, listedIds).catch(() => new Map<string, string>()) : new Map<string, string>();
+  if (result.ok && inboxView && listedIds.some((id) => !summaries.has(id))) after(() => summarizeMissingSafely(user, listedIds));
   const [notified, flowKinds] = result.ok ? await Promise.all([neededTriages(user.id, listedIds), flowKindsFor(user.id, listedIds)]) : [new Map(), new Map<string, string[]>()];
 
   // アカウントのチップ（#711・#829）。AIDEが `accounts` を返せばそれ、無ければ絞る前の全行から推定した一覧。
@@ -231,7 +241,7 @@ export default async function MailPage({ searchParams }: Props) {
               </p>
             ) : (
               <MailRows
-                messages={result.value.messages.map((message) => ({ ...message, notified: notified.has(message.id), flowKinds: flowKinds.get(message.id) ?? [] }))}
+                messages={result.value.messages.map((message) => ({ ...message, notified: notified.has(message.id), summary: summaries.get(message.id) ?? null, flowKinds: flowKinds.get(message.id) ?? [] }))}
                 labels={result.value.labels}
                 supportsLabels={result.value.supportsLabels}
                 inTrash={view === "trash"}
