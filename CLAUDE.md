@@ -217,6 +217,15 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
 - 通知の遷移先（`url`）は殻の `AppConfig.notificationTarget()` が `isInternalPath()` と同じ考え方で検査する（`//`・`\`・制御文字を弾く）。
   `ios/scripts/check-consistency.mjs` が一部を照合する
 
+## 画面のエラー境界と自動の読み込み直し（#863）
+
+**iOSで別アプリへ移ると通信が切られ、取得中のRSC（`router.refresh()`・画面遷移）のストリームが途中で切れる。** fetch自体の失敗ならNext.jsが通常の再読み込みへ逃がすが、ヘッダーが届いた後に切れた回は描画時の例外になる（`next/dist/client/components/router-reducer/fetch-server-response.js`）。エラー境界が無いとNext.jsの既定画面（英語の「This page couldn’t load」）が出る。メール本文の画面は開いた直後の自動既読（#835）で `router.refresh()` を呼び、本文の取得に数秒かかるので踏みやすい（実機のログは無く、推定）。
+
+- `src/app/(chat)/error.tsx`（レイアウトは残す）と `src/app/global-error.tsx` が `ErrorScreen`（`src/components/error/error-screen.tsx`）を出す
+- **通信由来の例外（`isRecoverableError()`。`src/lib/recoverable-error.ts`・`test/recoverable-error.test.ts`）だけ、画面が表に出た時点で `location.reload()` する**（裏にいる間は `visibilitychange` を待つ）。`reset()` は使わない（切れたRSCは同じ木を描き直しても直らない）。`digest` 付き（サーバーの例外）は対象外
+- **同じURLで30秒以内に続けて起きたら自動では読み込み直さず、ボタンの画面で止める**（sessionStorageの印。ループさせない）
+- 自動既読の後の `router.refresh()` は残した。外すと、iOSの端スワイプ（履歴の戻る）で一覧へ戻ったときに未読の印が古いまま出うるため
+
 ## Route Handlerのリクエスト本文（#262）
 
 **本文はJSONの `null` でも「読めた」ことになる。** `request.json()` は本文が `null` なら `null` を返す
