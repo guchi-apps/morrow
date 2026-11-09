@@ -61,6 +61,8 @@ export async function summarizeMissingSafely(user: MailUser, messageIds: string[
 
 /** 要約の無い受信トレイのメール（`messageIds` は新しい順）を、上限ぶんだけ要約して保存する。 */
 async function summarizeMissing(user: MailUser, messageIds: string[]): Promise<void> {
+  // 対象IDを決める前に控える（決めた後に消された分も取りこぼさない）
+  const startedAt = Date.now();
   if (inRetryWait(lastFailure.get(user.id), Date.now())) return;
   const have = await getListSummaries(user.id, messageIds);
   const targets = selectMissing(messageIds, new Set(have.keys()));
@@ -68,7 +70,6 @@ async function summarizeMissing(user: MailUser, messageIds: string[]): Promise<v
 
   const release = acquireMailCodex(user.id, { kind: "list_summary", key: targets[0]! });
   if (!release) return;
-  const startedAt = Date.now();
   try {
     const items: ListSummaryItem[] = [];
     const idByKey = new Map<string, string>();

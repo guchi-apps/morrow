@@ -6,6 +6,7 @@ import {
   LIST_SUMMARY_MAX_LEN,
   LIST_SUMMARY_RETRY_MS,
   buildListSummaryPrompt,
+  createTombstones,
   inRetryWait,
   parseListSummaryReply,
   selectMissing,
@@ -40,7 +41,6 @@ describe("一覧の要約（#851）", () => {
   });
 });
 
-import { createTombstones } from "../src/lib/mail/list-summary-core.ts";
 
 describe("生成中の削除の取消し印（#860）", () => {
   it("生成の開始より後に消された分だけを検出する", () => {
