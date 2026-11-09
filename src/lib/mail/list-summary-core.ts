@@ -79,3 +79,28 @@ export function selectMissing(ids: string[], have: ReadonlySet<string>, max = LI
 export function inRetryWait(lastFailureAt: number | undefined, now: number): boolean {
   return lastFailureAt !== undefined && now - lastFailureAt < LIST_SUMMARY_RETRY_MS;
 }
+
+/**
+ * 「生成中に削除された」ことを覚えておく取消し印（#860。純粋・プロセス内）。
+ * 生成はCodex待ちで数十秒かかるので、その間にアーカイブ・ゴミ箱の削除が先に終わると、保存が行を復活させる。
+ * 削除側は**DBを消す前に** `mark()` し、生成側は開始時刻を控えて、保存の前後で `deletedSince()` を見る。
+ */
+export const LIST_SUMMARY_TOMBSTONE_TTL_MS = 30 * 60 * 1000;
+
+export function createTombstones(ttlMs = LIST_SUMMARY_TOMBSTONE_TTL_MS) {
+  const marks = new Map<string, number>();
+  const keyOf = (userId: string, messageId: string) => `${userId}\u0000${messageId}`;
+  return {
+    mark(userId: string, messageIds: string[], now = Date.now()): void {
+      for (const [key, at] of marks) if (now - at > ttlMs) marks.delete(key);
+      for (const id of messageIds) marks.set(keyOf(userId, id), now);
+    },
+    /** `since`（生成の開始時刻）以降に削除の印が付いたID。 */
+    deletedSince(userId: string, messageIds: string[], since: number): string[] {
+      return messageIds.filter((id) => {
+        const at = marks.get(keyOf(userId, id));
+        return at !== undefined && at >= since;
+      });
+    },
+  };
+}

@@ -6,6 +6,7 @@ import { getMail, type MailUser } from "@/lib/mail/aide-client";
 import { acquireMailCodex } from "@/lib/mail/codex-lock";
 import {
   LIST_SUMMARY_RETENTION_DAYS,
+  createTombstones,
   buildListSummaryPrompt,
   inRetryWait,
   parseListSummaryReply,
@@ -26,6 +27,8 @@ import { plainBody } from "@/lib/mail/suggest-core";
 
 const TIMEOUT_MS = 120_000;
 const lastFailure = new Map<string, number>();
+/** 生成中に消された（アーカイブ・ゴミ箱）メール。保存で行を復活させないための印（#860）。 */
+const tombstones = createTombstones();
 
 export async function getListSummaries(userId: string, messageIds: string[]): Promise<Map<string, string>> {
   if (messageIds.length === 0) return new Map();
@@ -35,6 +38,8 @@ export async function getListSummaries(userId: string, messageIds: string[]): Pr
 
 export async function deleteListSummaries(userId: string, messageIds: string[]): Promise<void> {
   if (messageIds.length === 0) return;
+  // 先に印を付ける（DBの削除より後に付けると、その間の保存が見逃される）
+  tombstones.mark(userId, messageIds);
   await db.mailListSummary.deleteMany({ where: { userId, messageId: { in: messageIds } } });
 }
 
@@ -56,6 +61,8 @@ export async function summarizeMissingSafely(user: MailUser, messageIds: string[
 
 /** 要約の無い受信トレイのメール（`messageIds` は新しい順）を、上限ぶんだけ要約して保存する。 */
 async function summarizeMissing(user: MailUser, messageIds: string[]): Promise<void> {
+  // 対象IDを決める前に控える（決めた後に消された分も取りこぼさない）
+  const startedAt = Date.now();
   if (inRetryWait(lastFailure.get(user.id), Date.now())) return;
   const have = await getListSummaries(user.id, messageIds);
   const targets = selectMissing(messageIds, new Set(have.keys()));
@@ -96,10 +103,14 @@ async function summarizeMissing(user: MailUser, messageIds: string[]): Promise<v
       return;
     }
     lastFailure.delete(user.id);
-    await db.mailListSummary.createMany({
-      data: [...parsed].map(([key, summary]) => ({ userId: user.id, messageId: idByKey.get(key)!, summary })),
-      skipDuplicates: true,
-    });
+    const rows = [...parsed]
+      .map(([key, summary]) => ({ userId: user.id, messageId: idByKey.get(key)!, summary }))
+      .filter((row) => !tombstones.deletedSince(user.id, [row.messageId], startedAt).length);
+    if (rows.length === 0) return;
+    await db.mailListSummary.createMany({ data: rows, skipDuplicates: true });
+    // 保存の確認と書き込みの間に削除が入った回のために、書いた後にも見て、消されたものは消し直す
+    const raced = tombstones.deletedSince(user.id, rows.map((row) => row.messageId), startedAt);
+    if (raced.length > 0) await db.mailListSummary.deleteMany({ where: { userId: user.id, messageId: { in: raced } } });
   } catch (error) {
     lastFailure.set(user.id, Date.now());
     throw error;
