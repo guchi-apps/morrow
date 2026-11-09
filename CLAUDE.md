@@ -235,7 +235,7 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
 
 - **台帳の複製の正ではなく、押した操作の控え**（#732）。持つのは `messageId`・`kind`（event/task）・予定/タスクのid（`targetId`・予定は `calendarId` も）・紐づけ時点の題名・日付・`source`（`created`＝メールから作成／`manual`＝あとから）だけで、件名・差出人・本文は持たない。台帳側で変わっても追従せず、消えても行は残り利用者が解除する。**台帳の中身を読み直して同期する処理は足さない**
 - 純粋な部分は `src/lib/mail/link-core.ts`（`test/mail-link.test.ts`）、DBとAIDEの読み取りは `link.ts`、口は `/api/mail/links`（GET＝候補、POST＝紐づけ、DELETE＝解除）。**紐づけ（POST）は `getMail()` で持ち主を照合してから保存する**
-- **候補**: 予定は `aide_schedule`（`offsetDays: -7, days: 14`。活動記録・中止は除く）、タスクは `aide_tasks`（`status: open`。`readTools` に足した）。形が違っても読めるよう `link-core.ts` が複数の置き場所を見る。**タスクの応答の形は実物で未確認**——候補が出ないときはまずAIDEの応答を見る
+- **候補**: 予定は `aide_schedule`（`offsetDays: -7, days: 14`。活動記録・中止は除く）、タスクは `aide_tasks`（`status: open`。`readTools` に足した）。形が違っても読めるよう `link-core.ts` が複数の置き場所を見る。**`aide_tasks` の契約は2026-11-09に実物で確認済み（#853）**——入力は `status`（open/completed/skipped）・`limit`（1〜100）・`cursor`・`dateField`・`from`・`to`、応答は `tasks[].{id, title, due, planned, …}`・`hasMore`・`nextCursor`。`{ status: "open", limit: 60 }` は範囲内で、`parseTaskCandidates()` がそのまま読める。形は `test/mail-link.test.ts`「aide_tasks の契約」が固定する。**`hasMore: true`（60件超）でも先頭の60件だけを候補にし、`cursor` は辿らない**（候補は直近の未完了で足りる判断）。AIDEなど外部の道具を呼ぶ処理を足すときは、入力・応答の例をテストかdocsに残す（レビューが契約を確認できず止まるのを防ぐ）
 - **メールから作成したとき（`applyFlow()`）は自動で紐づく**。作成の応答にidがあればそれ、無ければ作成後に一覧を引いて**題名・時刻が一致する1件だけ**採る（複数なら決められないので紐づけない。失敗は本筋を止めずログのみ）
 - **ダッシュボード**: `ScheduleItem` が `id`・`calendarId` を持つ。`ScheduleBody` が `mailIdsByTarget()` で逆引きし、1通なら `/mail/<id>`、複数なら `details` の小メニューへ。繰り返し予定は1回分のidに紐づく
 - AIDE（予定の説明欄）・YoteiFlow（タスクの構造化リンク）側にメール参照を持たせる案は別リポジトリの変更になるため見送った
