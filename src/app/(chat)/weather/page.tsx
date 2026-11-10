@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import { searchMunicipalities } from "@/lib/weather/geocode";
 import { OPEN_METEO_ATTRIBUTION, forecastAt } from "@/lib/weather/open-meteo";
 import { placeDayFrom, type PlaceDay } from "@/lib/weather/place-day";
-import { MAX_WEATHER_PLACES, placeFromQuery, weatherHref, type WeatherPlaceInput } from "@/lib/weather/place-input";
+import { MAX_WEATHER_PLACES, findRegisteredPlace, placeFromQuery, weatherHref, type WeatherPlaceInput } from "@/lib/weather/place-input";
 import { listWeatherPlaces } from "@/lib/weather/places-store";
 import { describeWeatherCode, roundCoordinate, type Forecast } from "@/lib/weather/rain-check";
 
@@ -79,7 +79,8 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
   ];
   const keyOf = (place: { latitude: number; longitude: number }) => `${place.latitude},${place.longitude}`;
   const isHome = selected && home ? sameSpot(selected, home) : false;
-  const registered = selected ? stored.some((place) => sameSpot(place, selected)) : false;
+  const registeredPlace = selected && !isHome ? findRegisteredPlace(selected, stored) : null;
+  const registered = registeredPlace !== null;
 
   let detail: PlaceDay | null = null;
   const selectedForecast = selected ? (forecasts.get(keyOf(selected)) ?? null) : null;
@@ -150,7 +151,7 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
             <ul className="flex flex-col">
               {entries.map(({ place, home: isHomeEntry, id }) => {
                 const daily = forecasts.get(keyOf(place))?.daily.find((day) => day.date === date) ?? null;
-                const on = selected ? sameSpot(selected, place) : false;
+                const on = selected ? (isHomeEntry ? sameSpot(selected, place) : registeredPlace?.id === id) : false;
                 return (
                   <li key={id}>
                     <Link
@@ -190,7 +191,12 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
                     {isHome && <span className="text-xs font-normal text-muted">・自宅</span>}
                   </h3>
                   {!isHome && (
-                    <PlaceActions name={selected.name} latitude={selected.latitude} longitude={selected.longitude} registered={registered} />
+                    <PlaceActions
+                      name={registeredPlace?.name ?? selected.name}
+                      latitude={registeredPlace?.latitude ?? selected.latitude}
+                      longitude={registeredPlace?.longitude ?? selected.longitude}
+                      registered={registered}
+                    />
                   )}
                 </div>
 
