@@ -138,14 +138,32 @@ export function TemperatureChart({ cells, nowIndex }: { cells: HourCell[]; nowIn
  * 降水確率（棒と%）・1時間雨量（mm）。`nowIndex` より前は過ぎた時間で、灰色に薄くする（-1は全部が先の時間）。
  * 列は固定幅で、カードの幅に収まらないぶんは帯の中だけ横にスクロールする（ページは横に動かさない）。
  */
-export function HourlyStrip({ cells, nowIndex, resetKey }: { cells: HourCell[]; nowIndex: number; resetKey: string }) {
+export function HourlyStrip({
+  cells,
+  nowIndex,
+  resetKey,
+  dateBands,
+  focusIndex,
+}: {
+  cells: HourCell[];
+  nowIndex: number;
+  resetKey: string;
+  /** 日付→最上段のラベル。渡すと最上段は場所ではなく日付ごとに区切る（天気ページ。#869） */
+  dateBands?: Record<string, string>;
+  /** 開いたとき先頭に出す列（「今」以外の日を指定されたとき）。 */
+  focusIndex?: number;
+}) {
   const bands: { start: number; span: number; cell: HourCell }[] = [];
   cells.forEach((cell, index) => {
     const last = bands.at(-1);
-    if (last && last.cell.placeLabel === cell.placeLabel && last.cell.placeKind === cell.placeKind) last.span += 1;
+    const same = dateBands
+      ? last?.cell.date === cell.date
+      : last?.cell.placeLabel === cell.placeLabel && last?.cell.placeKind === cell.placeKind;
+    if (last && same) last.span += 1;
     else bands.push({ start: index, span: 1, cell });
   });
   const total = cells.length;
+  const todayDate = nowIndex >= 0 ? cells[nowIndex]?.date : undefined;
 
   return (
     <ScrollToNow className="-mx-0.5 overflow-x-auto overscroll-x-contain px-0.5 pb-1 [scrollbar-width:thin]" resetKey={resetKey}>
@@ -157,13 +175,13 @@ export function HourlyStrip({ cells, nowIndex, resetKey }: { cells: HourCell[]; 
             style={{ gridColumn: `${band.start + 1} / span ${band.span}`, gridRow: 1 }}
             className={cn(
               "mr-0.5 rounded-md px-1.5 py-0.5 text-[0.65625rem] font-bold whitespace-nowrap",
-              BAND_CLASS[band.cell.placeKind],
+              dateBands ? (band.cell.date === todayDate ? BAND_CLASS.away : BAND_CLASS.home) : BAND_CLASS[band.cell.placeKind],
               band.start + band.span <= nowIndex && "opacity-50 grayscale",
             )}
-            title={band.cell.placeLabel}
+            title={dateBands ? (dateBands[band.cell.date] ?? band.cell.date) : band.cell.placeLabel}
           >
             {/* li に overflow を持たせると sticky の基準が li になり追従しないので、切り詰めはここで行う（#685） */}
-            <span className="sticky left-1 inline-block max-w-full truncate align-top">{band.cell.placeLabel}</span>
+            <span className="sticky left-1 inline-block max-w-full truncate align-top">{dateBands ? (dateBands[band.cell.date] ?? band.cell.date) : band.cell.placeLabel}</span>
           </li>
         ))}
         {cells.map((cell, index) => {
@@ -175,6 +193,7 @@ export function HourlyStrip({ cells, nowIndex, resetKey }: { cells: HourCell[]; 
             <li
               key={`${cell.date}-${cell.hour}`}
               data-now={isNow ? "" : undefined}
+              data-focus={index === focusIndex ? "" : undefined}
               style={{ gridColumn: index + 1, gridRow: 2 }}
               className={cn("flex flex-col items-center gap-[3px] rounded-lg pt-1 tabular-nums", isNow && "bg-topic-surface", isPast && "opacity-50 grayscale")}
               aria-label={
