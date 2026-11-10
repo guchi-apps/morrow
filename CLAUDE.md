@@ -217,6 +217,15 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
 - 通知の遷移先（`url`）は殻の `AppConfig.notificationTarget()` が `isInternalPath()` と同じ考え方で検査する（`//`・`\`・制御文字を弾く）。
   `ios/scripts/check-consistency.mjs` が一部を照合する
 
+## 画面のエラー境界と自動の読み込み直し（#863）
+
+**iOSで別アプリへ移ると通信が切られ、取得中のRSC（`router.refresh()`・画面遷移）のストリームが途中で切れる。** fetch自体の失敗ならNext.jsが通常の再読み込みへ逃がすが、ヘッダーが届いた後に切れた回は描画時の例外になる（`next/dist/client/components/router-reducer/fetch-server-response.js`）。エラー境界が無いとNext.jsの既定画面（英語の「This page couldn’t load」）が出る。メール本文の画面は開いた直後の自動既読（#835）で `router.refresh()` を呼び、本文の取得に数秒かかるので踏みやすい（実機のログは無く、推定）。
+
+- `src/app/(chat)/error.tsx`（レイアウトは残す）と `src/app/global-error.tsx` が `ErrorScreen`（`src/components/error/error-screen.tsx`）を出す
+- **通信由来の例外（`isRecoverableError()`。`src/lib/recoverable-error.ts`・`test/recoverable-error.test.ts`）だけ、画面が表に出た時点で `location.reload()` する**（裏にいる間は `visibilitychange` を待つ）。`reset()` は使わない（切れたRSCは同じ木を描き直しても直らない）。`digest` 付き（サーバーの例外）は対象外
+- **同じURLで30秒以内に続けて起きたら自動では読み込み直さず、ボタンの画面で止める**（sessionStorageの印。ループさせない）
+- 自動既読の後の `router.refresh()` は残した。外すと、iOSの端スワイプ（履歴の戻る）で一覧へ戻ったときに未読の印が古いまま出うるため
+
 ## Route Handlerのリクエスト本文（#262）
 
 **本文はJSONの `null` でも「読めた」ことになる。** `request.json()` は本文が `null` なら `null` を返す
@@ -474,6 +483,11 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
   （`geocode.ts`。24時間キャッシュ。解決できなかった地名も持つ）。座標は小数2桁（≒1km）に丸めてから外へ送る
 - **行き先の材料は `travels[].destination`（無ければタイトルの `→` の右）と `events[].location` だけ。タイトルの括弧（「出張（門真）」）は
   読まない**（利用者の判断。誤読を避ける）。区間・判定・地名の選び方は純粋な `rain-check.ts`（`test/rain-check.test.ts`）
+- **移動の予定と、移動から推した場所の扱い**（#852。`staysForDay()`）。カレンダー名が「移動」か場所欄に `→` を含む予定（飛行機など）は
+  居る場所の区間にせず移動として扱う（DaySpanの移動と重なれば捨て、重ならなければ場所欄の `→` の左右を出発地・行き先にする）。
+  移動から作った自宅以外の区間（出発地・行き先）は、**場所欄のある予定（終日を除く）がその時間の半分以上を占めれば出さない**
+  （「燕三条」のような駅名の出発地が、同じ時間のホテル・出張先と並んで「場所不明」になっていた）。出さなかった区間の時間も、
+  場所欄の無い予定を自宅として足すときは塞いだままにする（出張先で「自宅」と出さない）。短い予定だけなら区間は残す
 - **場所欄が空の予定は自宅に居るものとして区間にする**（#597。ラベルは予定のタイトル）。移動中・他の区間（移動前後の自宅・行き先）と
   重なる予定は足さない。明日以降は移動から作った自宅の区間（出発前・帰宅後）は出さず、この予定ぶんだけ出る。今日に行き先も場所欄も
   無い日は従来どおり「自宅 終日」の1行
