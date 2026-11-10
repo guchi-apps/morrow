@@ -2,7 +2,6 @@ import { CloudRain, CloudSun, Umbrella } from "lucide-react";
 import Link from "next/link";
 import { Suspense } from "react";
 
-import { CurrentLocationWeather } from "@/components/dashboard/current-location-weather";
 import { DaySwipe } from "@/components/dashboard/day-swipe";
 import { HourlyStrip, WeatherIcon, YesterdayNote } from "@/components/weather/hourly-strip";
 import { weatherHref } from "@/lib/weather/place-input";
@@ -293,7 +292,6 @@ async function WeatherCard({
 
   return (
     <Card title={`${cardDayName(dayKey, offset)}の天気`}>
-      {offset === 0 && <CurrentLocationWeather />}
       <WeatherBody weather={weather} previous={previous?.status === "ok" ? previous.day : null} />
       <Suspense fallback={<p className="text-xs text-muted">時間と場所ごとの天気を取得しています…</p>}>
         <PlacesSection

@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import { searchMunicipalities } from "@/lib/weather/geocode";
 import { OPEN_METEO_ATTRIBUTION, forecastAt } from "@/lib/weather/open-meteo";
 import { placeDayFrom, type PlaceDay } from "@/lib/weather/place-day";
-import { MAX_WEATHER_PLACES, placeFromQuery, weatherHref, type WeatherPlaceInput } from "@/lib/weather/place-input";
+import { MAX_WEATHER_PLACES, findRegisteredPlace, placeFromQuery, weatherHref, type WeatherPlaceInput } from "@/lib/weather/place-input";
 import { listWeatherPlaces } from "@/lib/weather/places-store";
 import { describeWeatherCode, roundCoordinate, type Forecast } from "@/lib/weather/rain-check";
 
@@ -79,11 +79,30 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
   ];
   const keyOf = (place: { latitude: number; longitude: number }) => `${place.latitude},${place.longitude}`;
   const isHome = selected && home ? sameSpot(selected, home) : false;
-  const registered = selected ? stored.some((place) => sameSpot(place, selected)) : false;
+  const registeredPlace = selected && !isHome ? findRegisteredPlace(selected, stored) : null;
+  const registered = registeredPlace !== null;
 
-  let detail: PlaceDay | null = null;
+  // 今日の前後 DAY_RANGE 日を1本の帯に連結する（#869。日付をまたいで左右スクロールで続けて見られる）
+  const days = Array.from({ length: DAY_RANGE * 2 + 1 }, (_, i) => addDays(today, i - DAY_RANGE));
+  let detail: { cells: PlaceDay["cells"]; byDate: Map<string, PlaceDay> } | null = null;
   const selectedForecast = selected ? (forecasts.get(keyOf(selected)) ?? null) : null;
-  if (selected && selectedForecast) detail = placeDayFrom(selectedForecast, selected, date, isHome ? "home" : "away");
+  if (selected && selectedForecast) {
+    const byDate = new Map(days.map((day) => [day, placeDayFrom(selectedForecast, selected, day, isHome ? "home" : "away")] as const));
+    detail = { cells: [...byDate.values()].flatMap((d) => d.cells), byDate };
+  }
+  const nowIndex = DAY_RANGE * 24 + Number(jstTimeLabel(now).slice(0, 2));
+  // 日付のラベル（日付・天気・最高/最低）。最上段に出す
+  const dateBands = detail
+    ? Object.fromEntries(
+        [...detail.byDate].map(([day, d]) => [
+          day,
+          d.daily ? `${dayLabel(day)}　${describeWeatherCode(d.daily.code)} ${temp(d.daily.max)}/${temp(d.daily.min)}` : dayLabel(day),
+        ]),
+      )
+    : null;
+  // ダッシュボードの地点名から今日以外の日で開いたときは、その日の0時から見せる
+  const focusIndex = offset === 0 ? undefined : (days.indexOf(date) as number) * 24;
+  const todayDaily = detail?.byDate.get(today)?.daily ?? null;
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -150,7 +169,7 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
             <ul className="flex flex-col">
               {entries.map(({ place, home: isHomeEntry, id }) => {
                 const daily = forecasts.get(keyOf(place))?.daily.find((day) => day.date === date) ?? null;
-                const on = selected ? sameSpot(selected, place) : false;
+                const on = selected ? (isHomeEntry ? sameSpot(selected, place) : registeredPlace?.id === id) : false;
                 return (
                   <li key={id}>
                     <Link
@@ -190,30 +209,12 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
                     {isHome && <span className="text-xs font-normal text-muted">・自宅</span>}
                   </h3>
                   {!isHome && (
-                    <PlaceActions name={selected.name} latitude={selected.latitude} longitude={selected.longitude} registered={registered} />
-                  )}
-                </div>
-
-                <div className="flex items-center justify-center gap-2.5 text-sm">
-                  {offset > -DAY_RANGE ? (
-                    <Link href={weatherHref(selected, addDays(date, -1))} replace aria-label="前の日" className="rounded-full border border-border px-3 py-0.5 hover:bg-rail-active">
-                      ‹
-                    </Link>
-                  ) : (
-                    <span className="rounded-full border border-border px-3 py-0.5 text-muted opacity-40" aria-hidden="true">‹</span>
-                  )}
-                  <b>{dayLabel(date)}</b>
-                  {offset < DAY_RANGE ? (
-                    <Link href={weatherHref(selected, addDays(date, 1))} replace aria-label="次の日" className="rounded-full border border-border px-3 py-0.5 hover:bg-rail-active">
-                      ›
-                    </Link>
-                  ) : (
-                    <span className="rounded-full border border-border px-3 py-0.5 text-muted opacity-40" aria-hidden="true">›</span>
-                  )}
-                  {offset !== 0 && (
-                    <Link href={weatherHref(selected)} replace className="rounded-full border border-accent px-3 py-0.5 text-xs font-bold text-accent hover:bg-accent-surface">
-                      今日へ
-                    </Link>
+                    <PlaceActions
+                      name={registeredPlace?.name ?? selected.name}
+                      latitude={registeredPlace?.latitude ?? selected.latitude}
+                      longitude={registeredPlace?.longitude ?? selected.longitude}
+                      registered={registered}
+                    />
                   )}
                 </div>
 
@@ -223,34 +224,30 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
                   </p>
                 ) : (
                   <>
-                    {detail.daily && (
+                    {todayDaily && (
                       <p className="flex flex-wrap items-center gap-x-3 text-[0.8125rem]">
                         <span className="flex items-center gap-1.5 font-bold">
-                          <WeatherIcon code={detail.daily.code} className="size-4 text-topic" />
-                          {describeWeatherCode(detail.daily.code)}
+                          <WeatherIcon code={todayDaily.code} className="size-4 text-topic" />
+                          {describeWeatherCode(todayDaily.code)}
                         </span>
                         <span className="tabular-nums">
-                          最高 <b className="text-accent">{temp(detail.daily.max)}</b> / 最低 <b className="text-topic">{temp(detail.daily.min)}</b>
+                          最高 <b className="text-accent">{temp(todayDaily.max)}</b> / 最低 <b className="text-topic">{temp(todayDaily.min)}</b>
                         </span>
-                        {detail.daily.pop !== null && <span className="text-muted">降水 {detail.daily.pop}%</span>}
+                        {todayDaily.pop !== null && <span className="text-muted">降水 {todayDaily.pop}%</span>}
                       </p>
                     )}
-                    <YesterdayNote cells={detail.cells} nowIndex={offset === 0 ? Number(jstTimeLabel(now).slice(0, 2)) : -1} />
+                    <YesterdayNote cells={detail.cells} nowIndex={nowIndex} />
                     <HourlyStrip
                       cells={detail.cells}
-                      nowIndex={offset === 0 ? Number(jstTimeLabel(now).slice(0, 2)) : -1}
+                      nowIndex={nowIndex}
                       resetKey={`${keyOf(selected)}:${date}`}
+                      dateBands={dateBands ?? undefined}
+                      focusIndex={focusIndex}
                     />
                     <p className="text-[0.6875rem] text-muted">
-                      青い地は降水確率50%以上。灰色は過ぎた時間。横にスクロールできます。{OPEN_METEO_ATTRIBUTION}
+                      青い地は降水確率50%以上。灰色は過ぎた時間。左右にスクロールすると前後の日も続けて見られます。{OPEN_METEO_ATTRIBUTION}
                     </p>
-                    {offset === 0 ? (
-                      <RainRadar key={keyOf(selected)} latitude={selected.latitude} longitude={selected.longitude} centerLabel={selected.name} />
-                    ) : (
-                      <p className="border-t border-border pt-2.5 text-xs text-muted">
-                        雨雲レーダーは今日の表示のときだけ出ます（実況と約15時間先までの予報のため）。
-                      </p>
-                    )}
+                    <RainRadar key={keyOf(selected)} latitude={selected.latitude} longitude={selected.longitude} centerLabel={selected.name} />
                   </>
                 )}
               </>

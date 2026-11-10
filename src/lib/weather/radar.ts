@@ -14,11 +14,58 @@ export const RADAR_FORECAST_TIMES_URL = `${JMA_NOWC}/targetTimes_N2.json`;
 const JMA_RASRF = "https://www.jma.go.jp/bosai/jmatile/data/rasrf";
 export const RADAR_LONG_TIMES_URL = `${JMA_RASRF}/targetTimes.json`;
 
-/** 周辺（約45km四方）と広域（約180km四方）のタイルのズーム。 */
-export const RADAR_ZOOMS = { near: 10, wide: 8 } as const;
-export type RadarZoom = (typeof RADAR_ZOOMS)[keyof typeof RADAR_ZOOMS];
+/** 地図のズームの範囲（#872）。初期は従来の「周辺」（約45km四方）。タイルは整数ズームで読み、間はCSSの拡大率でつなぐ。 */
+export const RADAR_ZOOM_MIN = 6;
+export const RADAR_ZOOM_MAX = 10;
+export const RADAR_ZOOM_DEFAULT = 10;
 
 const TILE_PX = 256;
+
+export function clampZoom(zoom: number): number {
+  if (!Number.isFinite(zoom)) return RADAR_ZOOM_DEFAULT;
+  return Math.min(RADAR_ZOOM_MAX, Math.max(RADAR_ZOOM_MIN, zoom));
+}
+
+/** 小数のズームを、読むタイルの整数ズームと、CSSで掛ける拡大率に分ける。 */
+export function splitZoom(zoom: number): { tileZoom: number; scale: number } {
+  const clamped = clampZoom(zoom);
+  const tileZoom = Math.min(RADAR_ZOOM_MAX, Math.max(RADAR_ZOOM_MIN, Math.round(clamped)));
+  return { tileZoom, scale: 2 ** (clamped - tileZoom) };
+}
+
+/** 画面のpx（ドラッグした量）だけ地図を動かしたときの新しい中心。レーダーの範囲の外へは出さない。 */
+export function panCenter(
+  latitude: number,
+  longitude: number,
+  zoom: number,
+  dxPx: number,
+  dyPx: number,
+): { latitude: number; longitude: number } {
+  const world = 2 ** zoom * TILE_PX;
+  const sinLat = Math.sin((latitude * Math.PI) / 180);
+  const x = ((longitude + 180) / 360) * world - dxPx;
+  const y = (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * world - dyPx;
+  const lon = (x / world) * 360 - 180;
+  const n = Math.PI - (2 * Math.PI * y) / world;
+  const lat = (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+  return {
+    latitude: Math.min(50, Math.max(20, lat)),
+    longitude: Math.min(150, Math.max(118, lon)),
+  };
+}
+
+/** 枠の横幅がおよそ何kmにあたるか（縮尺の表示用）。 */
+export function viewWidthKm(latitude: number, zoom: number, widthPx: number): number {
+  const metersPerPx = (156543.03392 * Math.cos((latitude * Math.PI) / 180)) / 2 ** zoom;
+  return (metersPerPx * widthPx) / 1000;
+}
+
+/** 縮尺の表示用の丸め（「約45km」。10km未満は整数、以上は5kmきざみ）。 */
+export function scaleLabel(km: number): string {
+  if (!Number.isFinite(km) || km <= 0) return "";
+  const rounded = km < 10 ? Math.max(1, Math.round(km)) : Math.round(km / 5) * 5;
+  return `約${rounded}km`;
+}
 /** 「今」の前後に出すコマ数（5分刻みで1時間ぶん）。 */
 const FRAMES_EACH_SIDE = 12;
 

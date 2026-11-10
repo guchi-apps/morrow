@@ -40,6 +40,32 @@ export function weatherHref(place: WeatherPlaceInput, date?: string): string {
   return `/weather?${params.toString()}`;
 }
 
+/** 同名のときに「同じ地点」と見なす距離（度。0.1°≒約10km）。 */
+const SAME_NAME_RADIUS_DEG = 0.1;
+
+/**
+ * 開いた地点が登録済みのどれにあたるかを探す（#868）。座標の完全一致（小数2桁）を優先し、無ければ
+ * 同名かつ近接のものを採る。ダッシュボードの行き先は予定の場所欄を地名解決した座標で、検索から登録した
+ * 座標と少しずれうるため、座標だけの一致だと同じ地名でも登録済みに見えなかった。
+ */
+export function findRegisteredPlace<T extends WeatherPlaceInput>(selected: WeatherPlaceInput, stored: readonly T[]): T | null {
+  const exact = stored.find(
+    (place) => roundCoordinate(place.latitude) === roundCoordinate(selected.latitude) && roundCoordinate(place.longitude) === roundCoordinate(selected.longitude),
+  );
+  if (exact) return exact;
+  let best: T | null = null;
+  let bestDistance = Infinity;
+  for (const place of stored) {
+    if (place.name !== selected.name) continue;
+    const distance = Math.hypot(place.latitude - selected.latitude, place.longitude - selected.longitude);
+    if (distance <= SAME_NAME_RADIUS_DEG && distance < bestDistance) {
+      best = place;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
 const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value);
 
 /** URLの `n`・`lat`・`lon` から地点を読む。どれかが読めなければnull（一覧だけを出す）。 */

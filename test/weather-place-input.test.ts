@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { cleanPlaceName, parsePlaceInput, placeFromQuery, weatherHref } from "../src/lib/weather/place-input.ts";
+import { cleanPlaceName, findRegisteredPlace, parsePlaceInput, placeFromQuery, weatherHref } from "../src/lib/weather/place-input.ts";
 import { municipalityCandidates } from "../src/lib/weather/rain-check.ts";
 
 describe("parsePlaceInput", () => {
@@ -63,5 +63,22 @@ describe("municipalityCandidates", () => {
   it("件数の上限を守る", () => {
     const many = Array.from({ length: 10 }, (_, i) => ({ title: `県${i}三条市`.replace("県", "新潟県"), latitude: 30 + i, longitude: 130 }));
     assert.equal(municipalityCandidates("三条", many, 3).length, 3);
+  });
+});
+
+describe("findRegisteredPlace（#868）", () => {
+  const stored = [
+    { id: "a", name: "栗東市", latitude: 35.01, longitude: 135.99 },
+    { id: "b", name: "三条市", latitude: 37.64, longitude: 138.96 },
+  ];
+  it("座標が一致すれば名前が違っても登録済み", () => {
+    assert.equal(findRegisteredPlace({ name: "別名", latitude: 35.01, longitude: 135.99 }, stored)?.id, "a");
+  });
+  it("座標が少しずれても同名なら登録済み", () => {
+    assert.equal(findRegisteredPlace({ name: "栗東市", latitude: 35.03, longitude: 136.02 }, stored)?.id, "a");
+  });
+  it("同名でも遠ければ、名前が違って座標も違えば、登録済みにしない", () => {
+    assert.equal(findRegisteredPlace({ name: "栗東市", latitude: 36.5, longitude: 136.02 }, stored), null);
+    assert.equal(findRegisteredPlace({ name: "草津市", latitude: 35.03, longitude: 136.02 }, stored), null);
   });
 });

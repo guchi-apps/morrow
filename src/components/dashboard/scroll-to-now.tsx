@@ -10,7 +10,7 @@ export function ScrollToNow({ className, resetKey, children }: { className?: str
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const box = ref.current;
-    const now = box?.querySelector<HTMLElement>("[data-now]");
+    const now = box?.querySelector<HTMLElement>("[data-focus]") ?? box?.querySelector<HTMLElement>("[data-now]");
     if (!box) return;
     box.scrollLeft = now ? Math.max(0, now.offsetLeft - 46) : 0;
   }, [resetKey]);
