@@ -5,6 +5,11 @@ import {
   baseTileUrl,
   buildFrames,
   carryFrameIndex,
+  clampZoom,
+  panCenter,
+  scaleLabel,
+  splitZoom,
+  viewWidthKm,
   frameDate,
   isInRadarArea,
   hoursAfter,
@@ -168,5 +173,40 @@ describe("降水短時間予報（#666）", () => {
       "https://www.jma.go.jp/bosai/jmatile/data/rasrf/20261103144000/immed/20261103164000/surf/rasrf/8/227/100.png",
     );
     assert.match(rainTileUrl({ basetime: "a", validtime: "b" }, 8, tile), /nowc\/a\/none\/b\/surf\/hrpns\/8\/227\/100\.png$/);
+  });
+});
+
+describe("地図の移動と拡大縮小（#872）", () => {
+  it("ズームは範囲に丸め、整数ズームと拡大率に分ける", () => {
+    assert.equal(clampZoom(3), 6);
+    assert.equal(clampZoom(12), 10);
+    assert.equal(clampZoom(Number.NaN), 10);
+    assert.deepEqual(splitZoom(10), { tileZoom: 10, scale: 1 });
+    assert.deepEqual(splitZoom(9), { tileZoom: 9, scale: 1 });
+    const half = splitZoom(9.5);
+    assert.ok(half.tileZoom === 9 || half.tileZoom === 10);
+    assert.ok(Math.abs(half.scale * 2 ** half.tileZoom - 2 ** 9.5) < 1e-9);
+  });
+
+  it("0pxの移動では中心が変わらず、右へドラッグすると中心は西へ寄る", () => {
+    const same = panCenter(35.02, 135.99, 10, 0, 0);
+    assert.ok(Math.abs(same.latitude - 35.02) < 1e-9 && Math.abs(same.longitude - 135.99) < 1e-9);
+    const moved = panCenter(35.02, 135.99, 10, 100, 0);
+    assert.ok(moved.longitude < 135.99);
+    assert.ok(Math.abs(moved.latitude - 35.02) < 1e-9);
+    assert.ok(panCenter(35.02, 135.99, 10, 0, 100).latitude > 35.02);
+  });
+
+  it("レーダーの範囲の外へは動かせない", () => {
+    const edge = panCenter(35, 135, 6, 1_000_000, -1_000_000);
+    assert.ok(edge.longitude >= 118 && edge.longitude <= 150);
+    assert.ok(edge.latitude >= 20 && edge.latitude <= 50);
+  });
+
+  it("縮尺は拡大するほど短く、表示は丸める", () => {
+    assert.ok(viewWidthKm(35, 10, 512) < viewWidthKm(35, 8, 512));
+    assert.equal(scaleLabel(44.7), "約45km");
+    assert.equal(scaleLabel(3.4), "約3km");
+    assert.equal(scaleLabel(0), "");
   });
 });

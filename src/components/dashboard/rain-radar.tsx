@@ -1,6 +1,6 @@
 "use client";
 
-import { Pause, Play } from "lucide-react";
+import { Crosshair, Minus, Pause, Play, Plus } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { jstTimeLabel } from "@/lib/day-key";
@@ -9,20 +9,26 @@ import {
   RADAR_FORECAST_TIMES_URL,
   RADAR_LONG_TIMES_URL,
   RADAR_PAST_TIMES_URL,
-  RADAR_ZOOMS,
+  RADAR_ZOOM_DEFAULT,
+  RADAR_ZOOM_MAX,
+  RADAR_ZOOM_MIN,
   type RadarFrame,
   type RadarTime,
   type RadarTile,
-  type RadarZoom,
   baseTileUrl,
   buildFrames,
   carryFrameIndex,
+  clampZoom,
   frameDate,
   hoursAfter,
+  panCenter,
   parseLongRangeTimes,
   parseTargetTimes,
   rainTileUrl,
+  scaleLabel,
+  splitZoom,
   tilesFor,
+  viewWidthKm,
 } from "@/lib/weather/radar";
 
 /**
@@ -35,6 +41,9 @@ import {
  */
 
 const FRAME_MS = 500;
+/** 枠の外へ余分に読むタイルの幅（動かした直後に地図が欠けないように）。 */
+const TILE_MARGIN_PX = 128;
+const KEY_PAN_PX = 64;
 const TIMES_TIMEOUT_MS = 10_000;
 /** 開いている間に一覧を取り直す間隔（実況は5分ごとに増える）。 */
 const REFRESH_MS = 5 * 60_000;
@@ -108,7 +117,9 @@ export function RainRadar({
   const [loadFailed, setLoadFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   const [index, setIndex] = useState(0);
-  const [zoom, setZoom] = useState<RadarZoom>(RADAR_ZOOMS.near);
+  const [zoom, setZoom] = useState<number>(RADAR_ZOOM_DEFAULT);
+  // 地図の中心（ドラッグで動く）。null＝選んだ地点のまま
+  const [panned, setPanned] = useState<{ latitude: number; longitude: number } | null>(null);
   const [playing, setPlaying] = useState(false);
   const [size, setSize] = useState({ width: 0, height: 0 });
   // 読み込みに手を付けたコマ（validtime）。開いた時点では「今」だけ。
@@ -117,6 +128,9 @@ export function RainRadar({
   const [failed, setFailed] = useState<ReadonlySet<string>>(new Set());
   const [shownTime, setShownTime] = useState<string | null>(null);
   const mapRef = useRef<HTMLDivElement>(null);
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
+  const viewRef = useRef({ latitude, longitude, zoom: RADAR_ZOOM_DEFAULT });
   // 取り直しの非同期処理から「いま見ているコマ」を読むための控え（描画には使わない）。
   const currentRef = useRef<RadarFrame | undefined>(undefined);
 
@@ -177,10 +191,118 @@ export function RainRadar({
     return () => observer.disconnect();
   }, [frames === null]); // eslint-disable-line react-hooks/exhaustive-deps -- 地図の枠は一覧が届いてから現れる
 
-  const tiles = useMemo(() => tilesFor(latitude, longitude, zoom, size.width, size.height), [latitude, longitude, zoom, size]);
+  const centerLat = panned?.latitude ?? latitude;
+  const centerLon = panned?.longitude ?? longitude;
+  const { tileZoom, scale } = splitZoom(zoom);
+  // 拡大率ぶん、枠より広い（または狭い）範囲のタイルを読み、中心から拡大率を掛けて枠に収める
+  const innerWidth = size.width / scale + TILE_MARGIN_PX * 2;
+  const innerHeight = size.height / scale + TILE_MARGIN_PX * 2;
+  const tiles = useMemo(
+    () => tilesFor(centerLat, centerLon, tileZoom, innerWidth, innerHeight),
+    [centerLat, centerLon, tileZoom, innerWidth, innerHeight],
+  );
+  useEffect(() => {
+    viewRef.current = { latitude: centerLat, longitude: centerLon, zoom };
+  }, [centerLat, centerLon, zoom]);
+
+  // 中心の点（選んだ地点）の枠内の位置。地図を動かすと一緒に動く
+  const markerOffset = (() => {
+    const at = (lat: number, lon: number) => {
+      const world = 2 ** zoom * 256;
+      const sin = Math.sin((lat * Math.PI) / 180);
+      return { x: ((lon + 180) / 360) * world, y: (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * world };
+    };
+    const target = at(latitude, longitude);
+    const center = at(centerLat, centerLon);
+    return { x: target.x - center.x, y: target.y - center.y };
+  })();
+  const markerVisible = Math.abs(markerOffset.x) < size.width / 2 && Math.abs(markerOffset.y) < size.height / 2;
+
+  // 動かす・拡大縮小するときは再生を止め、読むコマを表示中の1つへ絞る（全コマ×新しい範囲のタイルを一度に要求しない）
+  const stopForMove = () => {
+    setPlaying(false);
+    const now = currentRef.current;
+    if (now) setRequested(new Set([now.validtime]));
+  };
+  const zoomBy = (delta: number) => {
+    stopForMove();
+    setZoom((value) => clampZoom(value + delta));
+  };
+  const dragBy = (dx: number, dy: number) => {
+    const view = viewRef.current;
+    if (dx !== 0 || dy !== 0) stopForMove();
+    setPanned(panCenter(view.latitude, view.longitude, view.zoom, dx, dy));
+  };
+  const resetView = () => {
+    setPanned(null);
+    setZoom(RADAR_ZOOM_DEFAULT);
+  };
+  const moved = panned !== null || zoom !== RADAR_ZOOM_DEFAULT;
+
+  // ホイールで拡大縮小（ページのスクロールを止めるため passive: false で付ける）
+  useEffect(() => {
+    const node = mapRef.current;
+    if (!node) return;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      stopForMove();
+      setZoom((value) => clampZoom(value - event.deltaY * 0.0025));
+    };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => node.removeEventListener("wheel", onWheel);
+  }, [frames === null]); // eslint-disable-line react-hooks/exhaustive-deps -- 地図の枠は一覧が届いてから現れる
+
+  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if ((event.target as HTMLElement).closest("button")) return;
+    stopForMove();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.current.size === 2) {
+      const [a, b] = [...pointers.current.values()];
+      pinchRef.current = { distance: Math.hypot(a.x - b.x, a.y - b.y), zoom: viewRef.current.zoom };
+    }
+  };
+  const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const previous = pointers.current.get(event.pointerId);
+    if (!previous) return;
+    pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.current.size >= 2 && pinchRef.current) {
+      const [a, b] = [...pointers.current.values()];
+      const distance = Math.hypot(a.x - b.x, a.y - b.y);
+      if (pinchRef.current.distance > 0) {
+        setZoom(clampZoom(pinchRef.current.zoom + Math.log2(distance / pinchRef.current.distance)));
+      }
+      return;
+    }
+    dragBy(event.clientX - previous.x, event.clientY - previous.y);
+  };
+  const onPointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
+    pointers.current.delete(event.pointerId);
+    pinchRef.current = null;
+    // 2本指から1本が残ったときは、残った指の位置から動かし直す（ずれた差分で飛ばない）
+  };
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const arrows: Record<string, [number, number]> = {
+      ArrowLeft: [KEY_PAN_PX, 0],
+      ArrowRight: [-KEY_PAN_PX, 0],
+      ArrowUp: [0, KEY_PAN_PX],
+      ArrowDown: [0, -KEY_PAN_PX],
+    };
+    const arrow = arrows[event.key];
+    if (arrow) {
+      event.preventDefault();
+      dragBy(arrow[0], arrow[1]);
+    } else if (event.key === "+" || event.key === "=") {
+      event.preventDefault();
+      zoomBy(0.5);
+    } else if (event.key === "-") {
+      event.preventDefault();
+      zoomBy(-0.5);
+    }
+  };
 
   // 選んだコマが出揃うまでは前のコマを出したままにする（切り替えのたびに雨雲が消えて点滅しないように）。
-  const urlsOf = (frame: RadarFrame) => tiles.map((tile) => rainTileUrl(frame, zoom, tile));
+  const urlsOf = (frame: RadarFrame) => tiles.map((tile) => rainTileUrl(frame, tileZoom, tile));
   const isSettled = (frame: RadarFrame) => tiles.length > 0 && urlsOf(frame).every((url) => settled.has(url));
   if (current && shownTime !== current.validtime && isSettled(current)) {
     setShownTime(current.validtime);
@@ -245,37 +367,58 @@ export function RainRadar({
     <Section>
       <div
         ref={mapRef}
-        className="relative aspect-[4/3] w-full max-w-[512px] self-center overflow-hidden rounded-[10px] border border-border bg-border"
+        role="application"
+        aria-label="雨雲レーダーの地図。ドラッグか矢印キーで動かし、プラスとマイナスで拡大縮小できます"
+        tabIndex={0}
+        data-no-day-swipe
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerEnd}
+        onPointerCancel={onPointerEnd}
+        onKeyDown={onKeyDown}
+        className="relative aspect-[4/3] w-full max-w-[512px] cursor-grab touch-none self-center overflow-hidden rounded-[10px] border border-border bg-border active:cursor-grabbing focus-visible:outline-2 focus-visible:outline-accent"
       >
-        <div className="absolute inset-0 dark:[filter:invert(1)_hue-rotate(180deg)_brightness(0.82)_contrast(0.9)]">
-          {tiles.map((tile) => (
-            <TileImage key={`${zoom}/${tile.x}/${tile.y}`} src={baseTileUrl(zoom, tile)} tile={tile} onDone={() => {}} />
+        <div
+          className="absolute top-1/2 left-1/2"
+          style={{
+            width: innerWidth,
+            height: innerHeight,
+            transform: `translate(-50%, -50%) scale(${scale})`,
+          }}
+        >
+          <div className="absolute inset-0 dark:[filter:invert(1)_hue-rotate(180deg)_brightness(0.82)_contrast(0.9)]">
+            {tiles.map((tile) => (
+              <TileImage key={`${tileZoom}/${tile.x}/${tile.y}`} src={baseTileUrl(tileZoom, tile)} tile={tile} onDone={() => {}} />
+            ))}
+          </div>
+          {layers.map((frame) => (
+            <div
+              key={frame.validtime}
+              className="absolute inset-0 opacity-0 data-[shown=true]:opacity-80"
+              data-shown={frame.validtime === shownTime}
+            >
+              {tiles.map((tile) => {
+                const url = rainTileUrl(frame, tileZoom, tile);
+                return (
+                  <TileImage
+                    key={url}
+                    src={url}
+                    tile={tile}
+                    onDone={() => markSettled(url)}
+                    onFailed={() => setFailed((prev) => new Set(prev).add(url))}
+                  />
+                );
+              })}
+            </div>
           ))}
         </div>
-        {layers.map((frame) => (
-          <div
-            key={frame.validtime}
-            className="absolute inset-0 opacity-0 data-[shown=true]:opacity-80"
-            data-shown={frame.validtime === shownTime}
-          >
-            {tiles.map((tile) => {
-              const url = rainTileUrl(frame, zoom, tile);
-              return (
-                <TileImage
-                  key={url}
-                  src={url}
-                  tile={tile}
-                  onDone={() => markSettled(url)}
-                  onFailed={() => setFailed((prev) => new Set(prev).add(url))}
-                />
-              );
-            })}
-          </div>
-        ))}
-        <span
-          aria-label={centerLabel}
-          className="absolute top-1/2 left-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-[2.5px] border-white bg-accent shadow-[0_0_0_1px_rgba(0,0,0,0.25),0_1px_4px_rgba(0,0,0,0.4)]"
-        />
+        {markerVisible && (
+          <span
+            aria-label={centerLabel}
+            className="absolute top-1/2 left-1/2 size-3.5 rounded-full border-[2.5px] border-white bg-accent shadow-[0_0_0_1px_rgba(0,0,0,0.25),0_1px_4px_rgba(0,0,0,0.4)]"
+            style={{ transform: `translate(calc(-50% + ${markerOffset.x}px), calc(-50% + ${markerOffset.y}px))` }}
+          />
+        )}
         <span
           className={cn(
             "absolute top-2 left-2 rounded-lg px-2 py-0.5 text-xs font-bold tabular-nums text-white",
@@ -284,24 +427,35 @@ export function RainRadar({
         >
           {frameLabel(current)}
         </span>
-        <div className="absolute top-2 right-2 flex overflow-hidden rounded-lg bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.25)]">
+        <span className="absolute top-2 right-2 rounded-lg bg-slate-900/80 px-2 py-0.5 text-xs tabular-nums text-white">
+          {scaleLabel(viewWidthKm(centerLat, zoom, size.width))}
+        </span>
+        {moved && (
+          <button
+            type="button"
+            onClick={resetView}
+            className="absolute bottom-2 left-2 inline-flex h-9 items-center gap-1 rounded-[10px] bg-white/95 px-3 text-[0.8125rem] font-semibold text-slate-700 shadow-[0_1px_3px_rgba(0,0,0,0.25)] focus-visible:outline-2 focus-visible:outline-accent"
+          >
+            <Crosshair className="size-3.5" aria-hidden="true" />
+            選択地点へ戻す
+          </button>
+        )}
+        <div className="absolute right-2 bottom-2 flex flex-col gap-1.5">
           {(
             [
-              [RADAR_ZOOMS.near, "周辺"],
-              [RADAR_ZOOMS.wide, "広域"],
+              [0.5, "拡大", Plus, zoom >= RADAR_ZOOM_MAX],
+              [-0.5, "縮小", Minus, zoom <= RADAR_ZOOM_MIN],
             ] as const
-          ).map(([value, label]) => (
+          ).map(([delta, label, Icon, disabled]) => (
             <button
-              key={value}
+              key={label}
               type="button"
-              aria-pressed={zoom === value}
-              onClick={() => setZoom(value)}
-              className={cn(
-                "px-2.5 py-1 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
-                zoom === value ? "bg-[#c8503c] text-white" : "text-slate-600",
-              )}
+              aria-label={label}
+              disabled={disabled}
+              onClick={() => zoomBy(delta)}
+              className="grid size-11 place-items-center rounded-[10px] bg-white/95 text-slate-700 shadow-[0_1px_3px_rgba(0,0,0,0.25)] disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-accent"
             >
-              {label}
+              <Icon className="size-5" aria-hidden="true" />
             </button>
           ))}
         </div>
