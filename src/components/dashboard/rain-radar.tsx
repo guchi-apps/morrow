@@ -218,9 +218,19 @@ export function RainRadar({
   })();
   const markerVisible = Math.abs(markerOffset.x) < size.width / 2 && Math.abs(markerOffset.y) < size.height / 2;
 
-  const zoomBy = (delta: number) => setZoom((value) => clampZoom(value + delta));
+  // 動かす・拡大縮小するときは再生を止め、読むコマを表示中の1つへ絞る（全コマ×新しい範囲のタイルを一度に要求しない）
+  const stopForMove = () => {
+    setPlaying(false);
+    const now = currentRef.current;
+    if (now) setRequested(new Set([now.validtime]));
+  };
+  const zoomBy = (delta: number) => {
+    stopForMove();
+    setZoom((value) => clampZoom(value + delta));
+  };
   const dragBy = (dx: number, dy: number) => {
     const view = viewRef.current;
+    if (dx !== 0 || dy !== 0) stopForMove();
     setPanned(panCenter(view.latitude, view.longitude, view.zoom, dx, dy));
   };
   const resetView = () => {
@@ -235,6 +245,7 @@ export function RainRadar({
     if (!node) return;
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
+      stopForMove();
       setZoom((value) => clampZoom(value - event.deltaY * 0.0025));
     };
     node.addEventListener("wheel", onWheel, { passive: false });
@@ -243,6 +254,7 @@ export function RainRadar({
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if ((event.target as HTMLElement).closest("button")) return;
+    stopForMove();
     event.currentTarget.setPointerCapture(event.pointerId);
     pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (pointers.current.size === 2) {
