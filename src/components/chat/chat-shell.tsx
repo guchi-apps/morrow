@@ -19,6 +19,8 @@ type Props = {
   appVersion: string;
   /** メニュー上部の情報カード（#719）。 */
   infoSlot?: React.ReactNode;
+  /** メニューの「メール」の未読バッジ（#877）。 */
+  mailBadgeSlot?: React.ReactNode;
   children: React.ReactNode;
 };
 
@@ -47,6 +49,7 @@ export function ChatShell({
   userEmail,
   appVersion,
   infoSlot,
+  mailBadgeSlot,
   children,
 }: Props) {
   const pathname = usePathname();
@@ -133,6 +136,7 @@ export function ChatShell({
           userEmail={userEmail}
           appVersion={appVersion}
           infoSlot={infoSlot}
+          mailBadgeSlot={mailBadgeSlot}
         />
       </aside>
 
@@ -173,6 +177,7 @@ export function ChatShell({
               userEmail={userEmail}
               appVersion={appVersion}
           infoSlot={infoSlot}
+          mailBadgeSlot={mailBadgeSlot}
               onNavigate={() => setDrawerOpen(false)}
             />
             <button

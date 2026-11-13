@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { ChatShell } from "@/components/chat/chat-shell";
+import { MailUnreadBadge } from "@/components/chat/mail-unread-badge";
 import { MenuInfo } from "@/components/chat/menu-info";
 import { APP_VERSION } from "@/lib/app-version";
 import { getCurrentUser } from "@/lib/auth-user";
@@ -33,6 +34,11 @@ export default async function ChatLayout({ children }: { children: React.ReactNo
       userLabel={user.name ?? user.email ?? "ログイン中"}
       userEmail={user.email}
       appVersion={APP_VERSION}
+      mailBadgeSlot={
+        <Suspense fallback={null}>
+          <MailUnreadBadge user={{ id: user.id, email: user.email }} />
+        </Suspense>
+      }
       infoSlot={
         <Suspense fallback={null}>
           <MenuInfo userId={user.id} />
