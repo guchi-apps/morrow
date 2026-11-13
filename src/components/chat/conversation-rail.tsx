@@ -6,6 +6,8 @@ import Link from "next/link";
 import { AppLogo } from "@/components/brand/app-icon";
 import { cn } from "@/lib/utils";
 
+import { MenuBadge } from "./menu-badge";
+
 type Props = {
   /** 今日のダッシュボード（`/`。#573）を開いているか。 */
   isDashboardActive: boolean;
@@ -27,6 +29,8 @@ type Props = {
   userLabel: string;
   userEmail: string | null;
   appVersion: string;
+  /** メールの未読件数バッジ（#877）。AIDE待ちなので `Suspense` で後から流れてくる。 */
+  mailBadgeSlot?: React.ReactNode;
   /** 上部の情報カード（#719）。 */
   infoSlot?: React.ReactNode;
   onNavigate?: () => void;
@@ -51,6 +55,7 @@ export function ConversationRail({
   userEmail,
   appVersion,
   infoSlot,
+  mailBadgeSlot,
   onNavigate,
 }: Props) {
   return (
@@ -70,7 +75,7 @@ export function ConversationRail({
           aria-current={isDashboardActive ? "page" : undefined}
           className={cn(
             "mx-2.5 mt-2 flex items-center gap-1.5 rounded-[9px] px-2.5 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-            isDashboardActive && "bg-rail-active shadow-[inset_2px_0_0_var(--accent)]",
+            isDashboardActive && "bg-rail-active",
           )}
         >
           <LayoutDashboard className="size-3.5 text-muted" aria-hidden="true" />
@@ -84,21 +89,14 @@ export function ConversationRail({
           aria-current={isChatActive ? "page" : undefined}
           className={cn(
             "mx-2.5 mt-2 flex items-center justify-between gap-2 rounded-[9px] px-2.5 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-            isChatActive && "bg-rail-active shadow-[inset_2px_0_0_var(--accent)]",
+            isChatActive && "bg-rail-active",
           )}
         >
           <span className="flex items-center gap-1.5">
             <MessageSquare className="size-3.5 text-muted" aria-hidden="true" />
             チャット
           </span>
-          {pendingProposalCount > 0 && (
-            <span
-              className="tabular-nums rounded-full bg-amber-600 px-1.5 text-[0.6875rem] font-medium text-white"
-              aria-label={`確認待ち${pendingProposalCount}件`}
-            >
-              {pendingProposalCount}
-            </span>
-          )}
+          <MenuBadge count={pendingProposalCount} label={`確認待ち${pendingProposalCount}件`} />
         </Link>
 
         {/* 天気（#695）。登録した地点の1日の予報。 */}
@@ -108,43 +106,46 @@ export function ConversationRail({
           aria-current={isWeatherActive ? "page" : undefined}
           className={cn(
             "mx-2.5 mt-2 flex items-center gap-1.5 rounded-[9px] px-2.5 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-            isWeatherActive && "bg-rail-active shadow-[inset_2px_0_0_var(--accent)]",
+            isWeatherActive && "bg-rail-active",
           )}
         >
           <Sun className="size-3.5 text-muted" aria-hidden="true" />
           天気
         </Link>
 
-        {/* メール（#683）。未読数は出さない——描画のたびにAIDEへ一覧を取りに行くことになるため。 */}
+        {/* メール（#683）。未読数（#877）は画面と同じ短期キャッシュ経由で後から流す。 */}
         <Link
           href="/mail"
           onClick={onNavigate}
           aria-current={isMailActive ? "page" : undefined}
           className={cn(
-            "mx-2.5 mt-2 flex items-center gap-1.5 rounded-[9px] px-2.5 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-            isMailActive && "bg-rail-active shadow-[inset_2px_0_0_var(--accent)]",
+            "mx-2.5 mt-2 flex items-center justify-between gap-2 rounded-[9px] px-2.5 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+            isMailActive && "bg-rail-active",
           )}
         >
-          <Mail className="size-3.5 text-muted" aria-hidden="true" />
-          メール
+          <span className="flex items-center gap-1.5">
+            <Mail className="size-3.5 text-muted" aria-hidden="true" />
+            メール
+          </span>
+          {mailBadgeSlot}
         </Link>
 
         {/* 仕入れたニュース（#144）。お知らせとは別の受け皿で、数字は「未読」ではなく溜まっている件数。
-            用件ではないので、お知らせと違って数字を強調しない。 */}
+            見た目はチャット・メールのバッジと揃える（#877）。 */}
         <Link
           href="/topics"
           onClick={onNavigate}
           aria-current={isTopicsActive ? "page" : undefined}
           className={cn(
             "mx-2.5 mt-2 flex items-center justify-between gap-2 rounded-[9px] px-2.5 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-            isTopicsActive && "bg-rail-active shadow-[inset_2px_0_0_var(--accent)]",
+            isTopicsActive && "bg-rail-active",
           )}
         >
           <span className="flex items-center gap-1.5">
             <Newspaper className="size-3.5 text-muted" aria-hidden="true" />
             ニュース
           </span>
-          {topicCount > 0 && <span className="tabular-nums text-xs font-medium text-muted">{topicCount}件</span>}
+          <MenuBadge count={topicCount} label={`ニュース${topicCount}件`} />
         </Link>
 
         {/* 用途ごとのAIモデル（#349。旧・設定の「返答のモデル」#71）。設定とは独立した画面。 */}
@@ -154,7 +155,7 @@ export function ConversationRail({
           aria-current={isModelsActive ? "page" : undefined}
           className={cn(
             "mx-2.5 mt-2 flex items-center gap-1.5 rounded-[9px] px-2.5 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-            isModelsActive && "bg-rail-active shadow-[inset_2px_0_0_var(--accent)]",
+            isModelsActive && "bg-rail-active",
           )}
         >
           <Cpu className="size-3.5 text-muted" aria-hidden="true" />
@@ -168,7 +169,7 @@ export function ConversationRail({
           aria-current={isSettingsActive ? "page" : undefined}
           className={cn(
             "mx-2.5 mt-2 flex items-center gap-1.5 rounded-[9px] px-2.5 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-            isSettingsActive && "bg-rail-active shadow-[inset_2px_0_0_var(--accent)]",
+            isSettingsActive && "bg-rail-active",
           )}
         >
           <Settings className="size-3.5 text-muted" aria-hidden="true" />
