@@ -145,6 +145,9 @@ export async function prefetchAnalysesSafely(user: MailUser, messageIds: string[
       if (stored.has(id)) continue;
       let outcome = await analyzeMail(user, id);
       for (let i = 0; !outcome.ok && outcome.kind === "busy" && i < PREFETCH_BUSY_RETRIES; i++) {
+        // 利用者の操作（分析・指示・学習）が走っているなら譲って打ち切る。待つのは一覧の要約が走っているときだけ
+        const hold = currentMailCodex(user.id);
+        if (hold && hold.kind !== "list_summary") return;
         await sleep(PREFETCH_BUSY_WAIT_MS);
         outcome = await analyzeMail(user, id);
       }
