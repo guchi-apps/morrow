@@ -2,6 +2,7 @@ import { after } from "next/server";
 
 import type { MailUser } from "@/lib/mail/aide-client";
 import type { MailSummary } from "@/lib/mail/contract";
+import { prefetchAnalysesSafely } from "@/lib/mail/analyze";
 import { flowKindsFor } from "@/lib/mail/flow-record";
 import { getListSummaries, summarizeMissingSafely } from "@/lib/mail/list-summary";
 import { neededTriages } from "@/lib/mail/triage";
@@ -22,6 +23,8 @@ export async function decorateMailRows(user: MailUser, messages: MailSummary[], 
   const ids = messages.map((m) => m.id);
   const summaries = inboxView ? await getListSummaries(user.id, ids).catch(() => new Map<string, string>()) : new Map<string, string>();
   if (inboxView && ids.some((id) => !summaries.has(id))) after(() => summarizeMissingSafely(user, ids));
+  // 開く前に分析を済ませておく（#895）。保存済みは先回り側が飛ばす
+  if (inboxView && ids.length > 0) after(() => prefetchAnalysesSafely(user, ids));
   const [notified, flowKinds] = await Promise.all([neededTriages(user.id, ids), flowKindsFor(user.id, ids)]);
   return messages.map((message) => ({
     ...message,
