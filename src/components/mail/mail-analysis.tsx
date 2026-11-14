@@ -214,6 +214,7 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
                         recommended={row.recommended}
                         registered={(flow.outcomes[rowId]?.done === true && !flow.outcomes[rowId]?.receipt) || registeredKinds.includes(row.card.kind)}
                         receipt={flow.outcomes[rowId]?.receipt ?? (row.card.kind === "payment" ? receiptState : null)}
+                        match={flow.matches[rowId]}
                         onOpen={() => flow.setOpen(rowId)}
                       />
                     </li>
