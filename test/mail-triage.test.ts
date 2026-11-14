@@ -3,11 +3,14 @@ import { describe, it } from "node:test";
 
 import type { MailSummary } from "@/lib/mail/contract";
 import {
+  CARD_ALERT_THRESHOLD_YEN,
   DEFAULT_MAIL_CRITERIA,
   MAIL_CRITERIA_MAX,
+  applyCardRule,
   buildTriagePrompt,
   composeMailPush,
   nextMailCursor,
+  normalizeAmount,
   normalizeMailCriteria,
   parseTriageReply,
   selectCandidates,
@@ -61,8 +64,8 @@ describe("parseTriageReply", () => {
     const reply = '前置き\n[{"id":"m1","needed":true,"reason":"期限のある支払いのため"},{"id":"m2","needed":false,"reason":"広告"},{"id":"m9","needed":true},{"id":"m3"}]';
     const decisions = parseTriageReply(reply, ["m1", "m2", "m3"]);
     assert.ok(decisions);
-    assert.deepEqual(decisions.get("m1"), { needed: true, reason: "期限のある支払いのため" });
-    assert.deepEqual(decisions.get("m2"), { needed: false, reason: "" });
+    assert.deepEqual(decisions.get("m1"), { needed: true, reason: "期限のある支払いのため", cardUsage: false, amount: null });
+    assert.deepEqual(decisions.get("m2"), { needed: false, reason: "", cardUsage: false, amount: null });
     assert.equal(decisions.has("m3"), false);
     assert.equal(decisions.has("m9"), false);
   });
@@ -108,5 +111,31 @@ describe("normalizeMailCriteria", () => {
     assert.equal(normalizeMailCriteria(""), "");
     assert.equal(normalizeMailCriteria("あ".repeat(MAIL_CRITERIA_MAX + 1)), null);
     assert.equal(normalizeMailCriteria(1), null);
+  });
+});
+
+describe("カード利用のお知らせ（#898）", () => {
+  const card = (amount: number | null, needed = true) => ({ needed, reason: "x", cardUsage: true, amount });
+
+  it("閾値以上は知らせ、理由に金額を出す", () => {
+    const d = applyCardRule(card(CARD_ALERT_THRESHOLD_YEN, false));
+    assert.equal(d.needed, true);
+    assert.match(d.reason, /50,000円/);
+  });
+  it("閾値未満・金額不明は、基準で必要と判定されても知らせない", () => {
+    assert.equal(applyCardRule(card(CARD_ALERT_THRESHOLD_YEN - 1)).needed, false);
+    assert.equal(applyCardRule(card(null)).needed, false);
+  });
+  it("カード利用でなければそのまま", () => {
+    const d = { needed: true, reason: "期限", cardUsage: false, amount: 999999 };
+    assert.deepEqual(applyCardRule(d), d);
+  });
+  it("amount を検証し直す", () => {
+    assert.equal(normalizeAmount(12000), 12000);
+    for (const bad of [-1, 0, 1.5, "50000", null, NaN, 1e12]) assert.equal(normalizeAmount(bad), null);
+  });
+  it("返答から cardUsage・amount を読む", () => {
+    const r = parseTriageReply('[{"id":"m1","needed":true,"reason":"a","cardUsage":true,"amount":80000}]', ["m1"]);
+    assert.deepEqual(r?.get("m1"), { needed: true, reason: "a", cardUsage: true, amount: 80000 });
   });
 });
