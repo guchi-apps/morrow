@@ -1,0 +1,112 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+
+/** 絞り込みで0件のページが続いたとき、自動で先へ進むのをやめる回数（ボタンで続ける）。 */
+export const EMPTY_PAGE_LIMIT = 3;
+
+type Page<Row> = { rows: Row[]; nextPageToken: string | null };
+
+export type MailPagerStatus = "idle" | "loading" | "error" | "stalled";
+
+/**
+ * メール一覧の続きを足していく（#887）。最初に1ページ目の次を裏で先読みしておき、
+ * 下端の目印（`sentinelRef`）が近づいたら先読み済みの分を表示へ足して、さらに次を先読みする。
+ * 1ページ目は呼び出し側（サーバー描画）が持つ。条件（`query`）が変わる場合は、呼び出し側が `key` で作り直す。
+ */
+export function useMailPager<Row>(initialNextToken: string | null, query: { view: string; acct: string | null; q: string }) {
+  const [extra, setExtra] = useState<Row[]>([]);
+  const [hasMore, setHasMore] = useState(initialNextToken !== null);
+  const [status, setStatus] = useState<MailPagerStatus>("idle");
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const kickRef = useRef<() => void>(() => undefined);
+  const { view, acct, q } = query;
+
+  useEffect(() => {
+    let cancelled = false;
+    let cursor = initialNextToken;
+    let buffer: Page<Row> | null = null;
+    let fetching = false;
+    let wanting = false;
+    let streak = 0;
+    let failed = false;
+    const node = sentinelRef.current;
+    let observer: IntersectionObserver | null = null;
+
+    function publish() {
+      if (cancelled) return;
+      setStatus(failed ? "error" : streak >= EMPTY_PAGE_LIMIT ? "stalled" : fetching && wanting ? "loading" : "idle");
+    }
+
+    async function prefetch() {
+      if (cancelled || fetching || buffer || failed || cursor === null || streak >= EMPTY_PAGE_LIMIT) return;
+      fetching = true;
+      const params = new URLSearchParams({ page: cursor });
+      if (view !== "inbox") params.set("view", view);
+      if (acct) params.set("acct", acct);
+      if (q) params.set("q", q);
+      try {
+        const response = await fetch(`/api/mail/list?${params}`);
+        if (!response.ok) throw new Error(String(response.status));
+        const body = (await response.json()) as Page<Row>;
+        buffer = { rows: body.rows, nextPageToken: body.nextPageToken };
+      } catch {
+        failed = true;
+      }
+      fetching = false;
+      settle();
+    }
+
+    /** 先読み済みを、求められている（または空のページ）なら表示へ足す。 */
+    function settle() {
+      if (cancelled) return;
+      const page = buffer;
+      if (page && (wanting || page.rows.length === 0)) {
+        buffer = null;
+        cursor = page.nextPageToken;
+        streak = page.rows.length === 0 ? streak + 1 : 0;
+        if (page.rows.length > 0) wanting = false;
+        setExtra((current) => [...current, ...page.rows]);
+        setHasMore(cursor !== null);
+        // 足したあとも下端が見えているなら、観測を作り直して再判定する
+        if (node && observer) {
+          observer.unobserve(node);
+          observer.observe(node);
+        }
+      }
+      publish();
+      void prefetch();
+    }
+
+    kickRef.current = () => {
+      failed = false;
+      streak = 0;
+      wanting = true;
+      settle();
+      publish();
+    };
+
+    if (node && initialNextToken !== null) {
+      observer = new IntersectionObserver(
+        (entries) => {
+          if (!entries.some((entry) => entry.isIntersecting)) return;
+          wanting = true;
+          settle();
+        },
+        { rootMargin: "400px 0px" },
+      );
+      observer.observe(node);
+    }
+    void prefetch();
+
+    return () => {
+      cancelled = true;
+      observer?.disconnect();
+    };
+    // 条件が変わったら呼び出し側が key で作り直す（先頭ページの取り直しでは足した続きを保つ）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const retry = useCallback(() => kickRef.current(), []);
+  return { extra, hasMore, status, sentinelRef, retry };
+}

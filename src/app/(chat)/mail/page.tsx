@@ -15,7 +15,6 @@ import { listMailForPage } from "@/lib/mail/aide-client";
 import {
   MAIL_FAILURE_MESSAGES,
   MAIL_VIEWS,
-  isMailPageToken,
   isMailViewKey,
   type MailViewKey,
 } from "@/lib/mail/contract";
@@ -29,9 +28,8 @@ import {
   toggleAccountKey,
 } from "@/lib/mail/account-filter";
 import { onlyInbox } from "@/lib/mail/archived-memory";
-import { deleteListSummaries, getListSummaries, summarizeMissingSafely } from "@/lib/mail/list-summary";
-import { flowKindsFor } from "@/lib/mail/flow-record";
-import { neededTriages } from "@/lib/mail/triage";
+import { deleteListSummaries } from "@/lib/mail/list-summary";
+import { decorateMailRows } from "@/lib/mail/list-rows";
 import { DEFAULT_MAIL_CRITERIA } from "@/lib/mail/triage-core";
 import { normalizeLearnedRules } from "@/lib/mail/learn-core";
 import { cn } from "@/lib/utils";
@@ -42,7 +40,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "メール" };
 
 type Props = {
-  searchParams: Promise<{ view?: string; acct?: string; q?: string; page?: string }>;
+  searchParams: Promise<{ view?: string; acct?: string; q?: string }>;
 };
 
 /**
@@ -63,10 +61,9 @@ export default async function MailPage({ searchParams }: Props) {
   // URLへ載せる選択（既定のときは付けない）。表示切替・検索・ページ送りで引き継ぐ
   const account = filter.kind === "keys" ? filter.keys.join(",") : null;
   const q = (query.q ?? "").trim().slice(0, 200);
-  const pageToken = isMailPageToken(query.page) ? query.page : null;
 
   const now = new Date();
-  const result = await listMailForPage(user, { view, labelId: null, filter, q, pageToken });
+  const result = await listMailForPage(user, { view, labelId: null, filter, q, pageToken: null });
   // 受信トレイでは、INBOXラベルの無い（アーカイブ済みの）メールを出さない（#795）。検索中は対象外
   const inboxView = view === "inbox" && !q;
   // INBOXの無いメール（アーカイブ・ゴミ箱）の要約は消す（#851。Gmail側の直接操作の取りこぼしを拾う）
@@ -75,11 +72,9 @@ export default async function MailPage({ searchParams }: Props) {
     if (outside.length > 0) after(() => deleteListSummaries(user.id, outside).catch(() => undefined));
   }
   if (result.ok && inboxView) result.value.messages = onlyInbox(result.value.messages);
-  const listedIds = result.ok ? result.value.messages.map((m) => m.id) : [];
+  // 1ページ目だけを取って出す。続きは画面のスクロールで `/api/mail/list` から足す（#887）。
   // 一覧の要約は受信トレイ表示のときだけ。無い分は裏で作り、画面が取り直す
-  const summaries = result.ok && inboxView ? await getListSummaries(user.id, listedIds).catch(() => new Map<string, string>()) : new Map<string, string>();
-  if (result.ok && inboxView && listedIds.some((id) => !summaries.has(id))) after(() => summarizeMissingSafely(user, listedIds));
-  const [notified, flowKinds] = result.ok ? await Promise.all([neededTriages(user.id, listedIds), flowKindsFor(user.id, listedIds)]) : [new Map(), new Map<string, string[]>()];
+  const rows = result.ok ? await decorateMailRows(user, result.value.messages, inboxView) : [];
 
   // アカウントのチップ（#711・#829）。AIDEが `accounts` を返せばそれ、無ければ絞る前の全行から推定した一覧。
   // 1アカウントだけ取った回は他のアカウントが分からないので、既知の鍵（メイン・サブ・フォーマル）を足して、押して戻せるようにする
@@ -112,23 +107,9 @@ export default async function MailPage({ searchParams }: Props) {
   if (view !== "inbox") self.set("view", view);
   if (account) self.set("acct", account);
   if (q) self.set("q", q);
-  if (pageToken) self.set("page", pageToken);
   const back = `/mail${self.size > 0 ? `?${self}` : ""}`;
 
   const heading = MAIL_VIEWS.find((item) => item.key === view)!.label;
-
-  const nextHref = (() => {
-    if (!result.ok || !result.value.nextPageToken) return null;
-    const params = new URLSearchParams(self);
-    params.set("page", result.value.nextPageToken);
-    return `/mail?${params}`;
-  })();
-  const firstHref = (() => {
-    if (!pageToken) return null;
-    const params = new URLSearchParams(self);
-    params.delete("page");
-    return `/mail${params.size > 0 ? `?${params}` : ""}`;
-  })();
 
   // メールに付けた印から学んだ傾向（#833）
   const learnedRules = normalizeLearnedRules(user.mailLearnedRules, jstDayKey(now));
@@ -229,19 +210,20 @@ export default async function MailPage({ searchParams }: Props) {
                 一覧に欠けがあります。時間をおいて読み込み直してください。
               </p>
             )}
-            {result.value.messages.length === 0 ? (
+            {rows.length === 0 && !result.value.nextPageToken ? (
               <p className="rounded-xl border border-border bg-surface px-4 py-3 text-xs text-muted">
                 {result.value.partial
                   ? "取得できたアカウントには、表示するメールがありません。"
-                  : result.value.nextPageToken
-                    ? "このページには選んだアカウントのメールがありません。「次へ」で続きを見られます。"
-                    : q
-                      ? "検索に一致するメールはありません。"
-                      : "メールはありません。"}
+                  : q
+                    ? "検索に一致するメールはありません。"
+                    : "メールはありません。"}
               </p>
             ) : (
               <MailRows
-                messages={result.value.messages.map((message) => ({ ...message, notified: notified.has(message.id), summary: summaries.get(message.id) ?? null, flowKinds: flowKinds.get(message.id) ?? [] }))}
+                key={back}
+                messages={rows}
+                initialNextToken={result.value.nextPageToken}
+                listQuery={{ view, acct: account, q }}
                 labels={result.value.labels}
                 supportsLabels={result.value.supportsLabels}
                 inTrash={view === "trash"}
@@ -251,20 +233,7 @@ export default async function MailPage({ searchParams }: Props) {
                 inboxView={inboxView}
               />
             )}
-            <div className="flex items-center justify-between text-xs text-muted">
-              {firstHref ? (
-                <Link href={firstHref} className="underline">
-                  ← 最初のページ
-                </Link>
-              ) : (
-                <span>{result.value.resultSizeEstimate > 0 ? `1ページ目・約${result.value.resultSizeEstimate}通` : ""}</span>
-              )}
-              {nextHref && (
-                <Link href={nextHref} className="rounded-[9px] border border-border bg-surface px-3 py-1.5 text-foreground hover:bg-rail-active">
-                  次へ →
-                </Link>
-              )}
-            </div>
+            {result.value.resultSizeEstimate > 0 && <p className="text-xs text-muted">約{result.value.resultSizeEstimate}通</p>}
           </>
         )}
       </div>

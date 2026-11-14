@@ -146,7 +146,7 @@ export async function listMailCached(user: MailUser, query: MailListQuery = {}):
 /**
  * 画面（`/mail`）用の一覧をアカウントの選択で絞って取る（#829）。
  * 1つだけの選択はAIDEの `acct` へ渡す。それ以外（既定・2つ以上）は全アカウントを取ってMorrow側で絞り、
- * 足りない間は次のページも足す。キャッシュは取得条件だけを鍵にするので、チップの切り替えでAIDEへ取り直さない。
+ * 1ページだけ取って絞る（足し取りはしない。続きは画面のスクロールで `/api/mail/list` から取る。#887）。キャッシュは取得条件だけを鍵にするので、チップの切り替えでAIDEへ取り直さない。
  */
 export async function listMailForPage(
   user: MailUser,

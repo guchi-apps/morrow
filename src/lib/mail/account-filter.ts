@@ -9,10 +9,6 @@ import { isMailAccountKey, mailAccountKeyOf, type MailAccount, type MailListPage
 /** 既定で表示しないアカウントの鍵。 */
 export const DEFAULT_HIDDEN_ACCOUNT_KEY = "sub";
 
-/** 追加取得の上限と、絞った後に最低でも欲しい件数。 */
-export const FILL_MAX_EXTRA_PAGES = 3;
-export const FILL_TARGET_COUNT = 10;
-
 /** AIDEが `accounts` を返さず、1アカウントだけ取った回の名前の補い（鍵は `contract.ts` の固定色の表と同じ）。 */
 export const KNOWN_ACCOUNT_NAMES: Record<string, string> = { main: "メイン", sub: "サブ", formal: "フォーマル" };
 
@@ -70,7 +66,8 @@ export function mergeAccounts(base: MailAccount[], extraKeys: string[]): MailAcc
 type Outcome<T> = { ok: true; value: T } | { ok: false; kind: string; message: string | null };
 
 /**
- * 全アカウントの一覧を取り、選択で絞る。絞った件数が足りない間は次のページを足す（上限あり）。
+ * 全アカウントの一覧を1ページだけ取り、選択で絞る（#887）。
+ * 絞った後が少なくても次のページは足し取りしない（画面が開くまでAIDEを何度も待たないため）。続きは画面のスクロールで1ページずつ取る。
  * `fetchPage` は `pageToken` を受けて1ページ取る関数。`accounts` は絞る前の全行から決める。
  */
 export async function fetchFilteredPage<E extends Outcome<MailListPage>>(
@@ -81,24 +78,8 @@ export async function fetchFilteredPage<E extends Outcome<MailListPage>>(
 ): Promise<E> {
   const first = await fetchPage(pageToken);
   if (!first.ok) return first;
-
-  let page = first.value;
-  let allRows = page.messages;
-  let kept = allRows.filter((m) => messageAllowed(filter, m));
-  let partial = page.partial;
-  const failed = new Set(page.failedAccounts);
-  let extra = 0;
-  while (kept.length < FILL_TARGET_COUNT && page.nextPageToken && extra < FILL_MAX_EXTRA_PAGES) {
-    const next = await fetchPage(page.nextPageToken);
-    if (!next.ok) break; // 足りないまま出す（一覧そのものは取れている）
-    extra += 1;
-    page = next.value;
-    allRows = allRows.concat(page.messages);
-    kept = kept.concat(page.messages.filter((m) => messageAllowed(filter, m)));
-    partial = partial || page.partial;
-    for (const name of page.failedAccounts) failed.add(name);
-  }
-
-  const accounts = first.value.accounts ?? inferAccounts(allRows);
-  return { ...first, value: { ...first.value, messages: kept, accounts, nextPageToken: page.nextPageToken, partial, failedAccounts: [...failed] } };
+  const page = first.value;
+  const messages = page.messages.filter((m) => messageAllowed(filter, m));
+  const accounts = page.accounts ?? inferAccounts(page.messages);
+  return { ...first, value: { ...page, messages, accounts } };
 }
