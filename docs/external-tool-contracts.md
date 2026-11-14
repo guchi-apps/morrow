@@ -25,7 +25,7 @@ MorrowはAIDEのMCPの道具を呼ぶ。道具の実装は別リポジトリ（`
 | `aide_tasks`（読み） | `mail/link.ts` | `{status:"open",limit:60}` | `status` open/completed/skipped・`limit` 1〜100・`cursor`・`dateField` due/planned/none・`from`・`to` | `mail-link`「aide_tasks の契約」（#853） |
 | `aide_balances`（読み） | `mail/withdrawal.ts` | なし | 引数なし | `mail-withdrawal` |
 | `asset_manager_subscriptions`（読み） | `mail/subscription-match.ts`（#884） | `{}` | `name`・`includeEnded`・`includeHistory`（すべて任意）。2026-11-14に `tools/list` と実呼び出し（`name:"JAF"`）で確認 | `mail-subscription-match`（実応答の形） |
-| `aide_create_task`（書き） | `mail/suggest.ts`（`callWriteToolJson`） | `title`・`due`・`memo`・`idempotencyKey` | `title`・`idempotencyKey` 必須 | `mail-suggest` |
+| `aide_create_task`（書き） | `mail/suggest.ts`（`callWriteToolJson`） | `title`・`due`・`planned`・`memo`・`idempotencyKey`（`due`/`planned` は `YYYY-MM-DD` のみ。時刻はMorrowがメモの先頭へ書く。#907） | `title`・`idempotencyKey` 必須 | `mail-suggest` |
 | `aide_create_event`（書き） | `mail/suggest.ts` | `title`・`date`・`startTime`+`endTime`・`location` | `title`・`date` 必須。時刻は両方か両方省略 | `mail-suggest` |
 | `asset_manager_import_payment`（書き） | `mail/suggest.ts`・Hermesの承認 | `gmailMessageId`・`date`・`confidence`・`review:true` ほか | `gmailMessageId`・`confidence`(0〜1) 必須。`amount` は整数1以上。`review:true` なら `place`・`amount` 省略可。`items` は1〜100件で `name`・`amount` 必須 | `mail-suggest` |
 | `aide_delete_event`（書き） | `hermes`（`previewDeleteEvent`・承認後の実行） | `eventId`・`calendarId`・`title`（確認は `dryRun:true`） | 3項目必須 | `hermes-proposal` |

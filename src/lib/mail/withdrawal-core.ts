@@ -143,6 +143,9 @@ export function shortageTask(check: BalanceKnown): TaskFields {
   return {
     title: `${check.account}へ${yen(check.shortBy)}入金する（${who}の引き落とし）`,
     due,
+    dueTime: null,
+    planned: null,
+    plannedTime: null,
     memo: `${check.date ?? "日付不明"}に${yen(check.amount)}が引き落とされる予定。${check.asOf.slice(0, 16).replace("T", " ")}時点の残高は${yen(check.balance)}で、${yen(check.shortBy)}足りない。`,
   };
 }

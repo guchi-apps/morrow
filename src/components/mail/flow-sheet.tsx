@@ -197,11 +197,21 @@ export function FlowSheet({ card, recommended, outcome, match, running, onEdit, 
             )}
             {card.kind === "task" && (
               <>
-                <Field label="題名" className="col-span-2">
+                <Field label="タイトル" className="col-span-2">
                   <input className={input} value={String(f.title ?? "")} onChange={(e) => onEdit("task", "title", e.target.value)} />
                 </Field>
                 <Field label="期限" className="col-span-2">
-                  <input type="date" className={input} value={String(f.due ?? "")} onChange={(e) => onEdit("task", "due", e.target.value)} />
+                  <div className="grid grid-cols-[3fr_2fr] gap-2">
+                    <input type="date" aria-label="期限の日付" className={input} value={String(f.due ?? "")} onChange={(e) => onEdit("task", "due", e.target.value)} />
+                    <input type="time" aria-label="期限の時刻" className={input} value={String(f.dueTime ?? "")} onChange={(e) => onEdit("task", "dueTime", e.target.value)} />
+                  </div>
+                </Field>
+                <Field label="予定日" className="col-span-2">
+                  <div className="grid grid-cols-[3fr_2fr] gap-2">
+                    <input type="date" aria-label="予定日の日付" className={input} value={String(f.planned ?? "")} onChange={(e) => onEdit("task", "planned", e.target.value)} />
+                    <input type="time" aria-label="予定日の時刻" className={input} value={String(f.plannedTime ?? "")} onChange={(e) => onEdit("task", "plannedTime", e.target.value)} />
+                  </div>
+                  <p className="mt-1 text-[0.6875rem] text-muted">時刻は任意です。タスクは日付だけを保持するので、時刻はメモの先頭に記録されます。</p>
                 </Field>
                 <Field label="メモ" className="col-span-2">
                   <textarea rows={2} className={input} value={String(f.memo ?? "")} onChange={(e) => onEdit("task", "memo", e.target.value)} />
@@ -210,7 +220,7 @@ export function FlowSheet({ card, recommended, outcome, match, running, onEdit, 
             )}
             {card.kind === "event" && (
               <>
-                <Field label="題名" className="col-span-2">
+                <Field label="タイトル" className="col-span-2">
                   <input className={input} value={String(f.title ?? "")} onChange={(e) => onEdit("event", "title", e.target.value)} />
                 </Field>
                 <Field label="日付" className="col-span-2">
