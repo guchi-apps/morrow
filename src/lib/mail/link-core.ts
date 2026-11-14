@@ -102,6 +102,28 @@ export function parseEventCandidates(json: unknown): LinkCandidate[] {
   return out;
 }
 
+export type CalendarChoice = { id: string; name: string };
+const CALENDAR_CHOICE_MAX = 20;
+
+/**
+ * `aide_schedule` の応答から、予定の保存先に選べるカレンダーを集める（#908）。専用の一覧の道具が無いので、期間内の予定が持つ
+ * calendarId・calendarName から作る（予定が1件も無いカレンダーは出ない）。活動記録（実績）は除く。
+ */
+export function parseCalendarChoices(json: unknown): CalendarChoice[] {
+  const root = record(json);
+  if (!root || root.configured === false) return [];
+  const seen = new Map<string, string>();
+  for (const day of list(root.days)) {
+    for (const event of list(day.events)) {
+      const id = idOf(event.calendarId, CALENDAR_ID_LIMIT);
+      const name = text(event.calendarName, 60);
+      if (!id || !name || name === RECORD_CALENDAR_NAME || seen.has(id)) continue;
+      seen.set(id, name);
+    }
+  }
+  return [...seen].map(([id, name]) => ({ id, name })).slice(0, CALENDAR_CHOICE_MAX);
+}
+
 /** タスクの一覧（`aide_tasks`）の配列を探す。形が少し違っても読めるよう、よくある置き場所を順に見る。 */
 function taskRows(json: unknown): Record<string, unknown>[] {
   const root = record(json);

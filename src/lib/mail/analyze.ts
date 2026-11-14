@@ -123,12 +123,12 @@ export type BalanceOutcome =
  * 残高だけを取り直す（#842）。Codexは走らせない。**先に `getMail()` で持ち主を照合する**。
  * 引き落としの読み取りは分析の記憶から取る（記憶が無い・期限切れなら `no_analysis`＝分析のやり直しを促す）。
  */
-export async function recheckBalance(user: MailUser, messageId: string): Promise<BalanceOutcome> {
+export async function recheckBalance(user: MailUser, messageId: string, pickedAccount?: string): Promise<BalanceOutcome> {
   const mail = await getMail(user, messageId);
   if (!mail.ok) return mail;
   const hit = freshValue(cache.get(analysisCacheKey(user.id, messageId)), Date.now());
   if (!hit) return { ok: false, kind: "no_analysis", message: "分析の結果が残っていません。分析し直してください。" };
-  return { ok: true, check: hit.withdrawal ? await checkWithdrawal(user.id, hit.withdrawal) : null };
+  return { ok: true, check: hit.withdrawal ? await checkWithdrawal(user.id, hit.withdrawal, new Date(), pickedAccount) : null };
 }
 
 /** 先回りで分析するメールの上限（1回の新着確認あたり）。 */

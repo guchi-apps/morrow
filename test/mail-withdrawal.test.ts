@@ -9,6 +9,7 @@ import {
   parseBalances,
   parseWithdrawalReply,
   shortageTask,
+  withPickedAccount,
   type BalanceAccount,
   type BalanceKnown,
 } from "@/lib/mail/withdrawal-core";
@@ -101,6 +102,21 @@ describe("evaluateWithdrawal", () => {
     assert.equal(evaluateWithdrawal(w({ account: null }), accounts, NOW).status, "unknown");
     assert.equal(evaluateWithdrawal(w(), null, NOW).status, "unknown");
     assert.equal(evaluateWithdrawal(w({ account: "ゆうちょ銀行" }), accounts, NOW).status, "unknown");
+  });
+  it("口座名が無いときは残高の一覧から選べ、選ぶと判定できる（#909）", () => {
+    const check = evaluateWithdrawal(w({ account: null }), accounts, NOW);
+    assert.equal(check.status, "unknown");
+    const choices = check.status === "unknown" ? check.choices : undefined;
+    assert.deepEqual(choices, accounts.map((a) => a.name));
+    // 取得できなかったときは選ばせない
+    const noData = evaluateWithdrawal(w({ account: null }), null, NOW);
+    assert.equal(noData.status === "unknown" && noData.choices, undefined);
+    const picked = withPickedAccount(w({ account: null }), accounts, accounts[0].name);
+    assert.equal(picked.account, accounts[0].name);
+    assert.notEqual(evaluateWithdrawal(picked, accounts, NOW).status, "unknown");
+    // 一覧に無い値は無視する
+    assert.equal(withPickedAccount(w({ account: null }), accounts, "どこかの口座").account, null);
+    assert.equal(withPickedAccount(w({ account: null }), accounts, 123).account, null);
   });
   it("最終更新が無い・24時間超は足りるとも言わない", () => {
     const none = evaluateWithdrawal(w({ account: "財布" }), accounts, NOW);

@@ -219,6 +219,29 @@ describe("payment-receipt（#781）", () => {
   });
 });
 
+describe("予定の基本情報（#908）", () => {
+  const ev = (fields: Record<string, unknown>) => normalizeSuggestion("event", { title: "宿泊", date: "2026-11-20", startTime: "15:00", endTime: "10:00", ...fields })!;
+  it("終了日と保存先を道具の引数へ載せ、メモは載せない", () => {
+    const call = toolCallFor(ev({ endDate: "2026-11-21", calendarId: "cal-1", memo: "鍵は受付" }), mail, "u1");
+    assert.ok(call.ok);
+    assert.equal(call.args.endDate, "2026-11-21");
+    assert.equal(call.args.calendarId, "cal-1");
+    assert.equal("memo" in call.args, false);
+  });
+  it("終了日が開始日以前なら持たず、同日で終了が開始以前なら断る", () => {
+    const same = ev({ endDate: "2026-11-20" });
+    assert.ok(same.kind === "event" && same.fields.endDate === null);
+    assert.equal(toolCallFor(same, mail, "u1").ok, false);
+  });
+  it("時刻なし（終日）では終了日・保存先のうち終了日だけを使わない", () => {
+    const allDay = normalizeSuggestion("event", { title: "休み", date: "2026-11-20", endDate: "2026-11-22", calendarId: "c" })!;
+    const call = toolCallFor(allDay, mail, "u1");
+    assert.ok(call.ok);
+    assert.equal("endDate" in call.args, false);
+    assert.equal(call.args.calendarId, "c");
+  });
+});
+
 describe("findExistingEvent（予定の重複確認）", () => {
   const sched = (events: unknown[], extra: Record<string, unknown> = {}) => ({ configured: true, complete: true, sources: { googleConnected: true }, days: [{ events }], ...extra });
   const ev = { title: "打ち合わせ", startTime: "10:00", endTime: "11:00", allDay: false };
@@ -253,5 +276,18 @@ describe("サブスク登録（#709）", () => {
       subscriptionLink(s.fields as SubscriptionFields),
       "https://asset.gucchii.com/subscriptions?new=1&name=A+B&currency=JPY&cycle=MONTHLY&amount=2000&day=8&start=2026-11-08",
     );
+  });
+});
+
+describe("タスクの期限・予定日の時刻（#907）", () => {
+  it("時刻は日付があるときだけ残し、不正な時刻は捨てる", () => {
+    const ok = normalizeSuggestion("task", { title: "a", due: "2026-11-15", dueTime: "18:00", planned: null, plannedTime: "10:00" }, "r", 0.5);
+    assert.ok(ok && ok.kind === "task");
+    assert.equal(ok.fields.dueTime, "18:00");
+    assert.equal(ok.fields.planned, null);
+    assert.equal(ok.fields.plannedTime, null);
+    const bad = normalizeSuggestion("task", { title: "a", due: "2026-11-15", dueTime: "25:99" }, "r", 0.5);
+    assert.ok(bad && bad.kind === "task");
+    assert.equal(bad.fields.dueTime, null);
   });
 });

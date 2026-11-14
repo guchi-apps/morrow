@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   const body = await readJsonObject(request);
   if (!isMailMessageId(body?.id)) return NextResponse.json({ error: "メールの指定が不正です。" }, { status: 400 });
   const suggestion = normalizeSuggestion(body.kind, body.fields, "", body.confidence);
-  if (!suggestion) return NextResponse.json({ error: "入力内容が不正です。名称・題名を確かめてください。" }, { status: 400 });
+  if (!suggestion) return NextResponse.json({ error: "入力内容が不正です。名称・タイトルを確かめてください。" }, { status: 400 });
 
   const result = await applyFlow(user, body.id, suggestion);
   if (!result.ok) {
