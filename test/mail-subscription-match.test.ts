@@ -104,7 +104,7 @@ describe("matchQueryOf", () => {
   });
   it("サブスクは名称・金額・通貨、予定・手掛かりの無い提案はnull", () => {
     assert.deepEqual(matchQueryOf({ kind: "subscription", reason: "", confidence: 1, fields: { name: "JAF", amount: 4000, currency: "JPY", cycle: "YEARLY", day: 1, startDate: null } }), { names: ["JAF"], amount: 4000, currency: "JPY" });
-    assert.equal(matchQueryOf({ kind: "task", reason: "", confidence: 1, fields: { title: "x", due: null, memo: "" } }), null);
+    assert.equal(matchQueryOf({ kind: "task", reason: "", confidence: 1, fields: { title: "x", due: null, dueTime: null, planned: null, plannedTime: null, memo: "" } }), null);
     assert.equal(matchQueryOf(payment({ place: null, name: "", amount: null })), null);
   });
 });

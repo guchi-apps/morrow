@@ -70,7 +70,7 @@ function cardPreview(card: Suggestion): string {
       : card.kind === "subscription"
         ? [card.fields.name, card.fields.amount !== null ? `${card.fields.amount.toLocaleString("ja-JP")}${card.fields.currency === "USD" ? "ドル" : "円"}` : null, card.fields.cycle === "YEARLY" ? "毎年" : "毎月"]
         : card.kind === "task"
-          ? [card.fields.title, card.fields.due ? `期限 ${day(card.fields.due)}` : null]
+          ? [card.fields.title, card.fields.due ? `期限 ${day(card.fields.due)}${card.fields.dueTime ? ` ${card.fields.dueTime}` : ""}` : null]
           : [card.fields.title, day(card.fields.date), card.fields.startTime ? `${card.fields.startTime}〜${card.fields.endTime ?? ""}` : null];
   return parts.filter((part): part is string => Boolean(part)).join("・");
 }

@@ -278,3 +278,16 @@ describe("サブスク登録（#709）", () => {
     );
   });
 });
+
+describe("タスクの期限・予定日の時刻（#907）", () => {
+  it("時刻は日付があるときだけ残し、不正な時刻は捨てる", () => {
+    const ok = normalizeSuggestion("task", { title: "a", due: "2026-11-15", dueTime: "18:00", planned: null, plannedTime: "10:00" }, "r", 0.5);
+    assert.ok(ok && ok.kind === "task");
+    assert.equal(ok.fields.dueTime, "18:00");
+    assert.equal(ok.fields.planned, null);
+    assert.equal(ok.fields.plannedTime, null);
+    const bad = normalizeSuggestion("task", { title: "a", due: "2026-11-15", dueTime: "25:99" }, "r", 0.5);
+    assert.ok(bad && bad.kind === "task");
+    assert.equal(bad.fields.dueTime, null);
+  });
+});

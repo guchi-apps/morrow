@@ -44,7 +44,7 @@ export function summarizeSuggestion(suggestion: Suggestion): string {
     }
     case "task": {
       const f = suggestion.fields;
-      return join([f.title, f.due ? `期限 ${md(f.due)}` : null]);
+      return join([f.title, f.due ? `期限 ${md(f.due)}${f.dueTime ? ` ${f.dueTime}` : ""}` : null]);
     }
     case "event": {
       const f = suggestion.fields;
