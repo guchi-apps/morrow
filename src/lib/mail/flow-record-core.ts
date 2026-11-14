@@ -17,6 +17,12 @@ function md(date: string | null): string | null {
   return m ? `${Number(m[1])}/${Number(m[2])}` : null;
 }
 
+/** 購入日の控え。受信日で補った日付は購入日と区別する（#903）。 */
+function dayLabel(f: { date: string | null; dateEstimated?: boolean }): string | null {
+  const day = md(f.date);
+  return day && f.dateEstimated ? `${day}（受信日）` : day;
+}
+
 function join(parts: (string | null | undefined)[]): string {
   return parts.filter((p): p is string => Boolean(p)).join(" / ").slice(0, SUMMARY_LIMIT);
 }
@@ -29,7 +35,7 @@ export function summarizeSuggestion(suggestion: Suggestion): string {
       // 品目に分かれていれば、品名の代わりに先頭の品目と件数（#781）。金額が無ければ品目の合計
       const label = f.items.length > 0 ? `${f.items[0]!.name}${f.items.length > 1 ? ` ほか${f.items.length - 1}件` : ""}` : f.name || null;
       const total = f.amount ?? itemsTotal(f.items);
-      return join([f.place ?? label, f.place ? label : null, total !== null ? `${total.toLocaleString("ja-JP")}円` : null, md(f.date)]);
+      return join([f.place ?? label, f.place ? label : null, total !== null ? `${total.toLocaleString("ja-JP")}円` : null, dayLabel(f)]);
     }
     case "subscription": {
       const f = suggestion.fields;
