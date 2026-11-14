@@ -520,6 +520,7 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
 ダッシュボードの「時間と場所ごと」の地点名（予報を取れた区間だけ。場所不明・自宅の地点が未着・日別予報で代用した行は押せない）は、その地点・その日の詳細へ飛ぶ。
 
 - **地点はURLに載る**（`/weather?n=<名前>&lat=&lon=&d=`。組み立て・検証は純粋な `src/lib/weather/place-input.ts`・`test/weather-place-input.test.ts`）。登録していない地点（予定の行き先）も座標だけで開け、登録は詳細のボタン（`POST /api/weather/places`）から。座標は小数2桁に丸めて持つ（外へ送る値と同じ。#586の方針）
+- **地点を指定せず `/weather` を開くと、現在地を既定で出す**（#882。`auto-locate.tsx`）。クライアントが `navigator.geolocation` で1回だけ位置を取り（追跡しない）、`/weather?here=1&lat=&lon=`（`hereHref()`・`hereFromQuery()`）へ `router.replace`。サーバーは市町村名だけを `municipalityAt()` で引き（引けなければ「現在地」）、一覧の先頭に「現在地」行を足す。位置は保存もログ出力もせず小数2桁に丸める。iOSの殻は位置の許可を持っている（#587・#641。Swiftの追加は無い）。拒否・失敗・非対応では再要求せず案内を出す。自動取得は素の `/weather`（`d` だけは可）に限る（`shouldAutoLocate()`。検索・地点・現在地の指定があれば取らない）。`here=1` のURLを再読み込みしても座標は取り直さない。殻の位置の利用目的の文言は「ダッシュボードに…」のまま（直すとTestFlightの再ビルドが走るため見送り）。現在地は登録の対象外（登録ボタンを出さない）
 - **登録は `WeatherPlace`（利用者ごと・上限8件・座標で一意）。自宅（AIDEの `location`）はDBに持たず**、`dashboardHomePlace()` が先頭へ足す。AIDEが地点を返していない間は自宅の行が出ない
 - **検索は市町村まで**（`searchMunicipalities()`。国土地理院の住所検索から `municipalityCandidates()` が市町村の題だけを残す。施設名・番地・海外は引けない）。検索は `GET ?q=`（フォームのGET。JS不要）で、候補は詳細へのリンク
 - **気温の折れ線・1時間ごとの帯は `src/components/weather/hourly-strip.tsx` に切り出し、ダッシュボードと共有**している。見た目を変えるときは両方の画面を見ること。1日分は `place-day.ts`（`forecastAt()` の30分キャッシュを使い回すので外への呼び出しは増えない）

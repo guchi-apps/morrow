@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { RainRadar } from "@/components/dashboard/rain-radar";
+import { AutoLocate } from "@/components/weather/auto-locate";
 import { PlaceActions } from "@/components/weather/place-actions";
 import { HourlyStrip, WeatherIcon, YesterdayNote } from "@/components/weather/hourly-strip";
 import { getCurrentUser } from "@/lib/auth-user";
@@ -10,10 +11,10 @@ import { addDays, DAY_RANGE, dayDiff } from "@/lib/dashboard/day-offset";
 import { dashboardHomePlace } from "@/lib/dashboard/places";
 import { dayLabel, jstDayKey, jstTimeLabel } from "@/lib/day-key";
 import { cn } from "@/lib/utils";
-import { searchMunicipalities } from "@/lib/weather/geocode";
+import { municipalityAt, searchMunicipalities } from "@/lib/weather/geocode";
 import { OPEN_METEO_ATTRIBUTION, forecastAt } from "@/lib/weather/open-meteo";
 import { placeDayFrom, type PlaceDay } from "@/lib/weather/place-day";
-import { MAX_WEATHER_PLACES, findRegisteredPlace, placeFromQuery, weatherHref, type WeatherPlaceInput } from "@/lib/weather/place-input";
+import { HERE_NAME, MAX_WEATHER_PLACES, findRegisteredPlace, hereFromQuery, hereHref, placeFromQuery, shouldAutoLocate, weatherHref, type WeatherPlaceInput } from "@/lib/weather/place-input";
 import { listWeatherPlaces } from "@/lib/weather/places-store";
 import { describeWeatherCode, roundCoordinate, type Forecast } from "@/lib/weather/rain-check";
 
@@ -52,7 +53,11 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
   const q = (first(query.q) ?? "").trim().slice(0, 40);
 
   const [home, stored] = await Promise.all([dashboardHomePlace(user.id, now), listWeatherPlaces(user.id)]);
-  const selected = placeFromQuery(query);
+  // 現在地（#882）。座標はブラウザが取ってURLへ載せたもので、市町村名だけサーバーで引く（引けなくても予報は出す）
+  const hereSpot = hereFromQuery(query);
+  const hereName = hereSpot ? await municipalityAt(hereSpot).catch(() => null) : null;
+  const selected = hereSpot ? { ...hereSpot, name: hereName ?? HERE_NAME } : placeFromQuery(query);
+  const isHere = hereSpot !== null;
 
   // 検索の候補と、一覧の各地点の予報（日別の最高・最低）。どれも失敗しても画面は出す。
   const [search, forecasts] = await Promise.all([
@@ -74,12 +79,13 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
   ]);
 
   const entries: { place: WeatherPlaceInput; home: boolean; id: string }[] = [
+    ...(selected && isHere ? [{ place: selected, home: false, id: "here" }] : []),
     ...(home ? [{ place: home, home: true, id: "home" }] : []),
     ...stored.map((place) => ({ place, home: false, id: place.id })),
   ];
   const keyOf = (place: { latitude: number; longitude: number }) => `${place.latitude},${place.longitude}`;
-  const isHome = selected && home ? sameSpot(selected, home) : false;
-  const registeredPlace = selected && !isHome ? findRegisteredPlace(selected, stored) : null;
+  const isHome = !isHere && selected && home ? sameSpot(selected, home) : false;
+  const registeredPlace = selected && !isHome && !isHere ? findRegisteredPlace(selected, stored) : null;
   const registered = registeredPlace !== null;
 
   // 今日の前後 DAY_RANGE 日を1本の帯に連結する（#869。日付をまたいで左右スクロールで続けて見られる）
@@ -169,11 +175,18 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
             <ul className="flex flex-col">
               {entries.map(({ place, home: isHomeEntry, id }) => {
                 const daily = forecasts.get(keyOf(place))?.daily.find((day) => day.date === date) ?? null;
-                const on = selected ? (isHomeEntry ? sameSpot(selected, place) : registeredPlace?.id === id) : false;
+                const isHereEntry = id === "here";
+                const on = selected
+                  ? isHereEntry
+                    ? isHere
+                    : isHomeEntry
+                      ? !isHere && sameSpot(selected, place)
+                      : registeredPlace?.id === id
+                  : false;
                 return (
                   <li key={id}>
                     <Link
-                      href={weatherHref(place, date === today ? undefined : date)}
+                      href={isHereEntry ? hereHref(place, date === today ? undefined : date) : weatherHref(place, date === today ? undefined : date)}
                       aria-current={on ? "page" : undefined}
                       className={cn(
                         "flex items-center justify-between gap-2 rounded-lg px-2 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
@@ -182,7 +195,8 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
                     >
                       <span className="flex min-w-0 items-center gap-1.5">
                         <WeatherIcon code={daily?.code ?? null} className="size-3.5 shrink-0 text-topic" />
-                        <span className="truncate">{place.name}</span>
+                        {isHereEntry && <span className="shrink-0 text-xs font-bold text-accent">現在地</span>}
+                        {!(isHereEntry && place.name === HERE_NAME) && <span className="truncate">{place.name}</span>}
                         {isHomeEntry && <span className="shrink-0 text-xs font-normal text-muted">・自宅</span>}
                       </span>
                       <span className="shrink-0 text-xs tabular-nums text-muted">
@@ -200,15 +214,20 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
 
           <section aria-label="1日の天気" className="flex min-w-0 flex-col gap-2.5 rounded-xl border border-border bg-surface px-4 py-3.5">
             {!selected ? (
-              <p className="text-[0.8125rem] text-muted">左の地点を選ぶと、その場所の0〜23時の天気が出ます。ダッシュボードの「時間と場所ごと」の地点名からも開けます。</p>
+              shouldAutoLocate(query) ? (
+                <AutoLocate date={offset === 0 ? undefined : date} />
+              ) : (
+                <p className="text-[0.8125rem] text-muted">左の地点を選ぶと、その場所の0〜23時の天気が出ます。ダッシュボードの「時間と場所ごと」の地点名からも開けます。</p>
+              )
             ) : (
               <>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="flex items-baseline gap-2 text-base font-bold">
                     {selected.name}
+                    {isHere && <span className="text-xs font-normal text-muted">・現在地</span>}
                     {isHome && <span className="text-xs font-normal text-muted">・自宅</span>}
                   </h3>
-                  {!isHome && (
+                  {!isHome && !isHere && (
                     <PlaceActions
                       name={registeredPlace?.name ?? selected.name}
                       latitude={registeredPlace?.latitude ?? selected.latitude}
