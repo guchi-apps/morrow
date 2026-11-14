@@ -130,6 +130,9 @@ describe("カード利用のお知らせ（#898）", () => {
     const d = { needed: true, reason: "期限", cardUsage: false, amount: 999999 };
     assert.deepEqual(applyCardRule(d), d);
   });
+  it("外貨・金額不明（amount が null）は知らせない側へ倒れる", () => {
+    assert.equal(applyCardRule({ needed: true, reason: "", cardUsage: true, amount: null }).needed, false);
+  });
   it("amount を検証し直す", () => {
     assert.equal(normalizeAmount(12000), 12000);
     for (const bad of [-1, 0, 1.5, "50000", null, NaN, 1e12]) assert.equal(normalizeAmount(bad), null);
