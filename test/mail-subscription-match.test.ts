@@ -99,6 +99,9 @@ describe("matchQueryOf", () => {
     const items = [{ name: "a", amount: 1, quantity: null }, { name: "b", amount: 1, quantity: null }];
     assert.deepEqual(matchQueryOf(payment({ items, amount: null })), { names: ["KDDI"], amount: null, currency: null });
   });
+  it("外貨建ての家計簿は金額で照合しない", () => {
+    assert.deepEqual(matchQueryOf(payment({ amount: 1500, originalAmount: 10, originalCurrency: "USD" })), { names: ["KDDI", "KDDIサービス料金"], amount: null, currency: null });
+  });
   it("サブスクは名称・金額・通貨、予定・手掛かりの無い提案はnull", () => {
     assert.deepEqual(matchQueryOf({ kind: "subscription", reason: "", confidence: 1, fields: { name: "JAF", amount: 4000, currency: "JPY", cycle: "YEARLY", day: 1, startDate: null } }), { names: ["JAF"], amount: 4000, currency: "JPY" });
     assert.equal(matchQueryOf({ kind: "task", reason: "", confidence: 1, fields: { title: "x", due: null, memo: "" } }), null);

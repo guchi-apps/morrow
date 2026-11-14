@@ -116,7 +116,10 @@ export function matchQueryOf(card: Suggestion): MatchQuery | null {
     const f = card.fields;
     // 品目が1つならその名前、無ければ1行の品名（複数品目の明細は定期払いの名前にならないので使わない）
     const item = f.items.length === 1 ? f.items[0].name : f.items.length === 0 ? f.name : null;
-    query = { names: clean([f.place, item]), amount: f.amount, currency: f.amount !== null ? "JPY" : null };
+    // 外貨建ての支払い（`originalCurrency` あり）は円換算の合計が請求額と合わないので、金額では照合しない（#896の計画レビュー）
+    const foreign = f.originalCurrency !== null && f.originalCurrency.toUpperCase() !== "JPY";
+    const amount = foreign ? null : f.amount;
+    query = { names: clean([f.place, item]), amount, currency: amount !== null ? "JPY" : null };
   }
   if (!query || (query.names.length === 0 && query.amount === null)) return null;
   return query;
