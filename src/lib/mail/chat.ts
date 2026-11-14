@@ -6,7 +6,7 @@ import { getMail, type MailUser } from "@/lib/mail/aide-client";
 import { buildChatPrompt, parseChatReply, type ChatTurn, type MailChatReply } from "@/lib/mail/chat-core";
 import { acquireMailCodex, currentMailCodex } from "@/lib/mail/codex-lock";
 import type { MailFailureKind } from "@/lib/mail/contract";
-import { plainBody } from "@/lib/mail/suggest-core";
+import { plainBody, withReceivedDate } from "@/lib/mail/suggest-core";
 
 /**
  * メール本文への指示（#784）。**サーバー専用。** 利用者が書いた指示と、画面が送り直す直近のやり取りでCodexを1回呼ぶ。
@@ -61,7 +61,7 @@ export async function chatAboutMail(user: MailUser, messageId: string, message: 
       console.error("[aide-bot] メールへの指示の返答を読めなかった");
       return { ok: false, kind: "failed", message: "返事を読めませんでした。もう一度送ってください。" };
     }
-    return { ok: true, result: parsed };
+    return { ok: true, result: { ...parsed, suggest: withReceivedDate(parsed.suggest, mailMessage.receivedAt) } };
   } catch (error) {
     console.error("[aide-bot] メールへの指示に失敗した", error instanceof Error ? error.message : error);
     return { ok: false, kind: "failed", message: "返事を作れませんでした。もう一度送ってください。" };

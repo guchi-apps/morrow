@@ -9,6 +9,9 @@ export const ASSET_MANAGER_ORIGIN = "https://asset.gucchii.com";
 
 export type PaymentItem = { name: string; amount: number; quantity: number | null };
 
+/** 購入日が本文に無く、メールの受信日で補ったときの注記（#903）。 */
+export const RECEIVED_DATE_NOTE = "本文に購入日が無いため、メールの受信日を使います";
+
 type PaymentLike = { place: string | null; name: string; date: string | null; items: readonly PaymentItem[] };
 
 /**

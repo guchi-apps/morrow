@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { parseSchedule } from "@/lib/dashboard/parse";
+import { jstDayKey } from "@/lib/day-key";
 import { paymentBlocker, type PaymentItem } from "@/lib/mail/payment-receipt";
 import type { SubscriptionFields } from "@/lib/mail/subscription-link";
 import { flattenText } from "@/lib/mail/triage-core";
@@ -45,6 +46,8 @@ export type PaymentFields = {
   amount: number | null;
   /** 購入日 `YYYY-MM-DD`。読み取れないときはnull。 */
   date: string | null;
+  /** 本文に購入日が無く、メールの受信日で補ったとき真（#903）。モデルの返答には無く、画面の注記にだけ使う。 */
+  dateEstimated?: boolean;
   /** 購入時刻 `HH:MM`。本文に印字されているときだけ（#781）。 */
   time: string | null;
   /** 品目ごとの明細（#781）。分かれていなければ空。 */
@@ -305,6 +308,24 @@ export function parseSuggestReply(answer: string): SuggestResult | null {
   return { recommended: recommended ?? fallback, suggestions };
 }
 
+/** 受信日（日本時間の `YYYY-MM-DD`）。受信日が無ければnull。 */
+export function receivedDayOf(receivedAt: number | null): string | null {
+  return receivedAt !== null && Number.isFinite(receivedAt) ? jstDayKey(new Date(receivedAt)) : null;
+}
+
+/**
+ * 家計簿の提案で購入日が読み取れなかったとき、メールの受信日を購入日にする（#903）。時刻は補わない。
+ * 読み取れた日付は変えない。保存する返答は変えず、返すときに毎回当てる。
+ */
+export function withReceivedDate(result: SuggestResult, receivedAt: number | null): SuggestResult {
+  const day = receivedDayOf(receivedAt);
+  if (!day) return result;
+  return {
+    ...result,
+    suggestions: result.suggestions.map((s) => (s.kind === "payment" && !s.fields.date ? { ...s, fields: { ...s.fields, date: day, dateEstimated: true } } : s)),
+  };
+}
+
 export type MailRef = { messageId: string; subject: string; from: string; receivedAt: number | null };
 
 const MEMO_JOIN = "\n";
@@ -333,10 +354,13 @@ export function toolCallFor(suggestion: Suggestion, mail: MailRef, userId: strin
       args: { title, date, ...(startTime && endTime ? { startTime, endTime } : {}), ...(location ? { location } : {}) },
     };
   }
-  const { place, name, amount, date, time, items, usage, originalAmount, originalCurrency } = suggestion.fields;
+  const { place, name, amount, time, items, usage, originalAmount, originalCurrency } = suggestion.fields;
+  // 本文に購入日が無ければ受信日で補う（#903）。読み取れた購入日は変えない
+  const date = suggestion.fields.date ?? receivedDayOf(mail.receivedAt);
+  const withDate = { ...suggestion.fields, date };
   // 取り込みは常に確認待ちで止める（`review: true`。#781）。品目・カテゴリ・メモ・確定はAsset Managerのレシート編集画面で行うので、
   // 支払先・金額が読み取れなくても送る（asset-manager#1216）。購入日と名前の手掛かりだけはAsset Managerが必須にしている
-  const blocker = paymentBlocker(suggestion.fields);
+  const blocker = paymentBlocker(withDate);
   if (blocker || !date) return { ok: false, reason: blocker ?? "購入日がありません。" };
   return {
     ok: true,

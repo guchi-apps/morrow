@@ -8,6 +8,7 @@ import {
   plainBody,
   readToolOutcome,
   toolCallFor,
+  withReceivedDate,
 } from "@/lib/mail/suggest-core";
 import { paymentBlocker, receiptUrl } from "@/lib/mail/payment-receipt";
 import { subscriptionLink, type SubscriptionFields } from "@/lib/mail/subscription-link";
@@ -91,9 +92,37 @@ describe("toolCallFor", () => {
     assert.ok(blankPlace.kind === "payment" && blankPlace.fields.place === null);
   });
 
-  it("家計簿は購入日が無ければ送らない（Asset Managerが必須にしている）", () => {
-    const noDate = toolCallFor(normalizeSuggestion("payment", { place: "p", name: "n", amount: 100 })!, mail, "u1");
-    assert.equal(noDate.ok, false);
+  it("家計簿は購入日が無ければ受信日（日本時間）で送り、受信日も無ければ送らない（#903）", () => {
+    const s = normalizeSuggestion("payment", { place: "p", name: "n", amount: 100 })!;
+    const received = Date.parse("2026-11-14T16:30:00Z"); // 日本時間では11/15
+    const ok = toolCallFor(s, { ...mail, receivedAt: received }, "u1");
+    assert.ok(ok.ok);
+    assert.equal(ok.args.date, "2026-11-15");
+    assert.equal(toolCallFor(s, { ...mail, receivedAt: null }, "u1").ok, false);
+    // 読み取れた購入日は受信日で上書きしない
+    const dated = toolCallFor(normalizeSuggestion("payment", { place: "p", name: "n", date: "2026-11-05" })!, { ...mail, receivedAt: received }, "u1");
+    assert.ok(dated.ok);
+    assert.equal(dated.args.date, "2026-11-05");
+  });
+
+  it("withReceivedDate は購入日が無い家計簿だけを受信日で補い、注記の印を付ける（#903）", () => {
+    const result = {
+      recommended: "payment" as const,
+      suggestions: [
+        normalizeSuggestion("payment", { place: "p", name: "n" })!,
+        normalizeSuggestion("payment", { place: "q", name: "m", date: "2026-11-05" })!,
+        normalizeSuggestion("event", { title: "e" })!,
+      ],
+    };
+    const received = Date.parse("2026-11-14T03:00:00Z");
+    const out = withReceivedDate(result, received);
+    const [a, b, c] = out.suggestions;
+    assert.ok(a.kind === "payment" && a.fields.date === "2026-11-14" && a.fields.dateEstimated === true);
+    assert.ok(b.kind === "payment" && b.fields.date === "2026-11-05" && b.fields.dateEstimated === undefined);
+    assert.ok(c.kind === "event" && c.fields.date === null);
+    assert.equal(withReceivedDate(result, null), result);
+    // 元の値は変えない
+    assert.ok(result.suggestions[0].kind === "payment" && result.suggestions[0].fields.date === null);
   });
 
   it("品目は1品目1行で送り、品名が無くても品目があれば送る。時刻は日付に付ける", () => {

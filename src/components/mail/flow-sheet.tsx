@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { FLOW_APP_LINKS } from "@/lib/mail/app-links";
-import { itemsTotal, paymentBlocker } from "@/lib/mail/payment-receipt";
+import { RECEIVED_DATE_NOTE, itemsTotal, paymentBlocker } from "@/lib/mail/payment-receipt";
 import type { PaymentFields, Suggestion, SuggestKind } from "@/lib/mail/suggest-core";
 import { ASSET_MANAGER_SUBSCRIPTIONS_URL, subscriptionLink } from "@/lib/mail/subscription-link";
 import type { RegisteredSubscription, SubscriptionMatch } from "@/lib/mail/subscription-match-core";
@@ -58,7 +58,10 @@ function PaymentSummary({ fields }: { fields: PaymentFields }) {
         <dt className="text-xs text-muted">支払先</dt>
         <dd className={cn("min-w-0 break-words", !fields.place && dim)}>{fields.place ?? "読み取れませんでした"}</dd>
         <dt className="text-xs text-muted">日時</dt>
-        <dd className={cn(!when && "text-danger")}>{when ?? "読み取れませんでした"}</dd>
+        <dd className={cn(!when && "text-danger")}>
+          {when ?? "読み取れませんでした"}
+          {when && fields.dateEstimated && <span className="block text-[0.6875rem] text-muted">{RECEIVED_DATE_NOTE}</span>}
+        </dd>
         {fields.usage && (
           <>
             <dt className="text-xs text-muted">使用量</dt>
