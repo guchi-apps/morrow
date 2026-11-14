@@ -46,11 +46,11 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
     [replace],
   );
 
-  const recheck = useCallback(async () => {
+  const recheck = useCallback(async (account?: string) => {
     setBalanceBusy(true);
     setBalanceError(null);
     try {
-      const response = await fetch("/api/mail/flow/balance", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id }) });
+      const response = await fetch("/api/mail/flow/balance", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, account }) });
       const data = (await response.json().catch(() => null)) as { balance?: BalanceCheck | null; error?: string } | null;
       if (!response.ok || !data) setBalanceError(data?.error ?? `確認できませんでした（HTTP ${response.status}）。`);
       else showBalance(data.balance ?? null);
@@ -183,7 +183,8 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
               check={balance}
               busy={balanceBusy}
               error={balanceError}
-              onRecheck={recheck}
+              onRecheck={() => void recheck()}
+              onPick={(account) => void recheck(account)}
               task={
                 flow.rows["w-0"] ? (
                   <FlowRowButton
@@ -314,7 +315,7 @@ const yen = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
 const stamp = (iso: string) => iso.slice(0, 16).replace("T", " ");
 
 /** 引き落とし前の残高確認（#842）。足りると言い切れないときは理由を出す。他の引き落とし・入金は含まない。 */
-function BalanceCard({ check, busy, error, onRecheck, task }: { check: BalanceCheck; busy: boolean; error: string | null; onRecheck: () => void; task: React.ReactNode }) {
+function BalanceCard({ check, busy, error, onRecheck, onPick, task }: { check: BalanceCheck; busy: boolean; error: string | null; onRecheck: () => void; onPick: (account: string) => void; task: React.ReactNode }) {
   const badge =
     check.status === "enough"
       ? { text: "足りています", cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" }
@@ -328,7 +329,7 @@ function BalanceCard({ check, busy, error, onRecheck, task }: { check: BalanceCh
         <span className={`rounded-full px-2.5 py-0.5 text-[0.6875rem] font-bold ${badge.cls}`}>{badge.text}</span>
       </p>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 tabular-nums">
-        <dt className="text-muted">引き落とし額</dt>
+        <dt className="text-muted">引き落とし額（メール）</dt>
         <dd className="text-right">{yen(check.amount)}{check.payee ? `（${check.payee}）` : ""}</dd>
         <dt className="text-muted">引き落とし日</dt>
         <dd className="text-right">{check.date ?? "メールに記載なし"}</dd>
@@ -345,6 +346,22 @@ function BalanceCard({ check, busy, error, onRecheck, task }: { check: BalanceCh
         <p className="text-muted">{check.reason}</p>
       ) : (
         <p className="text-[0.6875rem] text-muted">残高は{stamp(check.asOf)}時点（Zaim連携）。この日までの他の引き落とし・入金は含みません。</p>
+      )}
+      <p className="text-[0.6875rem] text-muted">金額はメールに書かれた確定額です。Asset Managerの見込み額と違うときは、メールの額が正です。</p>
+      {check.status === "unknown" && check.choices && (
+        <div className="flex flex-wrap items-center gap-1.5" aria-label="引き落とし口座を選ぶ">
+          {check.choices.map((name) => (
+            <button
+              key={name}
+              type="button"
+              disabled={busy}
+              onClick={() => onPick(name)}
+              className="rounded-full border border-border bg-background px-2.5 py-1 text-[0.6875rem] font-bold transition-colors hover:bg-rail-active disabled:opacity-60"
+            >
+              {name}
+            </button>
+          ))}
+        </div>
       )}
       {error && (
         <p role="alert" className="text-danger">
