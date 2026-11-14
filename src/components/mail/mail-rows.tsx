@@ -17,6 +17,7 @@ import { MailNotice } from "./mail-notice";
 import { leaveMailPane } from "./mail-transition";
 import { SwipeArchiveRow } from "./swipe-archive-row";
 import { useMailAction } from "./use-mail-action";
+import { useMailPager } from "./use-mail-pager";
 
 type Row = MailSummary & { notified: boolean; flowKinds: string[]; /** 一覧の要約（#851）。無ければnull。 */ summary: string | null };
 
@@ -37,7 +38,12 @@ type Props = {
   back: string;
   /** 受信トレイ表示か（アーカイブ済みを隠すのはこのときだけ）。 */
   inboxView: boolean;
+  /** 1ページ目の次のページの鍵。続きはスクロールに合わせて `/api/mail/list` から足す（#887）。無ければ続きは無い。 */
+  initialNextToken: string | null;
+  /** 続きを取るときの条件（画面のURLと同じ）。 */
+  listQuery: { view: string; acct: string | null; q: string };
 };
+
 
 const BULK: { action: MailAction; label: string }[] = [
   { action: "read", label: "既読にする" },
@@ -47,7 +53,7 @@ const BULK: { action: MailAction; label: string }[] = [
 ];
 
 /** 一覧の行とまとめての操作（#683）。選んだメールに既読・アーカイブ・ラベル・ゴミ箱をまとめて当てる。 */
-export function MailRows({ messages: listed, labels, supportsLabels, inTrash, showAccount, nowMs, back, inboxView }: Props) {
+export function MailRows({ messages: listed, labels, supportsLabels, inTrash, showAccount, nowMs, back, inboxView, initialNextToken, listQuery }: Props) {
   // アーカイブに成功したメールは、取り直した一覧が古くても受信トレイへ戻さない（#795）。保存はブラウザなので描画後に読む
   const [archived, setArchived] = useState<ArchivedMap>({});
   useEffect(() => {
@@ -55,19 +61,25 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
     load();
     return subscribeArchived(load);
   }, [listed]);
-  const messages = hideArchived(listed, archived, inboxView);
+  // 続きのページ（#887）。先頭ページが取り直されても（router.refresh）、足した続きは保つ
+  const { extra, hasMore, status, sentinelRef, retry, refreshPages } = useMailPager<Row>(initialNextToken, listQuery);
+
+  const base = hideArchived(listed, archived, inboxView);
+  const baseIds = new Set(base.map((m) => m.id));
+  const messages = [...base, ...hideArchived(extra.filter((m) => !baseIds.has(m.id)), archived, inboxView)];
   // 要約待ちの行があるあいだ、一覧を数回だけ取り直す（#851）
   const router = useRouter();
   const [polls, setPolls] = useState(0);
-  const waiting = inboxView && polls < SUMMARY_POLL_MAX && messages.some((m) => m.summary === null);
+  const waiting = inboxView && polls < SUMMARY_POLL_MAX && (base.some((m) => m.summary === null) || extra.some((m) => m.summary === null));
   useEffect(() => {
     if (!waiting) return;
     const timer = window.setTimeout(() => {
       setPolls((n) => n + 1);
       router.refresh();
+      void refreshPages((m) => m.summary === null);
     }, SUMMARY_POLL_MS);
     return () => window.clearTimeout(timer);
-  }, [waiting, polls, router]);
+  }, [waiting, polls, router, refreshPages]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // 押した行（#699）。本文の画面へ移るまでの一瞬、押したことが分かるよう色を付ける
   const [opening, setOpening] = useState<string | null>(null);
@@ -149,6 +161,7 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
         <MailNotice notice={notice} />
       )}
 
+      {messages.length > 0 && (
       <ul className="overflow-hidden rounded-xl border border-border bg-surface">
         {messages.map((message) => {
           const locked = lockedOut(message.id);
@@ -231,6 +244,25 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
           );
         })}
       </ul>
+      )}
+      {hasMore && (
+        <div ref={sentinelRef} className="flex min-h-10 items-center justify-center text-xs text-muted">
+          {status === "error" ? (
+            <button type="button" onClick={retry} className={bulkButton}>
+              読み込めませんでした。もう一度試す
+            </button>
+          ) : status === "stalled" ? (
+            <button type="button" onClick={retry} className={bulkButton}>
+              続きを読み込む
+            </button>
+          ) : (
+            <span className="flex items-center gap-2">
+              <span aria-hidden className="size-3 animate-spin rounded-full border-2 border-border border-t-accent" />
+              {status === "loading" ? "読み込んでいます…" : "続きがあります"}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

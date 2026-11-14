@@ -34,6 +34,9 @@ const SCHEMAS: Record<string, Schema> = {
   },
   aide_weather: { props: {} },
   aide_balances: { props: {} },
+  asset_manager_subscriptions: {
+    props: { includeEnded: { type: "boolean" }, includeHistory: { type: "boolean" }, name: { type: "string" } },
+  },
   aide_tasks: {
     props: {
       cursor: { type: "string" },
@@ -179,6 +182,9 @@ describe("読み取りの呼び出し（引数は入力の範囲内）", () => {
   it("ダッシュボードの予定（今日は3日ぶん・前後の日は offsetDays）", () => {
     assertValid("aide_schedule", { days: 3 });
     for (const offset of [-7, 7]) assertValid("aide_schedule", { days: 1, offsetDays: offset });
+  });
+  it("メールのサブスク提案の照合（#884。引数なし＝解約済みを除く全件）", () => {
+    assertValid("asset_manager_subscriptions", {});
   });
   it("メールの紐づけ候補（予定は前後2週間・タスクは未完了60件）", () => {
     assertValid("aide_schedule", { offsetDays: -7, days: 14 });

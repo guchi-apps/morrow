@@ -1,12 +1,18 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { Archive, Inbox, Mail, MailOpen } from "lucide-react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 
+import { HEADER_ACTIONS_ID } from "@/components/chat/header-actions";
 import type { MailAction } from "@/lib/mail/contract";
 
 import { MailNotice } from "./mail-notice";
 import { useMailAction } from "./use-mail-action";
+
+const subscribeNothing = () => () => {};
+const findSlot = () => document.getElementById(HEADER_ACTIONS_ID);
 
 type Props = {
   id: string;
@@ -18,7 +24,7 @@ type Props = {
 
 /**
  * 本文の画面の操作（#683・#717）。既読／未読とアーカイブ（アーカイブ済みなら受信トレイへ戻す）だけ。
- * 開いた時点で未読なら自動で既読にする（#835）。
+ * 開いた時点で未読なら自動で既読にする（#835）。ボタンはヘッダー右上のアイコンに固定する（#883。スクロールしても動かない）。
  * スター・ラベル・ゴミ箱は使わないので出さない（サーバー側の操作そのものは一覧・契約のために残してある）。
  */
 export function MailDetailActions({ id, unread, inInbox, inTrash, back }: Props) {
@@ -40,28 +46,36 @@ export function MailDetailActions({ id, unread, inInbox, inTrash, back }: Props)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const button =
-    "rounded-[9px] border border-border bg-surface px-3 py-1.5 text-xs transition-colors hover:bg-rail-active disabled:opacity-50";
+  // ヘッダー右上の置き場（シェルが置く）。マウント後に見つける。無ければ（置き場が無い画面）本文の先頭に出す
+  const slot = useSyncExternalStore(subscribeNothing, findSlot, () => null);
+
+  const iconButton =
+    "grid size-[34px] place-items-center rounded-[10px] border border-border bg-background transition-colors hover:bg-rail-active disabled:opacity-50";
+  const icon = "size-4";
+  const readLabel = unread ? "既読にする" : "未読に戻す";
+  const buttons = (
+    <>
+      <button type="button" disabled={pending} onClick={() => apply(unread ? "read" : "unread", [id])} className={iconButton} aria-label={readLabel} title={readLabel}>
+        {unread ? <MailOpen className={icon} aria-hidden="true" /> : <Mail className={icon} aria-hidden="true" />}
+      </button>
+      {inInbox ? (
+        <button type="button" disabled={pending} onClick={() => apply("archive", [id])} className={iconButton} aria-label="アーカイブ" title="アーカイブ">
+          <Archive className={icon} aria-hidden="true" />
+        </button>
+      ) : (
+        !inTrash && (
+          <button type="button" disabled={pending} onClick={() => apply("inbox", [id])} className={iconButton} aria-label="受信トレイへ戻す" title="受信トレイへ戻す">
+            <Inbox className={icon} aria-hidden="true" />
+          </button>
+        )
+      )}
+    </>
+  );
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap gap-1.5">
-        <button type="button" disabled={pending} onClick={() => apply(unread ? "read" : "unread", [id])} className={button}>
-          {unread ? "既読にする" : "未読に戻す"}
-        </button>
-        {inInbox ? (
-          <button type="button" disabled={pending} onClick={() => apply("archive", [id])} className={button}>
-            アーカイブ
-          </button>
-        ) : (
-          !inTrash && (
-            <button type="button" disabled={pending} onClick={() => apply("inbox", [id])} className={button}>
-              受信トレイへ戻す
-            </button>
-          )
-        )}
-      </div>
+    <>
+      {slot ? createPortal(buttons, slot) : <div className="flex gap-1.5">{buttons}</div>}
       <MailNotice notice={notice} />
-    </div>
+    </>
   );
 }

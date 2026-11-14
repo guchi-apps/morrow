@@ -1,23 +1,6 @@
+import { Bar, LoadingLabel } from "@/components/ui/page-skeleton";
+
 import { MailBackLinkFromQuery } from "./mail-back-link";
-
-/** スケルトンの帯1本。 */
-function Bar({ className }: { className: string }) {
-  return <div className={`mail-skeleton ${className}`} aria-hidden="true" />;
-}
-
-/** 「◯◯を読み込んでいます」。読み上げにも状態を伝える。 */
-function LoadingLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <p role="status" className="flex items-center gap-2 text-[0.6875rem] text-muted">
-      <span className="mail-loading-dots flex gap-1" aria-hidden="true">
-        <span className="size-1.5 rounded-full bg-accent" />
-        <span className="size-1.5 rounded-full bg-accent" />
-        <span className="size-1.5 rounded-full bg-accent" />
-      </span>
-      {children}
-    </p>
-  );
-}
 
 const BODY_LINES = ["w-[96%]", "w-[88%]", "w-[92%]", "w-[70%]", null, "w-[94%]", "w-[82%]", "w-[60%]"];
 

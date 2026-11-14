@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { FLOW_APP_LINKS } from "@/lib/mail/app-links";
 import { itemsTotal, paymentBlocker } from "@/lib/mail/payment-receipt";
 import type { PaymentFields, Suggestion, SuggestKind } from "@/lib/mail/suggest-core";
-import { subscriptionLink } from "@/lib/mail/subscription-link";
+import { ASSET_MANAGER_SUBSCRIPTIONS_URL, subscriptionLink } from "@/lib/mail/subscription-link";
+import type { RegisteredSubscription, SubscriptionMatch } from "@/lib/mail/subscription-match-core";
+import { registeredDetails, registeredSummary } from "@/lib/mail/subscription-match-view";
 import { cn } from "@/lib/utils";
 
 /**
@@ -32,6 +34,8 @@ type Props = {
   card: Suggestion | null;
   recommended: boolean;
   outcome: CardResult | undefined;
+  /** サブスク提案のAsset Managerとの照合結果（#884）。未取得はundefined。 */
+  match?: SubscriptionMatch;
   running: boolean;
   onEdit: (kind: SuggestKind, key: string, value: string) => void;
   onRun: (card: Suggestion) => void;
@@ -101,7 +105,7 @@ function Field({ label, children, className }: { label: string; children: ReactN
   );
 }
 
-export function FlowSheet({ card, recommended, outcome, running, onEdit, onRun, onOpenSubscription, onClose }: Props) {
+export function FlowSheet({ card, recommended, outcome, match, running, onEdit, onRun, onOpenSubscription, onClose }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -114,6 +118,8 @@ export function FlowSheet({ card, recommended, outcome, running, onEdit, onRun, 
   const f = (card?.fields ?? {}) as Record<string, string | number | null>;
   const meta = card ? KIND_META[card.kind] : null;
   const app = card ? FLOW_APP_LINKS[card.kind] : null;
+  // Asset Managerに同じ項目があるとき（#884）は登録内容を出し、読み取った値の入力欄は参考へ畳む
+  const found = card?.kind === "subscription" && match?.status === "matched" ? match.matches : null;
 
   return (
     <dialog
@@ -137,7 +143,9 @@ export function FlowSheet({ card, recommended, outcome, running, onEdit, onRun, 
             </button>
           </div>
           <p className="text-[0.6875rem] leading-relaxed text-muted">
-            {card.kind === "payment"
+            {found
+              ? "Asset Managerに同じ項目が見つかったので、そちらの登録内容を表示しています（読み取った値より優先）。"
+              : card.kind === "payment"
               ? "AIが本文から読み取った値です。Asset Managerの画面で直してから確定してください。"
               : `AIが本文から読み取った値です。外れることがあるので、確かめてから${card.kind === "subscription" ? "開いてください" : "登録してください"}。`}
             {card.reason && <>　理由: {card.reason}</>}
@@ -145,7 +153,10 @@ export function FlowSheet({ card, recommended, outcome, running, onEdit, onRun, 
 
           {card.kind === "payment" && <PaymentSummary fields={card.fields} />}
 
-          <div className={cn("grid grid-cols-2 gap-2.5", card.kind === "payment" && "hidden")}>
+          {found && <RegisteredPanel key={found.map((r) => r.id).join(",")} matches={found} />}
+          {card.kind === "subscription" && match?.status === "error" && <p className="text-[0.6875rem] text-muted">Asset Managerとの照合はできませんでした（登録済みかは未確認）。</p>}
+
+          <div className={cn("grid grid-cols-2 gap-2.5", (card.kind === "payment" || found) && "hidden")}>
             {card.kind === "subscription" && (
               <>
                 <Field label="名称" className="col-span-2">
@@ -207,6 +218,17 @@ export function FlowSheet({ card, recommended, outcome, running, onEdit, onRun, 
 
           {card.kind === "payment" ? (
             <PaymentActions card={card} outcome={outcome} running={running} onRun={onRun} fallback={app} />
+          ) : card.kind === "subscription" && found ? (
+            <>
+              <details className="text-xs text-muted">
+                <summary className="cursor-pointer">メールから読み取った値（参考）</summary>
+                {String(f.name ?? "")}・{f.amount !== null && f.amount !== undefined ? `${f.amount}${f.currency === "USD" ? "ドル" : "円"}` : "金額は読み取れず"}・{f.cycle === "YEARLY" ? "毎年" : "毎月"}
+              </details>
+              <a href={ASSET_MANAGER_SUBSCRIPTIONS_URL} target="_blank" rel="noopener noreferrer" className="rounded-[10px] bg-accent px-3 py-2.5 text-center text-sm font-bold text-accent-foreground">
+                Asset Managerで開く ↗
+              </a>
+              <p className="text-[0.6875rem] text-muted">表示は読み取り専用です。メールの内容と違うときは、Asset Manager側で直してください（iPhoneのMorrowアプリではAsset Managerアプリで開きます）。</p>
+            </>
           ) : card.kind === "subscription" ? (
             <>
               <a
@@ -245,6 +267,37 @@ export function FlowSheet({ card, recommended, outcome, running, onEdit, onRun, 
         </div>
       )}
     </dialog>
+  );
+}
+
+/** Asset Managerで見つかった登録済みのサブスク（読み取り専用。#884）。候補が複数なら選ぶ。 */
+function RegisteredPanel({ matches }: { matches: RegisteredSubscription[] }) {
+  const [picked, setPicked] = useState(0);
+  const current = matches[picked] ?? matches[0];
+  return (
+    <div className="flex flex-col gap-2 rounded-[10px] border border-fair/40 bg-fair-surface px-3 py-2.5 text-[0.8125rem]">
+      {matches.length > 1 && (
+        <div role="radiogroup" aria-label="候補" className="flex flex-col gap-1">
+          {matches.map((r, index) => (
+            <button key={r.id} type="button" role="radio" aria-checked={index === picked} onClick={() => setPicked(index)} className={cn("rounded-lg border px-2 py-1 text-left text-xs", index === picked ? "border-accent bg-background font-bold" : "border-border")}>
+              {registeredSummary(r)}
+            </button>
+          ))}
+        </div>
+      )}
+      <p className="flex flex-wrap items-center gap-2 text-base font-bold">
+        {current.name}
+        {current.statusLabel && <span className="rounded-full bg-background px-2 py-0.5 text-[0.6875rem] font-bold text-fair">{current.statusLabel}</span>}
+      </p>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+        {registeredDetails(current).map((row) => (
+          <div key={row.label} className="contents">
+            <dt className="text-xs text-muted">{row.label}</dt>
+            <dd className="min-w-0 break-words font-semibold">{row.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }
 

@@ -520,6 +520,7 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
 ダッシュボードの「時間と場所ごと」の地点名（予報を取れた区間だけ。場所不明・自宅の地点が未着・日別予報で代用した行は押せない）は、その地点・その日の詳細へ飛ぶ。
 
 - **地点はURLに載る**（`/weather?n=<名前>&lat=&lon=&d=`。組み立て・検証は純粋な `src/lib/weather/place-input.ts`・`test/weather-place-input.test.ts`）。登録していない地点（予定の行き先）も座標だけで開け、登録は詳細のボタン（`POST /api/weather/places`）から。座標は小数2桁に丸めて持つ（外へ送る値と同じ。#586の方針）
+- **地点を指定せず `/weather` を開くと、現在地を既定で出す**（#882。`auto-locate.tsx`）。クライアントが `navigator.geolocation` で1回だけ位置を取り（追跡しない）、`/weather?here=1&lat=&lon=`（`hereHref()`・`hereFromQuery()`）へ `router.replace`。サーバーは市町村名だけを `municipalityAt()` で引き（引けなければ「現在地」）、一覧の先頭に「現在地」行を足す。位置は保存もログ出力もせず小数2桁に丸める。iOSの殻は位置の許可を持っている（#587・#641。Swiftの追加は無い）。拒否・失敗・非対応では再要求せず案内を出す。自動取得は素の `/weather`（`d` だけは可）に限る（`shouldAutoLocate()`。検索・地点・現在地の指定があれば取らない）。`here=1` のURLを再読み込みしても座標は取り直さない。殻の位置の利用目的の文言は「ダッシュボードに…」のまま（直すとTestFlightの再ビルドが走るため見送り）。現在地は登録の対象外（登録ボタンを出さない）
 - **登録は `WeatherPlace`（利用者ごと・上限8件・座標で一意）。自宅（AIDEの `location`）はDBに持たず**、`dashboardHomePlace()` が先頭へ足す。AIDEが地点を返していない間は自宅の行が出ない
 - **検索は市町村まで**（`searchMunicipalities()`。国土地理院の住所検索から `municipalityCandidates()` が市町村の題だけを残す。施設名・番地・海外は引けない）。検索は `GET ?q=`（フォームのGET。JS不要）で、候補は詳細へのリンク
 - **気温の折れ線・1時間ごとの帯は `src/components/weather/hourly-strip.tsx` に切り出し、ダッシュボードと共有**している。見た目を変えるときは両方の画面を見ること。1日分は `place-day.ts`（`forecastAt()` の30分キャッシュを使い回すので外への呼び出しは増えない）
@@ -830,6 +831,10 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
   `/api/mail/messages/<id>`・`/api/mail/actions` に答えるだけ）を立てて `.env.local` の `AIDE_MAIL_API_URL`・`AIDE_MAIL_API_TOKEN` を向け、
   `CODEX_BIN` も判定のJSON配列を返すスタブにして確かめる。「いま確認」の前に `User.mailCheckedAt` を少し戻すと新着として拾われる
 
+### メール一覧は1ページ目だけで開き、スクロールで続きを足す（#887）
+
+`/mail` の描画はAIDEから**1ページ（25件。AIDE側固定で件数指定は無い）だけ**取る。アカウント絞り込み（#829）の足し取りは廃止した（少ないページは少ないまま出す）。続きは `GET /api/mail/list`（`view`・`acct`・`q`・`page` 必須）を `use-mail-pager.ts` が裏で1ページ先読みし、下端の目印に近づいたら足してさらに次を先読みする。行の印・要約は `decorateMailRows()`（`list-rows.ts`）が画面の1ページ目と口で共有する。空のページが3回続いたら自動で進むのをやめ「続きを読み込む」ボタンを出す。先頭の取り直し（`router.refresh()`）では足した続きは保ち、要約待ちの続きの行は同じ鍵で口を取り直して差し替える（`refreshPages`）。続きで `partial` が出ても帯は先頭ページの値のまま（未対応）。厳密な件数指定にはAIDEの `limit` が要る。
+
 ### メール通知の学習——印から傾向を読み取る（#833）
 
 基準をまとめて書く代わりに、メール本文の画面の帯（「お知らせ済み」「お知らせしていません」）で「今後このようなメールを［知らせる｜知らせない］」を押して学習させる（`mail-feedback.tsx`・`POST /api/mail/feedback`）。
@@ -869,7 +874,9 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 ### メールのAI分析——開いたら自動で要約と提案、押すとハーフモーダル（#766）
 
 - **開いた時点で自動で `POST /api/mail/flow/analyze` を叩き、要約と提案を1回のCodexで作る**（`analyze-core.ts`・`analyze.ts`・`test/mail-analyze.test.ts`）。以前は「要約する」「このメールをどうする？」の2つのボタンで別々に呼んでいた。プロンプトは `SUMMARY_RULES`・`SUGGEST_KIND_RULES`・`SUGGEST_RULES`・`SUGGEST_EXAMPLE` を並べて組み立て、返答は既存の `parseSummaryReply()`・`parseSuggestReply()` に通す
-- **結果は利用者×メールIDで30分だけプロセス内のメモリに持つ**（上限100件。DB・ログには残さない。再起動で消える）。開き直すたびにサブスク枠を使わないため。「↻ 分析し直す」（`refresh: true`）で取り直す。**覚えた結果を返すときも毎回 `getMail()` で持ち主を照合する**
+- **結果は利用者×メールIDで30分プロセス内のメモリに持ち（上限100件）、DB（`MailAnalysisResult`）にもアーカイブするまで保存する**（#883。**#732の2つ目の例外**。持つのはモデルの返答JSON＝要約・提案・引き落とし読み取りで、件名・差出人・本文は持たない。`analysis-store.ts`。読む順はメモリ→DB→Codex、読むときは `parseAnalyzeReply()` で検証し直す）。削除の契機は ①アーカイブ・ゴミ箱の成功（`/api/mail/actions`）②一覧で受信トレイに無いと分かった行（`/mail` の `after()`）③90日経過（`/api/mail/cron` の末尾）で、**分析を持つ経路を足すときは削除の契機も揃える**。生成中の削除は取消し印で復活させない（#860と同じ）。「↻ 分析し直す」（`refresh: true`）はDBも上書き。**覚えた結果を返すときも毎回 `getMail()` で持ち主を照合する**
+- **受信時の先回り（#883）**: 新着確認（`triage.ts`）が、判定の対象になった新着の受信トレイ分を `prefetchAnalysesSafely()`（`analyze.ts`）で1回最大50通、1通ずつ分析して保存する。判定・通知は待たせない。排他は1通ごとに解放し、取れなければ10秒おき最大12回待って諦める（開いたときに作る）。失敗は黙ってログのみ。メールを開くと保存済みなら即表示（`cached: true`）
+- **本文の画面の操作ボタン（既読/未読・アーカイブ）はヘッダー右上のアイコン**（#883。`chat-shell.tsx` の `#header-actions` へ `createPortal`。`mail-detail-actions.tsx`）。失敗・成功の表示（`MailNotice`）だけ本文の先頭に残る
 - Codexは利用者ごとに同時1件。同じメールの要求が重なれば走っている1回を共有し、別のメールは429（`busy`）。画面は5秒ごとに取り直す（前のメールの分析は画面を離れても最後まで走り、記憶に入る）
 - **画面の通信だけが途切れても分析は続く**（#840。iOSで別アプリへ移るとfetchが「通信できませんでした」で落ちる）。通信失敗・429は `shouldRetryAnalysis()`（`analyze-retry.ts`）で最大36回取り直し、取り直しは常に `refresh: false`（走っている1回か30分の記憶を拾う）。アプリへ戻った（`visibilitychange`）ときも分析中なら張り直す
 - **提案の行には入力欄を出さない。** 押すと `FlowSheet`（`<dialog>` の `showModal()`。下から出るハーフモーダル。幅560pxまで）に読み取った値を入れて出し、直して登録する（登録の経路は `/apply` のまま。家計簿だけは入力欄を持たずAsset Managerで入力する。#781）。下に記録の持ち主のアプリを開くリンク（`app-links.ts`。DaySpanのタスク・カレンダー、Asset Managerの家計簿連携）を置くが、**入力値は引き継がない**（受け側の口が各アプリに無い）
@@ -908,6 +915,7 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 - 実行の前に `getMail()` で持ち主を照合する。タスクは同じメール・同じ内容なら同じ `idempotencyKey`、家計簿は `gmailMessageId` で二重取り込みが `duplicate` になる
 - 流した後、利用者が作った「処理済み」ラベルがあれば付ける（`DONE_LABEL_NAME`。自動作成しない）
 - **サブスク登録（#709）はMorrow内で完結させない。** 提案の種類 `subscription` は、読み取った値（名称・金額・通貨・周期・請求日・開始日だけ。本文・差出人は載せない）をクエリに載せて `https://asset.gucchii.com/subscriptions` を開くリンク（`subscription-link.ts`）で、`asset_manager_create_subscription` は呼ばない。**受け側（クエリで登録フォームを埋める口）は未実装で別Issue**。それまでは一覧が開くだけ **ボタンは「Asset Managerのサブスク一覧を開く」と表記し、登録できたかのように読ませない**（受け側が未実装の間は一覧が開くだけで、入力は引き継がれない。画面にもその旨を添える。#734）。
+- **サブスク提案はAsset Managerの登録済みと照合して表示する（#884）。** 提案の行・シートを開いたとき、画面が `POST /api/mail/flow/subscription-match`（名称だけ送る）を呼び、サーバーがAIDEの `asset_manager_subscriptions`（読み取り・引数なし＝解約済みを除く全件）を引いて名前で照合する（`subscription-match.ts`・純粋部は `subscription-match-core.ts`・表示整形は `subscription-match-view.ts`・`test/mail-subscription-match.test.ts`）。完全一致があればそれだけ、無ければ双方向の部分一致（「JAF年会費」⇔「JAF」。2文字未満は当てない）。見つかれば行に「Asset Managerに登録済み」と登録内容、シートは読み取り専用の詳細（読み取った値は参考に畳む）、無ければ従来表示。**応答はDB・メモリに残さない**（台帳の複製の正を作らない。#732）。取得失敗は `error`（「無い」と混ぜず、シートに小さく知らせて従来表示）。見つかった場合は一覧を開いても控え（`opened`）は残さない
 - **書き込みの失敗理由**: `callWriteToolJson()` の `tools/call` だけ30秒待ち、`isError` の結果は短い `reason` だけを `McpCallError.reason` に載せて画面へ出す（本文・スタックは出さない）。`apply` の `maxDuration` は120秒
 - 給与明細→給与台帳（`asset_manager_salary_*`）は入れていない（プレビュー→承認の2段階のため別Issue）
 

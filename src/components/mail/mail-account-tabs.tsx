@@ -27,6 +27,7 @@ export function MailAccountTabs({ accounts, selected, hrefFor, failedNames }: Pr
       {accounts.map((item) => {
         const on = selected.includes(item.key);
         const onlyOne = on && selected.length === 1;
+        const tone = ACCOUNT_TONE_CLASS[mailAccountTone(item.key)];
         return (
           <Link
             key={item.key}
@@ -35,7 +36,7 @@ export function MailAccountTabs({ accounts, selected, hrefFor, failedNames }: Pr
             aria-disabled={onlyOne ? true : undefined}
             className={cn(
               "shrink-0 whitespace-nowrap rounded-full border px-2 py-1 transition-colors sm:px-3 sm:py-1.5",
-              on ? "border-foreground bg-foreground text-background" : "border-border bg-surface hover:bg-rail-active",
+              on ? tone.selected : "border-border bg-surface hover:bg-rail-active",
             )}
           >
             {on ? (
@@ -43,7 +44,7 @@ export function MailAccountTabs({ accounts, selected, hrefFor, failedNames }: Pr
                 ✓
               </span>
             ) : (
-              <i className={cn("mr-1 inline-block size-[6px] sm:mr-1.5 sm:size-[7px] rounded-full align-[1px]", ACCOUNT_TONE_CLASS[mailAccountTone(item.key)].dot)} />
+              <i className={cn("mr-1 inline-block size-[8px] rounded-full border-2 align-[1px] sm:mr-1.5", tone.ring)} />
             )}
             {item.name}
           </Link>
