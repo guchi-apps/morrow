@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { cleanPlaceName, findRegisteredPlace, hereFromQuery, hereHref, parsePlaceInput, placeFromQuery, weatherHref } from "../src/lib/weather/place-input.ts";
+import { cleanPlaceName, findRegisteredPlace, hereFromQuery, hereHref, parsePlaceInput, placeFromQuery, shouldAutoLocate, weatherHref } from "../src/lib/weather/place-input.ts";
 import { municipalityCandidates } from "../src/lib/weather/rain-check.ts";
 
 describe("parsePlaceInput", () => {
@@ -95,5 +95,18 @@ describe("現在地のURL（#882）", () => {
     assert.equal(hereFromQuery({ here: "1", lat: "abc", lon: "135" }), null);
     assert.equal(hereFromQuery({ here: "1", lat: "95", lon: "135" }), null);
     assert.equal(hereFromQuery({ here: "0", lat: "34", lon: "135" }), null);
+  });
+});
+
+describe("shouldAutoLocate（#882）", () => {
+  it("素の /weather と日付だけのときは取りに行く", () => {
+    assert.equal(shouldAutoLocate({}), true);
+    assert.equal(shouldAutoLocate({ d: "2026-11-15" }), true);
+  });
+  it("検索・地点・現在地の指定があれば取りに行かない（座標が壊れていても）", () => {
+    assert.equal(shouldAutoLocate({ q: "三条" }), false);
+    assert.equal(shouldAutoLocate({ n: "栗東市", lat: "35", lon: "135" }), false);
+    assert.equal(shouldAutoLocate({ lat: "abc" }), false);
+    assert.equal(shouldAutoLocate({ here: "1", lat: "34", lon: "135" }), false);
   });
 });

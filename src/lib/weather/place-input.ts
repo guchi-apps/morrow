@@ -95,3 +95,11 @@ export function hereFromQuery(query: Record<string, string | string[] | undefine
   if (first(query.here) !== "1") return null;
   return placeFromQuery({ n: HERE_NAME, lat: query.lat, lon: query.lon });
 }
+
+/**
+ * 現在地を自動で取りに行くか（#882）。地点・検索・現在地のどれも指定していない素の `/weather`（日付 `d` だけは許す）に限る。
+ * 検索結果（`?q=`）や、座標が読めずに地点未選択になった画面で自動取得すると、検索語や指定が消える。
+ */
+export function shouldAutoLocate(query: Record<string, string | string[] | undefined>): boolean {
+  return ["q", "n", "lat", "lon", "here"].every((key) => query[key] === undefined);
+}

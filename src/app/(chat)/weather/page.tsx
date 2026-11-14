@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { municipalityAt, searchMunicipalities } from "@/lib/weather/geocode";
 import { OPEN_METEO_ATTRIBUTION, forecastAt } from "@/lib/weather/open-meteo";
 import { placeDayFrom, type PlaceDay } from "@/lib/weather/place-day";
-import { HERE_NAME, MAX_WEATHER_PLACES, findRegisteredPlace, hereFromQuery, hereHref, placeFromQuery, weatherHref, type WeatherPlaceInput } from "@/lib/weather/place-input";
+import { HERE_NAME, MAX_WEATHER_PLACES, findRegisteredPlace, hereFromQuery, hereHref, placeFromQuery, shouldAutoLocate, weatherHref, type WeatherPlaceInput } from "@/lib/weather/place-input";
 import { listWeatherPlaces } from "@/lib/weather/places-store";
 import { describeWeatherCode, roundCoordinate, type Forecast } from "@/lib/weather/rain-check";
 
@@ -214,10 +214,10 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
 
           <section aria-label="1日の天気" className="flex min-w-0 flex-col gap-2.5 rounded-xl border border-border bg-surface px-4 py-3.5">
             {!selected ? (
-              q ? (
-                <p className="text-[0.8125rem] text-muted">左の地点を選ぶと、その場所の0〜23時の天気が出ます。ダッシュボードの「時間と場所ごと」の地点名からも開けます。</p>
-              ) : (
+              shouldAutoLocate(query) ? (
                 <AutoLocate date={offset === 0 ? undefined : date} />
+              ) : (
+                <p className="text-[0.8125rem] text-muted">左の地点を選ぶと、その場所の0〜23時の天気が出ます。ダッシュボードの「時間と場所ごと」の地点名からも開けます。</p>
               )
             ) : (
               <>
