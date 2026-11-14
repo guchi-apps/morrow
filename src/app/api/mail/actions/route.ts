@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth-user";
 import { readJsonObject } from "@/lib/json-body";
 import { applyMailAction } from "@/lib/mail/aide-client";
+import { deleteAnalyses } from "@/lib/mail/analysis-store";
 import { deleteListSummaries } from "@/lib/mail/list-summary";
 import {
   MAIL_ACTION_DONE,
@@ -55,6 +56,13 @@ export async function POST(request: Request) {
   if (action === "archive" || action === "trash") {
     await deleteListSummaries(user.id, [...new Set(rawIds)]).catch((error: unknown) =>
       console.warn("[aide-bot] 一覧の要約の削除に失敗した", error instanceof Error ? error.message : error),
+    );
+  }
+
+  // 保存した分析（#883）も同じ契機で消す
+  if (action === "archive" || action === "trash") {
+    await deleteAnalyses(user.id, [...new Set(rawIds)]).catch((error: unknown) =>
+      console.warn("[aide-bot] メールの分析の削除に失敗した", error instanceof Error ? error.message : error),
     );
   }
 

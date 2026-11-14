@@ -1,6 +1,8 @@
 "use client";
 
 import { Menu, X } from "lucide-react";
+
+import { HEADER_ACTIONS_ID } from "@/components/chat/header-actions";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
@@ -208,6 +210,8 @@ export function ChatShell({
             {heading}
           </h1>
 
+          {/* 画面ごとの操作アイコンの置き場（メール本文の既読/アーカイブなど。#883）。中身はポータルで入る */}
+          <div id={HEADER_ACTIONS_ID} className="flex shrink-0 items-center gap-1.5 empty:hidden" />
         </header>
 
         {children}

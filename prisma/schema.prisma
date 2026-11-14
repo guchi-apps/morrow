@@ -65,6 +65,7 @@ model User {
   mailFlowRecords   MailFlowRecord[]
   mailLinks         MailLink[]
   mailListSummaries MailListSummary[]
+  mailAnalyses      MailAnalysisResult[]
   hermesProposals   HermesProposal[]
   hermesActionLogs  HermesActionLog[]
 }
@@ -422,6 +423,25 @@ model MailListSummary {
   /// AIDEのメッセージID。
   messageId String   @db.VarChar(320)
   summary   String   @db.VarChar(400)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, messageId])
+  @@index([createdAt])
+}
+
+// --- メールのAI分析の保存（#883） ---
+// 受信時に先回りで作った（開いたときに作った分も）分析の返答（要約・提案・引き落とし読み取りのJSON）。#732の例外（#851に続く2つ目）。
+// 件名・差出人・本文は持たない。アーカイブ・ゴミ箱の操作で削除し、受信トレイに無いと分かった行も削除、90日で掃除する。
+
+model MailAnalysisResult {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// AIDEのメッセージID。
+  messageId String   @db.VarChar(320)
+  /// モデルの返答（JSON文字列）。読むときは `parseAnalyzeReply()` で検証し直す。
+  reply     String   @db.Text
   createdAt DateTime @default(now())
 
   @@unique([userId, messageId])

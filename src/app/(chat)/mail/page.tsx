@@ -28,6 +28,7 @@ import {
   toggleAccountKey,
 } from "@/lib/mail/account-filter";
 import { onlyInbox } from "@/lib/mail/archived-memory";
+import { deleteAnalyses } from "@/lib/mail/analysis-store";
 import { deleteListSummaries } from "@/lib/mail/list-summary";
 import { decorateMailRows } from "@/lib/mail/list-rows";
 import { DEFAULT_MAIL_CRITERIA } from "@/lib/mail/triage-core";
@@ -69,7 +70,10 @@ export default async function MailPage({ searchParams }: Props) {
   // INBOXの無いメール（アーカイブ・ゴミ箱）の要約は消す（#851。Gmail側の直接操作の取りこぼしを拾う）
   if (result.ok) {
     const outside = result.value.messages.filter((m) => !m.labelIds.includes("INBOX")).map((m) => m.id);
-    if (outside.length > 0) after(() => deleteListSummaries(user.id, outside).catch(() => undefined));
+    if (outside.length > 0) {
+      after(() => deleteListSummaries(user.id, outside).catch(() => undefined));
+      after(() => deleteAnalyses(user.id, outside).catch(() => undefined));
+    }
   }
   if (result.ok && inboxView) result.value.messages = onlyInbox(result.value.messages);
   // 1ページ目だけを取って出す。続きは画面のスクロールで `/api/mail/list` から足す（#887）。

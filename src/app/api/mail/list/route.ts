@@ -5,6 +5,7 @@ import { parseAccountFilter } from "@/lib/mail/account-filter";
 import { listMailForPage } from "@/lib/mail/aide-client";
 import { onlyInbox } from "@/lib/mail/archived-memory";
 import { MAIL_FAILURE_MESSAGES, isMailPageToken, isMailViewKey } from "@/lib/mail/contract";
+import { deleteAnalyses } from "@/lib/mail/analysis-store";
 import { deleteListSummaries } from "@/lib/mail/list-summary";
 import { decorateMailRows } from "@/lib/mail/list-rows";
 
@@ -40,7 +41,10 @@ export async function GET(request: NextRequest) {
 
   // INBOXの無いメール（アーカイブ・ゴミ箱）の要約は消す（画面の1ページ目と同じ。#851）
   const outside = result.value.messages.filter((m) => !m.labelIds.includes("INBOX")).map((m) => m.id);
-  if (outside.length > 0) after(() => deleteListSummaries(user.id, outside).catch(() => undefined));
+  if (outside.length > 0) {
+    after(() => deleteListSummaries(user.id, outside).catch(() => undefined));
+    after(() => deleteAnalyses(user.id, outside).catch(() => undefined));
+  }
   const inboxView = view === "inbox" && !q;
   const messages = inboxView ? onlyInbox(result.value.messages) : result.value.messages;
   const rows = await decorateMailRows(user, messages, inboxView);

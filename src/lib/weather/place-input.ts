@@ -75,3 +75,31 @@ export function placeFromQuery(query: Record<string, string | string[] | undefin
   if (!lat || !lon || !/^-?\d{1,3}(\.\d+)?$/.test(lat) || !/^-?\d{1,3}(\.\d+)?$/.test(lon)) return null;
   return parsePlaceInput({ name: first(query.n), latitude: Number(lat), longitude: Number(lon) });
 }
+
+/** 現在地を選んでいる状態の印（`?here=1`）。名前は持たず、サーバーが市町村名を引く（#882）。 */
+export const HERE_NAME = "現在地";
+
+/** 現在地のパス（#882）。座標は小数2桁に丸める。 */
+export function hereHref(point: Coordinates, date?: string): string {
+  const params = new URLSearchParams({
+    here: "1",
+    lat: String(roundCoordinate(point.latitude)),
+    lon: String(roundCoordinate(point.longitude)),
+  });
+  if (date) params.set("d", date);
+  return `/weather?${params.toString()}`;
+}
+
+/** URLの `here=1`・`lat`・`lon` から現在地を読む。印が無い・座標が読めなければnull。 */
+export function hereFromQuery(query: Record<string, string | string[] | undefined>): WeatherPlaceInput | null {
+  if (first(query.here) !== "1") return null;
+  return placeFromQuery({ n: HERE_NAME, lat: query.lat, lon: query.lon });
+}
+
+/**
+ * 現在地を自動で取りに行くか（#882）。地点・検索・現在地のどれも指定していない素の `/weather`（日付 `d` だけは許す）に限る。
+ * 検索結果（`?q=`）や、座標が読めずに地点未選択になった画面で自動取得すると、検索語や指定が消える。
+ */
+export function shouldAutoLocate(query: Record<string, string | string[] | undefined>): boolean {
+  return ["q", "n", "lat", "lon", "here"].every((key) => query[key] === undefined);
+}

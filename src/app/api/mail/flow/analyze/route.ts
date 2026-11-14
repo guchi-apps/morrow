@@ -8,7 +8,7 @@ import { checkWithdrawal } from "@/lib/mail/withdrawal";
 
 /**
  * メールのAI分析（#766）。`{ "id": "<メールID>", "refresh"?: true }` の本文をCodexに読ませ、要約と提案を返す。
- * メールを開いたときに画面が自動で呼ぶ。結果はプロセス内に30分だけ持つ（`refresh` で取り直す）。DBには保存しない。
+ * メールを開いたときに画面が自動で呼ぶ。結果はプロセス内に30分、DBにはアーカイブするまで保存する（#883。`refresh` で取り直す）。
  * 持ち主の照合は `analyzeMail()` の中（`getMail()`）。Codexの実行が終わるまで待つ。
  */
 
