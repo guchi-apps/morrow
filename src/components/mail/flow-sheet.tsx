@@ -119,7 +119,9 @@ export function FlowSheet({ card, recommended, outcome, match, running, onEdit, 
   const meta = card ? KIND_META[card.kind] : null;
   const app = card ? FLOW_APP_LINKS[card.kind] : null;
   // Asset Managerに同じ項目があるとき（#884）は登録内容を出し、読み取った値の入力欄は参考へ畳む
-  const found = card?.kind === "subscription" && match?.status === "matched" ? match.matches : null;
+  // 家計簿の提案も、定期払いとして登録済みなら登録内容を出す（#896。取り込みのボタン・読み取った値はそのまま）
+  const found = (card?.kind === "subscription" || card?.kind === "payment") && match?.status === "matched" ? match.matches : null;
+  const byAmount = match?.status === "matched" && match.by === "amount";
 
   return (
     <dialog
@@ -143,7 +145,11 @@ export function FlowSheet({ card, recommended, outcome, match, running, onEdit, 
             </button>
           </div>
           <p className="text-[0.6875rem] leading-relaxed text-muted">
-            {found
+            {found && byAmount
+              ? `金額（${found[0].amount?.toLocaleString("ja-JP") ?? ""}円）が一致する定期払いがAsset Managerに1件あります。名前は一致していないので、同じものか確かめてください。`
+              : found && card.kind === "payment"
+              ? "この支払いはAsset Managerに定期払いとして登録されています。家計簿への取り込みは下のボタンから行えます。"
+              : found
               ? "Asset Managerに同じ項目が見つかったので、そちらの登録内容を表示しています（読み取った値より優先）。"
               : card.kind === "payment"
               ? "AIが本文から読み取った値です。Asset Managerの画面で直してから確定してください。"
@@ -151,9 +157,10 @@ export function FlowSheet({ card, recommended, outcome, match, running, onEdit, 
             {card.reason && <>　理由: {card.reason}</>}
           </p>
 
-          {card.kind === "payment" && <PaymentSummary fields={card.fields} />}
-
           {found && <RegisteredPanel key={found.map((r) => r.id).join(",")} matches={found} />}
+
+          {found && card.kind === "payment" && <p className="-mb-1.5 text-xs font-bold text-muted">メールから読み取った値</p>}
+          {card.kind === "payment" && <PaymentSummary fields={card.fields} />}
           {card.kind === "subscription" && match?.status === "error" && <p className="text-[0.6875rem] text-muted">Asset Managerとの照合はできませんでした（登録済みかは未確認）。</p>}
 
           <div className={cn("grid grid-cols-2 gap-2.5", (card.kind === "payment" || found) && "hidden")}>
