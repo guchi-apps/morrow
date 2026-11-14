@@ -138,8 +138,31 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * 待ちきれなければ残りは諦める（開いたときに作る）。失敗は握りつぶしてログだけ。
  */
 export async function prefetchAnalysesSafely(user: MailUser, messageIds: string[]): Promise<void> {
+  // 利用者ごとに1本だけ走らせる（一覧を開くたびに呼ばれるため。#895）。走っている間に来た分は待ち行列へ足す
+  const queue = prefetchQueues.get(user.id);
+  if (queue) {
+    for (const id of messageIds) queue.add(id);
+    return;
+  }
+  const pending = new Set(messageIds);
+  prefetchQueues.set(user.id, pending);
   try {
-    const ids = [...new Set(messageIds)].slice(0, PREFETCH_LIMIT);
+    while (pending.size > 0) {
+      const batch = [...pending].slice(0, PREFETCH_LIMIT);
+      for (const id of batch) pending.delete(id);
+      if (!(await prefetchBatch(user, batch))) pending.clear();
+    }
+  } finally {
+    prefetchQueues.delete(user.id);
+  }
+}
+
+const prefetchQueues = new Map<string, Set<string>>();
+
+/** 1回ぶんの先回り。続けてよければtrue、譲って打ち切ったらfalse。 */
+async function prefetchBatch(user: MailUser, messageIds: string[]): Promise<boolean> {
+  try {
+    const ids = [...new Set(messageIds)];
     const stored = await storedAnalysisIds(user.id, ids);
     for (const id of ids) {
       if (stored.has(id)) continue;
@@ -147,14 +170,16 @@ export async function prefetchAnalysesSafely(user: MailUser, messageIds: string[
       for (let i = 0; !outcome.ok && outcome.kind === "busy" && i < PREFETCH_BUSY_RETRIES; i++) {
         // 利用者の操作（分析・指示・学習）が走っているなら譲って打ち切る。待つのは一覧の要約が走っているときだけ
         const hold = currentMailCodex(user.id);
-        if (hold && hold.kind !== "list_summary") return;
+        if (hold && hold.kind !== "list_summary") return false;
         await sleep(PREFETCH_BUSY_WAIT_MS);
         outcome = await analyzeMail(user, id);
       }
-      if (!outcome.ok && outcome.kind === "busy") return;
-      if (!outcome.ok && outcome.kind === "not_owner") return;
+      if (!outcome.ok && outcome.kind === "busy") return false;
+      if (!outcome.ok && outcome.kind === "not_owner") return false;
     }
+    return true;
   } catch (error) {
     console.error("[aide-bot] メールの先回りの分析に失敗した", error instanceof Error ? error.message : error);
+    return false;
   }
 }
