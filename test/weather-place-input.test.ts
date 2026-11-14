@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { cleanPlaceName, findRegisteredPlace, parsePlaceInput, placeFromQuery, weatherHref } from "../src/lib/weather/place-input.ts";
+import { cleanPlaceName, findRegisteredPlace, hereFromQuery, hereHref, parsePlaceInput, placeFromQuery, weatherHref } from "../src/lib/weather/place-input.ts";
 import { municipalityCandidates } from "../src/lib/weather/rain-check.ts";
 
 describe("parsePlaceInput", () => {
@@ -80,5 +80,20 @@ describe("findRegisteredPlace（#868）", () => {
   it("同名でも遠ければ、名前が違って座標も違えば、登録済みにしない", () => {
     assert.equal(findRegisteredPlace({ name: "栗東市", latitude: 36.5, longitude: 136.02 }, stored), null);
     assert.equal(findRegisteredPlace({ name: "草津市", latitude: 35.03, longitude: 136.02 }, stored), null);
+  });
+});
+
+describe("現在地のURL（#882）", () => {
+  it("hereHref は here=1 と丸めた座標を持ち、hereFromQuery で読み戻せる", () => {
+    const href = hereHref({ latitude: 34.8512, longitude: 135.6149 }, "2026-11-15");
+    assert.equal(href, "/weather?here=1&lat=34.85&lon=135.61&d=2026-11-15");
+    const query = Object.fromEntries(new URL(href, "http://x").searchParams);
+    assert.deepEqual(hereFromQuery(query), { name: "現在地", latitude: 34.85, longitude: 135.61 });
+  });
+  it("印が無い・座標が読めない・範囲外はnull", () => {
+    assert.equal(hereFromQuery({ lat: "34.85", lon: "135.61" }), null);
+    assert.equal(hereFromQuery({ here: "1", lat: "abc", lon: "135" }), null);
+    assert.equal(hereFromQuery({ here: "1", lat: "95", lon: "135" }), null);
+    assert.equal(hereFromQuery({ here: "0", lat: "34", lon: "135" }), null);
   });
 });

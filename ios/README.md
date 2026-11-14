@@ -127,7 +127,7 @@ ios/scripts/remote-upload-testflight.sh    # Mac で main を取り込み、Test
 
 ### 位置情報（#587。現在地の天気は#867で削除）
 
-現在地の天気（ダッシュボードの「現在地」バッジ）は#867で削除したため、Webはいま位置情報を取らない。ビルド設定の `INFOPLIST_KEY_NSLocationWhenInUseUsageDescription`（利用目的）は、戻す場合に備えて残してあるだけで未使用。
+現在地の天気は天気ページ（`/weather`）が、開いたときに `navigator.geolocation` で1回だけ取る（#882。ダッシュボードの「現在地」バッジは#867で削除済み）。ビルド設定の `INFOPLIST_KEY_NSLocationWhenInUseUsageDescription`（利用目的）とWKUIDelegateの許可（#641）を使う。
 
 ### オフライン表示について
 
