@@ -6,6 +6,8 @@
  * 契約の正は `docs/external-tool-contracts.md`（`asset_manager_subscriptions`）。
  */
 
+import type { Suggestion } from "@/lib/mail/suggest-core";
+
 export type RegisteredSubscription = {
   id: number;
   name: string;
@@ -24,8 +26,12 @@ export type RegisteredSubscription = {
   labels: string[];
 };
 
+/**
+ * 照合の結果。`by` は見つけ方（#896）: `name`＝名前で一致、`amount`＝名前では見つからず、円建ての1回あたりの金額が
+ * 一致する登録がちょうど1件だった（名前は一致していないので、画面で確かめてもらう）。
+ */
 export type SubscriptionMatch =
-  | { status: "matched"; matches: RegisteredSubscription[] }
+  | { status: "matched"; by: "name" | "amount"; matches: RegisteredSubscription[] }
   | { status: "none" }
   | { status: "error" };
 
@@ -88,4 +94,47 @@ export function matchSubscriptions(name: string, registered: RegisteredSubscript
       return short.length >= MIN_PARTIAL && long.includes(short);
     })
     .slice(0, MATCH_MAX);
+}
+
+/** 照合に使う提案の手掛かり（#896）。名前は複数（家計簿なら支払先・品名）、金額は1回あたり。 */
+export type MatchQuery = { names: string[]; amount: number | null; currency: "JPY" | "USD" | null };
+
+/** 照合に使う名前の上限（画面から送られる数を絞る）。 */
+export const MATCH_NAMES_MAX = 3;
+
+/**
+ * 提案から照合の手掛かりを作る（#896）。サブスクは名称と1回あたりの金額、家計簿は支払先・品名と円建ての合計。
+ * 予定・タスク、手掛かりが何も無い提案はnull（照合しない）。
+ */
+export function matchQueryOf(card: Suggestion): MatchQuery | null {
+  const clean = (values: (string | null | undefined)[]) =>
+    [...new Set(values.map((v) => (v ?? "").trim()).filter(Boolean))].slice(0, MATCH_NAMES_MAX);
+  let query: MatchQuery | null = null;
+  if (card.kind === "subscription") {
+    query = { names: clean([card.fields.name]), amount: card.fields.amount, currency: card.fields.currency };
+  } else if (card.kind === "payment") {
+    const f = card.fields;
+    // 品目が1つならその名前、無ければ1行の品名（複数品目の明細は定期払いの名前にならないので使わない）
+    const item = f.items.length === 1 ? f.items[0].name : f.items.length === 0 ? f.name : null;
+    query = { names: clean([f.place, item]), amount: f.amount, currency: f.amount !== null ? "JPY" : null };
+  }
+  if (!query || (query.names.length === 0 && query.amount === null)) return null;
+  return query;
+}
+
+/**
+ * 提案を登録済みの契約と照合する（#896）。名前（並びの順に試し、最初に見つかったもの）を優先し、名前で見つからなければ
+ * **円建ての1回あたりの金額が一致する登録がちょうど1件**のときだけ金額で一致とする（KDDIの請求⇔「iPhone15」のように、
+ * 請求元と登録名が違う定期払いのため）。複数・外貨・金額不明は当てない（誤りより「見つからない」へ倒す）。
+ */
+export function matchRegistered(query: MatchQuery, registered: RegisteredSubscription[]): SubscriptionMatch {
+  for (const name of query.names) {
+    const matches = matchSubscriptions(name, registered);
+    if (matches.length > 0) return { status: "matched", by: "name", matches };
+  }
+  if (query.currency === "JPY" && query.amount !== null && Number.isFinite(query.amount) && query.amount > 0) {
+    const same = registered.filter((r) => r.currency === "JPY" && r.amount === query.amount);
+    if (same.length === 1) return { status: "matched", by: "amount", matches: same };
+  }
+  return { status: "none" };
 }
