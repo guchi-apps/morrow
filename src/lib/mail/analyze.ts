@@ -3,6 +3,7 @@ import { runCodexRecorded } from "@/lib/codex-run";
 import { jstDayKey } from "@/lib/day-key";
 
 import { getMail, type MailUser } from "@/lib/mail/aide-client";
+import { getStoredAnalysis, saveAnalysis, storedAnalysisIds } from "@/lib/mail/analysis-store";
 import { acquireMailCodex, currentMailCodex } from "@/lib/mail/codex-lock";
 import { analysisCacheKey, buildAnalyzePrompt, freshValue, parseAnalyzeReply, putCache, type CacheEntry, type MailAnalysis } from "@/lib/mail/analyze-core";
 import type { MailFailureKind } from "@/lib/mail/contract";
@@ -14,8 +15,8 @@ import type { BalanceCheck } from "@/lib/mail/withdrawal-core";
  * メールのAI分析（#766）。**サーバー専用。** メールを開いたときに画面が自動で呼び、要約と提案を1回のCodexで作る。
  *
  * - **先に `getMail()` で持ち主を照合する**（#683）。覚えた結果を返すときも毎回照合する（照合の結果は持ち回さない）
- * - 結果は利用者×メールIDで30分だけプロセス内のメモリに持つ（同じメールを開き直すたびにサブスク枠を使わないため）。
- *   DB・ログには残さない。再起動で消える。`refresh` で取り直す
+ * - 結果は利用者×メールIDで30分プロセス内のメモリに持ち、DBにも保存する（#883。アーカイブするまで残す。`analysis-store.ts`）。
+ *   読む順は メモリ→DB→Codex。`refresh` で取り直す（DBも上書き）。受信時の先回りは `prefetchAnalyses()`
  * - Codexは利用者ごとに同時1件（指示 #784 と共有の排他。`codex-lock.ts`）。同じメールの分析の要求が重なったら走っている1回の結果を共有する
  *   （共有するのは分析どうしだけ。指示とは共有しない）
  */
@@ -68,9 +69,15 @@ async function run(user: MailUser, messageId: string, key: string, refresh: bool
     if (!refresh) {
       const hit = freshValue(cache.get(key), Date.now());
       if (hit) return { ok: true, result: hit, cached: true };
+      const stored = await getStoredAnalysis(user.id, messageId).catch(() => null);
+      if (stored) {
+        putCache(cache, key, stored, Date.now());
+        return { ok: true, result: stored, cached: true };
+      }
     }
     const { message } = mail.value;
     const now = new Date();
+    const startedAt = now.getTime();
     const result = await runCodexRecorded({
       userId: user.id,
       feature: "mail_suggest",
@@ -85,12 +92,17 @@ async function run(user: MailUser, messageId: string, key: string, refresh: bool
       }),
       timeoutMs: ANALYZE_TIMEOUT_MS,
     });
-    const parsed = parseAnalyzeReply(result.messages.at(-1) ?? result.text);
+    const reply = result.messages.at(-1) ?? result.text;
+    const parsed = parseAnalyzeReply(reply);
     if (!parsed) {
       console.error("[aide-bot] メールの分析の返答を読めなかった");
       return { ok: false, kind: "failed", message: "分析の返答を読めませんでした。もう一度試してください。" };
     }
     putCache(cache, key, parsed, Date.now());
+    // 保存の失敗は本筋を止めない（開き直せば作り直すだけ）
+    await saveAnalysis(user.id, messageId, reply, startedAt).catch((error: unknown) =>
+      console.warn("[aide-bot] メールの分析の保存に失敗した", error instanceof Error ? error.message : error),
+    );
     return { ok: true, result: parsed, cached: false };
   } catch (error) {
     console.error("[aide-bot] メールの分析に失敗した", error instanceof Error ? error.message : error);
@@ -112,4 +124,34 @@ export async function recheckBalance(user: MailUser, messageId: string): Promise
   const hit = freshValue(cache.get(analysisCacheKey(user.id, messageId)), Date.now());
   if (!hit) return { ok: false, kind: "no_analysis", message: "分析の結果が残っていません。分析し直してください。" };
   return { ok: true, check: hit.withdrawal ? await checkWithdrawal(user.id, hit.withdrawal) : null };
+}
+
+/** 先回りで分析するメールの上限（1回の新着確認あたり）。 */
+export const PREFETCH_LIMIT = 50;
+const PREFETCH_BUSY_WAIT_MS = 10_000;
+const PREFETCH_BUSY_RETRIES = 12;
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * 受信時の先回りの分析（#883）。保存済みのメールは飛ばし、残りを1通ずつ `analyzeMail()` で作って保存する。
+ * 排他は1通ごとに解放されるので、利用者が開いた分析・指示が割り込める。排他が空かなければ短く待ち、
+ * 待ちきれなければ残りは諦める（開いたときに作る）。失敗は握りつぶしてログだけ。
+ */
+export async function prefetchAnalysesSafely(user: MailUser, messageIds: string[]): Promise<void> {
+  try {
+    const ids = [...new Set(messageIds)].slice(0, PREFETCH_LIMIT);
+    const stored = await storedAnalysisIds(user.id, ids);
+    for (const id of ids) {
+      if (stored.has(id)) continue;
+      let outcome = await analyzeMail(user, id);
+      for (let i = 0; !outcome.ok && outcome.kind === "busy" && i < PREFETCH_BUSY_RETRIES; i++) {
+        await sleep(PREFETCH_BUSY_WAIT_MS);
+        outcome = await analyzeMail(user, id);
+      }
+      if (!outcome.ok && outcome.kind === "busy") return;
+      if (!outcome.ok && outcome.kind === "not_owner") return;
+    }
+  } catch (error) {
+    console.error("[aide-bot] メールの先回りの分析に失敗した", error instanceof Error ? error.message : error);
+  }
 }

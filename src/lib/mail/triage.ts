@@ -4,6 +4,7 @@ import { allowedUserIds } from "@/lib/allowed-user-ids";
 import { modelFor } from "@/lib/chat-model-server";
 import { runCodexRecorded } from "@/lib/codex-run";
 import { db } from "@/lib/db";
+import { prefetchAnalysesSafely } from "@/lib/mail/analyze";
 import { summarizeMissingSafely } from "@/lib/mail/list-summary";
 import { isPushKindEnabled } from "@/lib/push/kinds-server";
 import { sendPushToUser, usersWithSubscriptions } from "@/lib/push/subscriptions";
@@ -155,6 +156,11 @@ async function check(user: CheckUser, now: Date): Promise<MailCheckResult> {
     messages,
     new Set(judgedRows.map((row) => row.messageId)),
     cursor.getTime() - SINCE_OVERLAP_MS,
+  );
+  // 新着の分析（要約・提案）を先回りで作っておく（#883）。判定・通知を待たせず裏で走らせる
+  void prefetchAnalysesSafely(
+    user,
+    candidates.filter((m) => m.labelIds.includes("INBOX")).map((m) => m.id),
   );
 
   if (candidates.length === 0) {
