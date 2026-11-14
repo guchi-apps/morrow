@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 export function FlowRowButton({ card, recommended, registered, receipt = null, match, onOpen }: { card: Suggestion; recommended: boolean; registered: boolean; receipt?: ReceiptState | null; match?: SubscriptionMatch; onOpen: () => void }) {
   const meta = KIND_META[card.kind];
   const found = match?.status === "matched" ? match.matches : null;
-  // Asset Managerに同じ項目があれば、読み取った値より登録内容を出す（#884）
+  // Asset Managerに同じ項目（サブスク・家計簿の定期払い。#884・#896）があれば、読み取った値より登録内容を出す
   const preview = found?.length === 1 ? registeredSummary(found[0]) : cardPreview(card);
   return (
     <button
@@ -32,7 +32,13 @@ export function FlowRowButton({ card, recommended, registered, receipt = null, m
           {meta.title}
           {recommended && <span className="rounded-full bg-accent px-2 py-0.5 text-[0.625rem] font-bold text-accent-foreground">おすすめ</span>}
           {registered && <span className="rounded-full bg-fair-surface px-2 py-0.5 text-[0.625rem] font-bold text-fair">登録済み</span>}
-          {found && <span className="rounded-full bg-fair-surface px-2 py-0.5 text-[0.625rem] font-bold text-fair">{found.length === 1 ? "Asset Managerに登録済み" : `Asset Managerに候補${found.length}件`}</span>}
+          {found && (
+            <span className="rounded-full bg-fair-surface px-2 py-0.5 text-[0.625rem] font-bold text-fair">
+              {found.length === 1 ? "Asset Managerに登録済み" : `Asset Managerに候補${found.length}件`}
+              {/* 名前では見つからず金額だけで当てた回（#896）。同じものか確かめてもらう */}
+              {match?.status === "matched" && match.by === "amount" && "（金額で照合）"}
+            </span>
+          )}
           {!registered && receipt && <span className="rounded-full bg-accent-surface px-2 py-0.5 text-[0.625rem] font-bold text-accent">{receipt === "pending" ? "確認待ち" : "取り込み済み"}</span>}
         </span>
         {preview && <span className="truncate opacity-85">{preview}</span>}

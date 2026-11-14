@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FlowSheet, type CardResult } from "@/components/mail/flow-sheet";
 import { receiptUrl } from "@/lib/mail/payment-receipt";
 import type { Suggestion } from "@/lib/mail/suggest-core";
-import type { SubscriptionMatch } from "@/lib/mail/subscription-match-core";
+import { matchQueryOf, type SubscriptionMatch } from "@/lib/mail/subscription-match-core";
 
 /**
  * 提案の行（分析 #766・指示 #784）の状態と、押したときのハーフモーダル（`FlowSheet`）。1通のメールの画面に1つ。
@@ -30,14 +30,17 @@ export function useFlowCards(mailId: string) {
 
   useEffect(() => {
     for (const [rowId, { card }] of Object.entries(rows)) {
-      if (card.kind !== "subscription" || !card.fields.name.trim()) continue;
-      const key = `${rowId}:${card.fields.name}`;
+      // サブスクに加えて家計簿の提案も照合する（#896。定期払いの請求を「登録済み」と出す）
+      const query = matchQueryOf(card);
+      if (!query) continue;
+      const body = JSON.stringify(query);
+      const key = `${rowId}:${body}`;
       if (asked.current.has(key)) continue;
       asked.current.add(key);
       fetch("/api/mail/flow/subscription-match", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: card.fields.name }),
+        body,
       })
         .then((response) => (response.ok ? (response.json() as Promise<SubscriptionMatch>) : ({ status: "error" } as SubscriptionMatch)))
         .catch(() => ({ status: "error" }) as SubscriptionMatch)
