@@ -7,7 +7,7 @@ import { getStoredAnalysis, saveAnalysis, storedAnalysisIds } from "@/lib/mail/a
 import { acquireMailCodex, currentMailCodex } from "@/lib/mail/codex-lock";
 import { analysisCacheKey, buildAnalyzePrompt, freshValue, parseAnalyzeReply, putCache, type CacheEntry, type MailAnalysis } from "@/lib/mail/analyze-core";
 import type { MailFailureKind } from "@/lib/mail/contract";
-import { plainBody } from "@/lib/mail/suggest-core";
+import { plainBody, withReceivedDate } from "@/lib/mail/suggest-core";
 import { checkWithdrawal } from "@/lib/mail/withdrawal";
 import type { BalanceCheck } from "@/lib/mail/withdrawal-core";
 
@@ -59,6 +59,11 @@ export async function analyzeMail(user: MailUser, messageId: string, options: { 
   }
 }
 
+/** 購入日が無い家計簿の提案を受信日で補う（#903）。記憶・保存には補う前の値を持つ。 */
+function withReceived(analysis: MailAnalysis, receivedAt: number | null): MailAnalysis {
+  return { ...analysis, suggest: withReceivedDate(analysis.suggest, receivedAt) };
+}
+
 async function run(user: MailUser, messageId: string, key: string, refresh: boolean): Promise<AnalyzeOutcome> {
   try {
     const mail = await getMail(user, messageId);
@@ -68,11 +73,11 @@ async function run(user: MailUser, messageId: string, key: string, refresh: bool
     }
     if (!refresh) {
       const hit = freshValue(cache.get(key), Date.now());
-      if (hit) return { ok: true, result: hit, cached: true };
+      if (hit) return { ok: true, result: withReceived(hit, mail.value.message.receivedAt), cached: true };
       const stored = await getStoredAnalysis(user.id, messageId).catch(() => null);
       if (stored) {
         putCache(cache, key, stored, Date.now());
-        return { ok: true, result: stored, cached: true };
+        return { ok: true, result: withReceived(stored, mail.value.message.receivedAt), cached: true };
       }
     }
     const { message } = mail.value;
@@ -103,7 +108,7 @@ async function run(user: MailUser, messageId: string, key: string, refresh: bool
     await saveAnalysis(user.id, messageId, reply, startedAt).catch((error: unknown) =>
       console.warn("[aide-bot] メールの分析の保存に失敗した", error instanceof Error ? error.message : error),
     );
-    return { ok: true, result: parsed, cached: false };
+    return { ok: true, result: withReceived(parsed, message.receivedAt), cached: false };
   } catch (error) {
     console.error("[aide-bot] メールの分析に失敗した", error instanceof Error ? error.message : error);
     return { ok: false, kind: "failed", message: "分析できませんでした。もう一度試してください。" };
