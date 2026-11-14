@@ -95,20 +95,24 @@ export function matchAccount(accounts: readonly BalanceAccount[], hint: string):
 export type BalanceKnown = { status: "enough" | "short"; amount: number; date: string | null; payee: string | null; account: string; balance: number; after: number; shortBy: number; asOf: string };
 export type BalanceCheck =
   | BalanceKnown
-  | { status: "unknown"; amount: number; date: string | null; payee: string | null; account: string | null; reason: string };
+  | { status: "unknown"; amount: number; date: string | null; payee: string | null; account: string | null; reason: string; choices?: string[] };
 
 /** 引き落とし額と残高を突き合わせる。`accounts` がnullなら取得できなかった（または未巡回）。 */
 export function evaluateWithdrawal(w: Withdrawal, accounts: readonly BalanceAccount[] | null, now: Date): BalanceCheck {
   const base = { amount: w.amount, date: w.date, payee: w.payee };
-  const unknown = (reason: string, account: string | null = w.account): BalanceCheck => ({ status: "unknown", ...base, account, reason });
-  if (!w.account) return unknown("メールに引き落とし口座の名前が見当たりませんでした。");
+  // 口座を決められない理由のときだけ、残高の一覧から選べるよう口座名を添える（#909）
+  const choices = accounts && accounts.length > 0 ? accounts.map((a) => a.name) : undefined;
+  const unknown = (reason: string, account: string | null = w.account, pick = false): BalanceCheck => ({ status: "unknown", ...base, account, reason, ...(pick && choices ? { choices } : {}) });
   if (!accounts) return unknown("残高を取得できませんでした。AIDEとの接続を確かめてください。");
+  if (!w.account) return unknown("メールに引き落とし口座の名前が見当たりませんでした。口座を選ぶと残高を確認できます。", null, true);
   const matched = matchAccount(accounts, w.account);
   if (!("account" in matched)) {
     return unknown(
       matched.candidates.length === 0
         ? `「${w.account}」に合う口座が残高の一覧にありません。`
         : `「${w.account}」に合う口座が複数あり、決められません（${matched.candidates.join("・")}）。`,
+      w.account,
+      true,
     );
   }
   const { account } = matched;
@@ -128,6 +132,15 @@ export function evaluateWithdrawal(w: Withdrawal, accounts: readonly BalanceAcco
     shortBy: Math.max(0, -after),
     asOf: account.lastUpdatedAt,
   };
+}
+
+/**
+ * 利用者が選んだ口座名を引き落としの口座として使う（#909）。選べるのは残高の一覧にある名前だけで、
+ * 一覧に無い値（外から来た値）は無視してメールの読み取りのままにする。
+ */
+export function withPickedAccount(w: Withdrawal, accounts: readonly BalanceAccount[] | null, picked: unknown): Withdrawal {
+  if (typeof picked !== "string" || !accounts?.some((a) => a.name === picked)) return w;
+  return { ...w, account: picked };
 }
 
 /** 不足のときに「タスクにする」へ渡す値。期限は引き落とし日の前日（日付が無ければ無し）。 */
