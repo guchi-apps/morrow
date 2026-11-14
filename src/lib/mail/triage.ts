@@ -16,6 +16,7 @@ import { normalizeLearnedRules } from "@/lib/mail/learn-core";
 import {
   SINCE_OVERLAP_MS,
   TRIAGE_BATCH_LIMIT,
+  applyCardRule,
   buildTriagePrompt,
   composeMailPush,
   nextMailCursor,
@@ -196,8 +197,9 @@ async function check(user: CheckUser, now: Date): Promise<MailCheckResult> {
   const needed: NeededMail[] = [];
   const rows: { userId: string; messageId: string; needed: boolean; reason: string }[] = [];
   for (const { key, message } of items) {
-    const decision = decisions.get(key);
-    if (!decision) continue; // 返ってこなかったものは記録せず、次の確認でやり直す
+    const raw = decisions.get(key);
+    if (!raw) continue;
+    const decision = applyCardRule(raw); // 返ってこなかったものは記録せず、次の確認でやり直す
     rows.push({ userId: user.id, messageId: message.id, needed: decision.needed, reason: decision.reason });
     if (decision.needed) needed.push({ id: message.id, from: message.from, subject: message.subject, reason: decision.reason });
   }
