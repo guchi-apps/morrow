@@ -68,3 +68,10 @@ test("家計簿の重複の控えは「登録済み」と書かない（#821）"
   assert.ok(!flowStatusLabel("payment", "duplicate")?.includes("登録済み"));
   assert.equal(flowStatusLabel("task", "duplicate"), "登録済み（重複を検出）");
 });
+
+test("受信日で補った購入日は控えで「（受信日）」と区別する（#903）", () => {
+  const s = normalizeSuggestion("payment", { place: "KDDI", name: "料金", amount: 2, date: "2026-11-14", dateEstimated: true })!;
+  assert.match(summarizeSuggestion(s), /11\/14（受信日）/);
+  const t = normalizeSuggestion("payment", { place: "KDDI", name: "料金", amount: 2, date: "2026-11-14" })!;
+  assert.doesNotMatch(summarizeSuggestion(t), /受信日/);
+});

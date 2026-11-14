@@ -121,6 +121,11 @@ describe("toolCallFor", () => {
     assert.ok(b.kind === "payment" && b.fields.date === "2026-11-05" && b.fields.dateEstimated === undefined);
     assert.ok(c.kind === "event" && c.fields.date === null);
     assert.equal(withReceivedDate(result, null), result);
+    // 承認後の検証し直しでも印は残り、日付が無ければ印は付かない
+    const again = normalizeSuggestion("payment", { place: "p", name: "n", date: "2026-11-14", dateEstimated: true })!;
+    assert.ok(again.kind === "payment" && again.fields.dateEstimated === true);
+    const noDay = normalizeSuggestion("payment", { place: "p", name: "n", dateEstimated: true })!;
+    assert.ok(noDay.kind === "payment" && noDay.fields.dateEstimated === undefined);
     // 元の値は変えない
     assert.ok(result.suggestions[0].kind === "payment" && result.suggestions[0].fields.date === null);
   });

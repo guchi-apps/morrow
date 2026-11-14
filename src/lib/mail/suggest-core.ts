@@ -198,6 +198,8 @@ function paymentFields(raw: Record<string, unknown>): PaymentFields | null {
     name,
     amount,
     date,
+    // 受信日で補った印は承認後の検証でも残す（登録の控えで購入日と区別するため。#903）
+    ...(date && raw.dateEstimated === true ? { dateEstimated: true } : {}),
     // 日付の無い時刻は使わない
     time: date ? validTime(raw.time) : null,
     items,
