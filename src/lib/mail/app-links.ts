@@ -12,5 +12,5 @@ export const FLOW_APP_LINKS: Record<SuggestKind, { label: string; url: string }>
   payment: { label: "Asset Managerの家計簿連携を開く", url: `${ASSET_MANAGER_ORIGIN}/receipts` },
   subscription: { label: "Asset Managerのサブスク一覧を開く", url: ASSET_MANAGER_SUBSCRIPTIONS_URL },
   task: { label: "DaySpanのタスクを開く", url: "https://dayspan.gucchii.com/tasks" },
-  event: { label: "DaySpanのカレンダーを開く", url: "https://dayspan.gucchii.com/calendar" },
+  event: { label: "詳細をDaySpanで開く（繰り返し・通知など）", url: "https://dayspan.gucchii.com/calendar" },
 };

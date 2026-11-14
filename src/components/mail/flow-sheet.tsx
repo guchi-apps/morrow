@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
+import type { CalendarChoice } from "@/lib/mail/link-core";
 import { FLOW_APP_LINKS } from "@/lib/mail/app-links";
 import { RECEIVED_DATE_NOTE, itemsTotal, paymentBlocker } from "@/lib/mail/payment-receipt";
 import type { PaymentFields, Suggestion, SuggestKind } from "@/lib/mail/suggest-core";
@@ -36,6 +37,8 @@ type Props = {
   outcome: CardResult | undefined;
   /** サブスク提案のAsset Managerとの照合結果（#884）。未取得はundefined。 */
   match?: SubscriptionMatch;
+  /** 予定の保存先の候補（#908）。null は未取得・取得できなかった。 */
+  calendars?: CalendarChoice[] | null;
   running: boolean;
   onEdit: (kind: SuggestKind, key: string, value: string) => void;
   onRun: (card: Suggestion) => void;
@@ -43,7 +46,9 @@ type Props = {
   onClose: () => void;
 };
 
-const input = "w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm";
+// date・time はiOSのネイティブ表示で他より大きく描かれるので、高さ・最小幅・appearance を揃える（#908）
+const input = "box-border h-10 w-full min-w-0 appearance-none rounded-lg border border-border bg-background px-2.5 py-2 text-sm [&::-webkit-date-and-time-value]:text-left";
+const textarea = "w-full min-w-0 rounded-lg border border-border bg-background px-2.5 py-2 text-sm";
 
 const yen = (value: number) => `${value.toLocaleString("ja-JP")}円`;
 
@@ -108,7 +113,7 @@ function Field({ label, children, className }: { label: string; children: ReactN
   );
 }
 
-export function FlowSheet({ card, recommended, outcome, match, running, onEdit, onRun, onOpenSubscription, onClose }: Props) {
+export function FlowSheet({ card, recommended, outcome, match, calendars, running, onEdit, onRun, onOpenSubscription, onClose }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -214,7 +219,7 @@ export function FlowSheet({ card, recommended, outcome, match, running, onEdit, 
                   <p className="mt-1 text-[0.6875rem] text-muted">時刻は任意です。タスクは日付だけを保持するので、時刻はメモの先頭に記録されます。</p>
                 </Field>
                 <Field label="メモ" className="col-span-2">
-                  <textarea rows={2} className={input} value={String(f.memo ?? "")} onChange={(e) => onEdit("task", "memo", e.target.value)} />
+                  <textarea rows={2} className={textarea} value={String(f.memo ?? "")} onChange={(e) => onEdit("task", "memo", e.target.value)} />
                 </Field>
               </>
             )}
@@ -223,14 +228,31 @@ export function FlowSheet({ card, recommended, outcome, match, running, onEdit, 
                 <Field label="タイトル" className="col-span-2">
                   <input className={input} value={String(f.title ?? "")} onChange={(e) => onEdit("event", "title", e.target.value)} />
                 </Field>
-                <Field label="日付" className="col-span-2">
+                <Field label="開始日">
                   <input type="date" className={input} value={String(f.date ?? "")} onChange={(e) => onEdit("event", "date", e.target.value)} />
                 </Field>
-                <Field label="開始">
+                <Field label="開始時刻">
                   <input type="time" className={input} value={String(f.startTime ?? "")} onChange={(e) => onEdit("event", "startTime", e.target.value)} />
                 </Field>
-                <Field label="終了">
+                <Field label="終了日（日をまたぐときだけ）">
+                  <input type="date" className={input} value={String(f.endDate ?? "")} min={String(f.date ?? "") || undefined} onChange={(e) => onEdit("event", "endDate", e.target.value)} />
+                </Field>
+                <Field label="終了時刻">
                   <input type="time" className={input} value={String(f.endTime ?? "")} onChange={(e) => onEdit("event", "endTime", e.target.value)} />
+                </Field>
+                <Field label="保存先カレンダー" className="col-span-2">
+                  <select className={input} value={String(f.calendarId ?? "")} onChange={(e) => onEdit("event", "calendarId", e.target.value)}>
+                    <option value="">既定の保存先（DaySpan）</option>
+                    {(calendars ?? []).map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="メモ" className="col-span-2">
+                  <textarea rows={2} className={textarea} value={String(f.memo ?? "")} onChange={(e) => onEdit("event", "memo", e.target.value)} />
+                  <span className="text-[0.6875rem] text-muted">メモは現在カレンダーへ登録されません（AIDEの対応待ち）。必要ならDaySpanで追記してください。</span>
                 </Field>
               </>
             )}

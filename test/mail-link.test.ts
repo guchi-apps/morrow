@@ -9,6 +9,7 @@ import {
   linkKey,
   mailBadgeLabel,
   normalizeLinkTarget,
+  parseCalendarChoices,
   parseEventCandidates,
   parseTaskCandidates,
 } from "@/lib/mail/link-core";
@@ -139,5 +140,22 @@ describe("表示", () => {
     assert.equal(linkKey("event", "e1"), "event:e1");
     assert.equal(mailBadgeLabel(1), "✉");
     assert.equal(mailBadgeLabel(3), "✉ 3通");
+  });
+});
+
+describe("parseCalendarChoices（予定の保存先の候補。#908）", () => {
+  it("予定のカレンダーを重複なく集め、活動記録は除く", () => {
+    const json = {
+      configured: true,
+      days: [
+        { events: [{ id: "1", title: "a", calendarId: "c1", calendarName: "仕事" }, { id: "2", title: "b", calendarId: "c1", calendarName: "仕事" }] },
+        { events: [{ id: "3", title: "c", calendarId: "c2", calendarName: "活動記録" }, { id: "4", title: "d", calendarId: "c3", calendarName: "プライベート" }] },
+      ],
+    };
+    assert.deepEqual(parseCalendarChoices(json), [{ id: "c1", name: "仕事" }, { id: "c3", name: "プライベート" }]);
+  });
+  it("未設定・読めない応答は空", () => {
+    assert.deepEqual(parseCalendarChoices({ configured: false }), []);
+    assert.deepEqual(parseCalendarChoices(null), []);
   });
 });
