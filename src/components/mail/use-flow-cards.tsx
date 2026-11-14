@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { FlowSheet, type CardResult } from "@/components/mail/flow-sheet";
+import type { CalendarChoice } from "@/lib/mail/link-core";
 import { receiptUrl } from "@/lib/mail/payment-receipt";
 import type { Suggestion } from "@/lib/mail/suggest-core";
 import { matchQueryOf, type SubscriptionMatch } from "@/lib/mail/subscription-match-core";
@@ -27,6 +28,21 @@ export function useFlowCards(mailId: string) {
   /** サブスク提案のAsset Managerとの照合（#884）。行の識別子→結果。取得中・未取得はキーが無い。 */
   const [matches, setMatches] = useState<Record<string, SubscriptionMatch>>({});
   const asked = useRef(new Set<string>());
+  /** 予定の保存先の候補（#908）。予定の行を開いたときに1回だけ取る。null は未取得・取得できなかった（既定の保存先だけで続ける）。 */
+  const [calendars, setCalendars] = useState<CalendarChoice[] | null>(null);
+  const calendarsAsked = useRef(false);
+  const openKind = open ? rows[open]?.card.kind : undefined;
+
+  useEffect(() => {
+    if (openKind !== "event" || calendarsAsked.current) return;
+    calendarsAsked.current = true;
+    fetch("/api/mail/flow/calendars")
+      .then((response) => (response.ok ? (response.json() as Promise<{ ok: boolean; calendars?: CalendarChoice[] }>) : null))
+      .then((data) => {
+        if (data?.ok && Array.isArray(data.calendars)) setCalendars(data.calendars);
+      })
+      .catch(() => {});
+  }, [openKind]);
 
   useEffect(() => {
     for (const [rowId, { card }] of Object.entries(rows)) {
@@ -144,6 +160,7 @@ export function useFlowCards(mailId: string) {
       recommended={openRow?.recommended ?? false}
       outcome={open ? outcomes[open] : undefined}
       match={open ? matches[open] : undefined}
+      calendars={calendars}
       running={open !== null && running === open}
       onEdit={(_kind, key, value) => open && edit(open, key, value)}
       onRun={(card) => open && void run(open, card)}
