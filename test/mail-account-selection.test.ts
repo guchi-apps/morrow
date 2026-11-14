@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
-  FILL_MAX_EXTRA_PAGES,
   accountParamOf,
   fetchFilteredPage,
   messageAllowed,
@@ -62,58 +61,39 @@ describe("アカウント絞り込み（#829）", () => {
     assert.equal(accountParamOf(["main"], ALL), "main");
   });
 
-  it("絞った件数が足りない間は次のページを足す", async () => {
-    const pages: Record<string, MailListPage> = {
-      "": page(["sub~1", "sub~2", "main~1"], "p2"),
-      p2: page(["sub~3", "formal~1"], null),
-    };
+  it("1ページだけ取って絞り、次ページの鍵を返す（足し取りしない）", async () => {
     const calls: string[] = [];
     const result = await fetchFilteredPage(
       async (t) => {
         calls.push(t ?? "");
-        return { ok: true as const, value: pages[t ?? ""]! };
+        return { ok: true as const, value: page(["sub~1", "sub~2", "main~1", "formal~1"], "p2") };
       },
       { kind: "default" },
       null,
       inferMailAccounts,
     );
     assert.ok(result.ok);
-    assert.deepEqual(calls, ["", "p2"]);
+    assert.deepEqual(calls, [""]);
     assert.deepEqual(result.value.messages.map((m) => m.id), ["main~1", "formal~1"]);
-    assert.equal(result.value.nextPageToken, null);
+    assert.equal(result.value.nextPageToken, "p2");
     // チップの元は絞る前の全行（サブも含む）
     assert.deepEqual(result.value.accounts?.map((a) => a.key).sort(), ["formal", "main", "sub"]);
   });
 
-  it("追加取得は上限で止まり、0件でも次ページの鍵を返す", async () => {
+  it("絞って0件でも次ページの鍵を返す", async () => {
     let n = 0;
     const result = await fetchFilteredPage(
       async () => {
         n += 1;
-        return { ok: true as const, value: page(["sub~1"], `p${n}`) };
+        return { ok: true as const, value: page(["sub~1"], "p2") };
       },
       { kind: "default" },
       null,
       inferMailAccounts,
     );
     assert.ok(result.ok);
-    assert.equal(n, 1 + FILL_MAX_EXTRA_PAGES);
+    assert.equal(n, 1);
     assert.equal(result.value.messages.length, 0);
-    assert.equal(result.value.nextPageToken, `p${n}`);
-  });
-
-  it("追加取得が失敗しても、取れた分は出す", async () => {
-    let n = 0;
-    const result = await fetchFilteredPage(
-      async () => {
-        n += 1;
-        return n === 1 ? { ok: true as const, value: page(["main~1"], "p2") } : { ok: false as const, kind: "failed", message: null };
-      },
-      { kind: "default" },
-      null,
-      inferMailAccounts,
-    );
-    assert.ok(result.ok);
-    assert.deepEqual(result.value.messages.map((m) => m.id), ["main~1"]);
+    assert.equal(result.value.nextPageToken, "p2");
   });
 });

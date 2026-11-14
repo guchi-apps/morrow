@@ -831,6 +831,10 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
   `/api/mail/messages/<id>`・`/api/mail/actions` に答えるだけ）を立てて `.env.local` の `AIDE_MAIL_API_URL`・`AIDE_MAIL_API_TOKEN` を向け、
   `CODEX_BIN` も判定のJSON配列を返すスタブにして確かめる。「いま確認」の前に `User.mailCheckedAt` を少し戻すと新着として拾われる
 
+### メール一覧は1ページ目だけで開き、スクロールで続きを足す（#887）
+
+`/mail` の描画はAIDEから**1ページ（25件。AIDE側固定で件数指定は無い）だけ**取る。アカウント絞り込み（#829）の足し取りは廃止した（少ないページは少ないまま出す）。続きは `GET /api/mail/list`（`view`・`acct`・`q`・`page` 必須）を `use-mail-pager.ts` が裏で1ページ先読みし、下端の目印に近づいたら足してさらに次を先読みする。行の印・要約は `decorateMailRows()`（`list-rows.ts`）が画面の1ページ目と口で共有する。空のページが3回続いたら自動で進むのをやめ「続きを読み込む」ボタンを出す。先頭の取り直し（`router.refresh()`）では足した続きは保ち、要約待ちの続きの行は同じ鍵で口を取り直して差し替える（`refreshPages`）。続きで `partial` が出ても帯は先頭ページの値のまま（未対応）。厳密な件数指定にはAIDEの `limit` が要る。
+
 ### メール通知の学習——印から傾向を読み取る（#833）
 
 基準をまとめて書く代わりに、メール本文の画面の帯（「お知らせ済み」「お知らせしていません」）で「今後このようなメールを［知らせる｜知らせない］」を押して学習させる（`mail-feedback.tsx`・`POST /api/mail/feedback`）。
