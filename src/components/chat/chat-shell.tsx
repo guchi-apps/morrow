@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 import { ConversationRail } from "./conversation-rail";
+import { MobileTabBar } from "./mobile-tab-bar";
 import { useVisualViewportFit } from "./use-visual-viewport";
 
 type Props = {
@@ -194,7 +195,7 @@ export function ChatShell({
           </div>
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-col" inert={drawerOpen}>
+      <div className="mobile-tab-pad flex min-w-0 flex-1 flex-col" inert={drawerOpen}>
         <header className="flex items-center gap-2.5 border-b border-border bg-surface px-3 pb-2.5 pt-[calc(env(safe-area-inset-top)+0.625rem)] lg:bg-transparent lg:px-7 lg:py-3.5">
           <button
             ref={openerRef}
@@ -215,6 +216,20 @@ export function ChatShell({
         </header>
 
         {children}
+      </div>
+
+      {/* スマホの下部固定ナビ（#916）。ドロワーが開いている間は背面なので操作させない。 */}
+      <div inert={drawerOpen}>
+        <MobileTabBar
+          isDashboardActive={isDashboard}
+          isWeatherActive={isWeather}
+          isChatActive={isChat}
+          isMailActive={isMail}
+          isTopicsActive={isTopics}
+          pendingProposalCount={pendingProposalCount}
+          topicCount={topicCount}
+          mailBadgeSlot={mailBadgeSlot}
+        />
       </div>
     </div>
   );
