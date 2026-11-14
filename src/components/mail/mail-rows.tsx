@@ -62,7 +62,7 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
     return subscribeArchived(load);
   }, [listed]);
   // 続きのページ（#887）。先頭ページが取り直されても（router.refresh）、足した続きは保つ
-  const { extra, hasMore, status, sentinelRef, retry } = useMailPager<Row>(initialNextToken, listQuery);
+  const { extra, hasMore, status, sentinelRef, retry, refreshPages } = useMailPager<Row>(initialNextToken, listQuery);
 
   const base = hideArchived(listed, archived, inboxView);
   const baseIds = new Set(base.map((m) => m.id));
@@ -70,15 +70,16 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
   // 要約待ちの行があるあいだ、一覧を数回だけ取り直す（#851）
   const router = useRouter();
   const [polls, setPolls] = useState(0);
-  const waiting = inboxView && polls < SUMMARY_POLL_MAX && base.some((m) => m.summary === null);
+  const waiting = inboxView && polls < SUMMARY_POLL_MAX && (base.some((m) => m.summary === null) || extra.some((m) => m.summary === null));
   useEffect(() => {
     if (!waiting) return;
     const timer = window.setTimeout(() => {
       setPolls((n) => n + 1);
       router.refresh();
+      void refreshPages((m) => m.summary === null);
     }, SUMMARY_POLL_MS);
     return () => window.clearTimeout(timer);
-  }, [waiting, polls, router]);
+  }, [waiting, polls, router, refreshPages]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // 押した行（#699）。本文の画面へ移るまでの一瞬、押したことが分かるよう色を付ける
   const [opening, setOpening] = useState<string | null>(null);

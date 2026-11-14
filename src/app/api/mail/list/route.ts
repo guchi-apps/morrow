@@ -1,10 +1,11 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth-user";
 import { parseAccountFilter } from "@/lib/mail/account-filter";
 import { listMailForPage } from "@/lib/mail/aide-client";
 import { onlyInbox } from "@/lib/mail/archived-memory";
 import { MAIL_FAILURE_MESSAGES, isMailPageToken, isMailViewKey } from "@/lib/mail/contract";
+import { deleteListSummaries } from "@/lib/mail/list-summary";
 import { decorateMailRows } from "@/lib/mail/list-rows";
 
 /**
@@ -37,6 +38,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: MAIL_FAILURE_MESSAGES[result.kind] }, { status });
   }
 
+  // INBOXの無いメール（アーカイブ・ゴミ箱）の要約は消す（画面の1ページ目と同じ。#851）
+  const outside = result.value.messages.filter((m) => !m.labelIds.includes("INBOX")).map((m) => m.id);
+  if (outside.length > 0) after(() => deleteListSummaries(user.id, outside).catch(() => undefined));
   const inboxView = view === "inbox" && !q;
   const messages = inboxView ? onlyInbox(result.value.messages) : result.value.messages;
   const rows = await decorateMailRows(user, messages, inboxView);
