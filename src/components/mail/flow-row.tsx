@@ -4,12 +4,16 @@ import { KIND_META } from "@/components/mail/flow-sheet";
 import { itemsTotal } from "@/lib/mail/payment-receipt";
 import type { ReceiptState } from "@/lib/mail/flow-record-core";
 import type { Suggestion } from "@/lib/mail/suggest-core";
+import { registeredSummary } from "@/lib/mail/subscription-match-view";
+import type { SubscriptionMatch } from "@/lib/mail/subscription-match-core";
 import { cn } from "@/lib/utils";
 
 /** 提案の1行（#766）。押すとハーフモーダルが開く。分析と指示の返事（#784）の両方で使う。型だけをimportする。 */
-export function FlowRowButton({ card, recommended, registered, receipt = null, onOpen }: { card: Suggestion; recommended: boolean; registered: boolean; receipt?: ReceiptState | null; onOpen: () => void }) {
+export function FlowRowButton({ card, recommended, registered, receipt = null, match, onOpen }: { card: Suggestion; recommended: boolean; registered: boolean; receipt?: ReceiptState | null; match?: SubscriptionMatch; onOpen: () => void }) {
   const meta = KIND_META[card.kind];
-  const preview = cardPreview(card);
+  const found = match?.status === "matched" ? match.matches : null;
+  // Asset Managerに同じ項目があれば、読み取った値より登録内容を出す（#884）
+  const preview = found?.length === 1 ? registeredSummary(found[0]) : cardPreview(card);
   return (
     <button
       type="button"
@@ -28,6 +32,7 @@ export function FlowRowButton({ card, recommended, registered, receipt = null, o
           {meta.title}
           {recommended && <span className="rounded-full bg-accent px-2 py-0.5 text-[0.625rem] font-bold text-accent-foreground">おすすめ</span>}
           {registered && <span className="rounded-full bg-fair-surface px-2 py-0.5 text-[0.625rem] font-bold text-fair">登録済み</span>}
+          {found && <span className="rounded-full bg-fair-surface px-2 py-0.5 text-[0.625rem] font-bold text-fair">{found.length === 1 ? "Asset Managerに登録済み" : `Asset Managerに候補${found.length}件`}</span>}
           {!registered && receipt && <span className="rounded-full bg-accent-surface px-2 py-0.5 text-[0.625rem] font-bold text-accent">{receipt === "pending" ? "確認待ち" : "取り込み済み"}</span>}
         </span>
         {preview && <span className="truncate opacity-85">{preview}</span>}

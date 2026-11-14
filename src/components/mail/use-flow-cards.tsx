@@ -1,11 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { FlowSheet, type CardResult } from "@/components/mail/flow-sheet";
 import { receiptUrl } from "@/lib/mail/payment-receipt";
 import type { Suggestion } from "@/lib/mail/suggest-core";
+import type { SubscriptionMatch } from "@/lib/mail/subscription-match-core";
 
 /**
  * 提案の行（分析 #766・指示 #784）の状態と、押したときのハーフモーダル（`FlowSheet`）。1通のメールの画面に1つ。
@@ -23,6 +24,26 @@ export function useFlowCards(mailId: string) {
   const [outcomes, setOutcomes] = useState<Record<string, CardResult>>({});
   const [running, setRunning] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  /** サブスク提案のAsset Managerとの照合（#884）。行の識別子→結果。取得中・未取得はキーが無い。 */
+  const [matches, setMatches] = useState<Record<string, SubscriptionMatch>>({});
+  const asked = useRef(new Set<string>());
+
+  useEffect(() => {
+    for (const [rowId, { card }] of Object.entries(rows)) {
+      if (card.kind !== "subscription" || !card.fields.name.trim()) continue;
+      const key = `${rowId}:${card.fields.name}`;
+      if (asked.current.has(key)) continue;
+      asked.current.add(key);
+      fetch("/api/mail/flow/subscription-match", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: card.fields.name }),
+      })
+        .then((response) => (response.ok ? (response.json() as Promise<SubscriptionMatch>) : ({ status: "error" } as SubscriptionMatch)))
+        .catch(() => ({ status: "error" }) as SubscriptionMatch)
+        .then((result) => setMatches((current) => ({ ...current, [rowId]: result })));
+    }
+  }, [rows]);
 
   /** `prefix` で始まる行を消して入れ直す（分析し直したとき）。結果の表示も消す。 */
   const replace = useCallback((prefix: string, next: Record<string, FlowRow>) => {
@@ -119,6 +140,7 @@ export function useFlowCards(mailId: string) {
       card={openRow?.card ?? null}
       recommended={openRow?.recommended ?? false}
       outcome={open ? outcomes[open] : undefined}
+      match={open ? matches[open] : undefined}
       running={open !== null && running === open}
       onEdit={(_kind, key, value) => open && edit(open, key, value)}
       onRun={(card) => open && void run(open, card)}
@@ -127,7 +149,7 @@ export function useFlowCards(mailId: string) {
     />
   );
 
-  return { rows, outcomes, replace, setOpen, sheet };
+  return { rows, outcomes, matches, replace, setOpen, sheet };
 }
 
 export type FlowCards = ReturnType<typeof useFlowCards>;
