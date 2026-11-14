@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
-import { FLOW_APP_LINKS } from "@/lib/mail/app-links";
+import { linkAppUrl } from "@/lib/mail/app-links";
 import { LINK_KIND_META, LINK_SOURCE_LABELS, type LinkKind, type LinkView } from "@/lib/mail/link-core";
 import { cn } from "@/lib/utils";
 
@@ -53,7 +53,6 @@ export function MailLinks({ id, links }: { id: string; links: LinkView[] }) {
         <ul className="mt-1 flex flex-col">
           {rows.map((link) => {
             const meta = LINK_KIND_META[link.kind];
-            const app = FLOW_APP_LINKS[link.kind];
             return (
               <li key={link.id} className="flex items-center gap-2 border-t border-border/60 py-1.5 first:border-t-0">
                 <span aria-hidden>{meta.icon}</span>
@@ -65,7 +64,7 @@ export function MailLinks({ id, links }: { id: string; links: LinkView[] }) {
                     {md(link.dateText) && `　${md(link.dateText)}`}　<span className="rounded-full bg-accent-surface px-1.5 py-px text-accent">{LINK_SOURCE_LABELS[link.source]}</span>
                   </span>
                 </span>
-                <a href={app.url} target="_blank" rel="noopener noreferrer" className="shrink-0 text-accent hover:underline">
+                <a href={linkAppUrl(link.kind, link.dateText)} target="_blank" rel="noopener noreferrer" className="shrink-0 text-accent hover:underline">
                   開く ↗
                 </a>
                 <button type="button" disabled={busy === link.id} onClick={() => unlink(link)} className="shrink-0 text-muted hover:text-danger disabled:opacity-50">

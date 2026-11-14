@@ -14,3 +14,14 @@ export const FLOW_APP_LINKS: Record<SuggestKind, { label: string; url: string }>
   task: { label: "DaySpanのタスクを開く", url: "https://dayspan.gucchii.com/tasks" },
   event: { label: "詳細をDaySpanで開く（繰り返し・通知など）", url: "https://dayspan.gucchii.com/calendar" },
 };
+
+/**
+ * 紐づけた予定・タスクの「開く」の行き先（#914）。予定は `/calendar?date=YYYY-MM-DD` にして、アプリ（YoteiFlow）の
+ * Universal Linkで当日のカレンダーを開かせる（`date` の形は受け側も検証する）。日付が無い・形が違えば従来の `/calendar`。
+ * タスクの `/tasks` はYoteiFlowのUniversal Linkの許可パスに無く、アプリ側が対応するまでSafariで開く。
+ */
+export function linkAppUrl(kind: "task" | "event", dateText: string | null): string {
+  const base = FLOW_APP_LINKS[kind].url;
+  if (kind === "event" && dateText && /^\d{4}-\d{2}-\d{2}$/.test(dateText)) return `${base}?date=${dateText}`;
+  return base;
+}
