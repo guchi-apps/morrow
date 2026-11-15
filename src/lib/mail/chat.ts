@@ -33,7 +33,9 @@ export async function chatAboutMail(user: MailUser, messageId: string, message: 
       message:
         busy?.kind === "analyze" || busy?.kind === "list_summary"
           ? "分析が終わってから送れます。少し待ってください。"
-          : "前の指示への返事を作っています。少し待ってください。",
+          : busy?.kind === "search"
+            ? "メールのAI検索が終わってから送れます。少し待ってください。"
+            : "前の指示への返事を作っています。少し待ってください。",
     };
   }
   try {
