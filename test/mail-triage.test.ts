@@ -64,8 +64,8 @@ describe("parseTriageReply", () => {
     const reply = '前置き\n[{"id":"m1","needed":true,"reason":"期限のある支払いのため"},{"id":"m2","needed":false,"reason":"広告"},{"id":"m9","needed":true},{"id":"m3"}]';
     const decisions = parseTriageReply(reply, ["m1", "m2", "m3"]);
     assert.ok(decisions);
-    assert.deepEqual(decisions.get("m1"), { needed: true, reason: "期限のある支払いのため", cardUsage: false, amount: null });
-    assert.deepEqual(decisions.get("m2"), { needed: false, reason: "", cardUsage: false, amount: null });
+    assert.deepEqual(decisions.get("m1"), { needed: true, reason: "期限のある支払いのため", cardUsage: false, amount: null, archive: false });
+    assert.deepEqual(decisions.get("m2"), { needed: false, reason: "", cardUsage: false, amount: null, archive: false });
     assert.equal(decisions.has("m3"), false);
     assert.equal(decisions.has("m9"), false);
   });
@@ -139,6 +139,18 @@ describe("カード利用のお知らせ（#898）", () => {
   });
   it("返答から cardUsage・amount を読む", () => {
     const r = parseTriageReply('[{"id":"m1","needed":true,"reason":"a","cardUsage":true,"amount":80000}]', ["m1"]);
-    assert.deepEqual(r?.get("m1"), { needed: true, reason: "a", cardUsage: true, amount: 80000 });
+    assert.deepEqual(r?.get("m1"), { needed: true, reason: "a", cardUsage: true, amount: 80000, archive: false });
   });
+});
+
+it("archive は needed が false のときだけ読み、カード利用では落とす（#942）", async () => {
+  const { parseTriageReply, applyCardRule } = await import("../src/lib/mail/triage-core.ts");
+  const reply = JSON.stringify([
+    { id: "m1", needed: false, reason: "", archive: true },
+    { id: "m2", needed: true, reason: "x", archive: true },
+  ]);
+  const map = parseTriageReply(reply, ["m1", "m2"])!;
+  assert.equal(map.get("m1")!.archive, true);
+  assert.equal(map.get("m2")!.archive, false);
+  assert.equal(applyCardRule({ needed: false, reason: "", cardUsage: true, amount: 100, archive: true }).archive, false);
 });

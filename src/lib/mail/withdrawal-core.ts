@@ -162,3 +162,96 @@ export function shortageTask(check: BalanceKnown): TaskFields {
     memo: `${check.date ?? "日付不明"}に${yen(check.amount)}が引き落とされる予定。${check.asOf.slice(0, 16).replace("T", " ")}時点の残高は${yen(check.balance)}で、${yen(check.shortBy)}足りない。`,
   };
 }
+
+/**
+ * メールの確定額で、Asset Managerのカード引き落とし見込みを上書きする（#910）のうち、DB・ネットワークに触れない部分。
+ * 読み取りは `asset_manager_card_withdrawals`、書き込みは `asset_manager_confirm_card_withdrawal`（契約は `docs/external-tool-contracts.md`）。
+ * 見込み・確定額はMorrowのDB・ログに残さない（#732）。
+ */
+
+export type CardWithdrawalItem = {
+  cardId: number;
+  cardName: string;
+  bankName: string | null;
+  paymentDate: string;
+  amountJpy: number;
+  estimatedAmountJpy: number | null;
+  source: "estimate" | "confirmed";
+  confirmationSourceKey: string | null;
+};
+
+/** `asset_manager_card_withdrawals` の応答から引き落とし予定を読む。形が違う・`status` が ok でなければnull。 */
+export function parseCardWithdrawals(json: Record<string, unknown>): CardWithdrawalItem[] | null {
+  if (json.status !== "ok" || !Array.isArray(json.withdrawals)) return null;
+  const items: CardWithdrawalItem[] = [];
+  for (const raw of json.withdrawals) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const r = raw as Record<string, unknown>;
+    if (typeof r.cardId !== "number" || !Number.isInteger(r.cardId) || typeof r.cardName !== "string") continue;
+    if (validDate(r.paymentDate) === null || typeof r.amountJpy !== "number" || !Number.isFinite(r.amountJpy)) continue;
+    const confirmation = typeof r.confirmation === "object" && r.confirmation !== null ? (r.confirmation as Record<string, unknown>) : null;
+    items.push({
+      cardId: r.cardId,
+      cardName: r.cardName,
+      bankName: typeof r.bankName === "string" ? r.bankName : null,
+      paymentDate: r.paymentDate as string,
+      amountJpy: r.amountJpy,
+      estimatedAmountJpy: typeof r.estimatedAmountJpy === "number" && Number.isFinite(r.estimatedAmountJpy) ? r.estimatedAmountJpy : null,
+      source: r.source === "confirmed" ? "confirmed" : "estimate",
+      confirmationSourceKey: confirmation && typeof confirmation.sourceKey === "string" ? confirmation.sourceKey : null,
+    });
+  }
+  return items;
+}
+
+/** 冪等キー。メールごとに1つ（同じメールの再送は何も変えない）。 */
+export const cardConfirmSourceKey = (messageId: string) => `morrow-mail:${messageId}`.slice(0, 191);
+
+/** どの会社にも付く語（「カード」「銀行」）は名前の手掛かりにしない（「楽天カード」と「三井住友カード」を同じとみなさないため）。 */
+const distinctive = (value: string) => normalizeName(value).replace(/カード|銀行|card|bank/g, "");
+
+function sharesRun(a: string, b: string, size = 3): boolean {
+  const x = distinctive(a);
+  const y = distinctive(b);
+  if (x.length < size || y.length < size) return false;
+  for (let i = 0; i + size <= x.length; i++) if (y.includes(x.slice(i, i + size))) return true;
+  return false;
+}
+
+export type CardCheck =
+  | { status: "mismatch"; cardId: number; cardName: string; paymentDate: string; displayedAmount: number; mailAmount: number; source: "estimate" | "confirmed" }
+  | { status: "confirmed"; cardName: string; paymentDate: string; amount: number }
+  | { status: "match"; cardName: string; paymentDate: string; amount: number }
+  | { status: "unknown"; reason: string };
+
+/**
+ * メールの引き落とし（日付と額）を、引き落とし予定のうち**ちょうど1件**と突き合わせる。
+ * 同じ日の予定が複数あるときは、請求元・引き落とし口座の名前が合うものに絞る。決められなければnull（推測で選ばない）。
+ */
+export function evaluateCardWithdrawal(w: Withdrawal, items: readonly CardWithdrawalItem[] | null, messageId: string): CardCheck | null {
+  if (!w.date) return null;
+  if (!items) return { status: "unknown", reason: "Asset Managerのカード引き落とし見込みを取得できませんでした。" };
+  const sameDay = items.filter((i) => i.paymentDate === w.date);
+  if (sameDay.length === 0) return null;
+  const related = sameDay.filter((i) => (w.payee ? sharesRun(w.payee, i.cardName) : false) || (w.account && i.bankName ? sharesRun(w.account, i.bankName, 2) : false));
+  const pool = related.length > 0 ? related : w.payee || w.account ? [] : sameDay;
+  if (pool.length !== 1) return null;
+  const item = pool[0];
+  const key = cardConfirmSourceKey(messageId);
+  if (item.source === "confirmed" && item.confirmationSourceKey === key && item.amountJpy === w.amount) {
+    return { status: "confirmed", cardName: item.cardName, paymentDate: item.paymentDate, amount: item.amountJpy };
+  }
+  if (item.amountJpy === w.amount) return { status: "match", cardName: item.cardName, paymentDate: item.paymentDate, amount: item.amountJpy };
+  return { status: "mismatch", cardId: item.cardId, cardName: item.cardName, paymentDate: item.paymentDate, displayedAmount: item.amountJpy, mailAmount: w.amount, source: item.source };
+}
+
+/** `asset_manager_confirm_card_withdrawal` へ渡す引数（`test/external-tool-contracts.test.ts` が入力の範囲内であることを固定する）。 */
+export function cardConfirmArgs(check: Extract<CardCheck, { status: "mismatch" }>, messageId: string): Record<string, unknown> {
+  return {
+    cardId: check.cardId,
+    paymentDate: check.paymentDate,
+    amount: check.mailAmount,
+    sourceKey: cardConfirmSourceKey(messageId),
+    note: "メールの確定額（Morrowから登録）",
+  };
+}

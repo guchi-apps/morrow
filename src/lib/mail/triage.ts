@@ -5,12 +5,13 @@ import { modelFor } from "@/lib/chat-model-server";
 import { runCodexRecorded } from "@/lib/codex-run";
 import { db } from "@/lib/db";
 import { prefetchAnalysesSafely } from "@/lib/mail/analyze";
-import { summarizeMissingSafely } from "@/lib/mail/list-summary";
+import { deleteListSummaries, summarizeMissingSafely } from "@/lib/mail/list-summary";
 import { isPushKindEnabled } from "@/lib/push/kinds-server";
 import { sendPushToUser, usersWithSubscriptions } from "@/lib/push/subscriptions";
 
-import { listMail } from "@/lib/mail/aide-client";
-import type { MailFailureKind } from "@/lib/mail/contract";
+import { applyMailAction, listMail } from "@/lib/mail/aide-client";
+import { deleteAnalyses } from "@/lib/mail/analysis-store";
+import { mailAccountKeyOf, type MailFailureKind } from "@/lib/mail/contract";
 import { gmailPushConfigFrom, isMainAccountMessage } from "@/lib/mail/gmail-push-core";
 import { normalizeLearnedRules } from "@/lib/mail/learn-core";
 import {
@@ -173,6 +174,7 @@ async function check(user: CheckUser, now: Date): Promise<MailCheckResult> {
   const overflow = candidates.slice(TRIAGE_BATCH_LIMIT);
   const items = toTriageItems(batch);
 
+  const learnedRules = normalizeLearnedRules(user.mailLearnedRules, "");
   let decisions;
   try {
     const result = await runCodexRecorded({
@@ -181,7 +183,7 @@ async function check(user: CheckUser, now: Date): Promise<MailCheckResult> {
       label: "メールの判定",
       model: await modelFor(user.id, "mail"),
       // 学んだ傾向（#833）も添える。DBの値も外から来た値と同じく均してから入れる
-      prompt: buildTriagePrompt(user.mailCriteria, items, normalizeLearnedRules(user.mailLearnedRules, "")),
+      prompt: buildTriagePrompt(user.mailCriteria, items, learnedRules),
       timeoutMs: TRIAGE_TIMEOUT_MS,
     });
     decisions = parseTriageReply(result.messages.at(-1) ?? result.text, items.map((item) => item.key));
@@ -195,12 +197,16 @@ async function check(user: CheckUser, now: Date): Promise<MailCheckResult> {
   }
 
   const needed: NeededMail[] = [];
+  const toArchive: string[] = [];
+  const hasArchiveRule = learnedRules.some((rule) => rule.archive);
   const rows: { userId: string; messageId: string; needed: boolean; reason: string }[] = [];
   for (const { key, message } of items) {
     const raw = decisions.get(key);
     if (!raw) continue;
     const decision = applyCardRule(raw); // 返ってこなかったものは記録せず、次の確認でやり直す
     rows.push({ userId: user.id, messageId: message.id, needed: decision.needed, reason: decision.reason });
+    // アーカイブは「アーカイブの傾向があり、知らせない」と判定したものだけ（#942）。受信トレイにあるものに限る
+    if (!decision.needed && decision.archive && hasArchiveRule && message.labelIds.includes("INBOX")) toArchive.push(message.id);
     if (decision.needed) needed.push({ id: message.id, from: message.from, subject: message.subject, reason: decision.reason });
   }
   // 1回に載せきれなかった分は、判定を省いたものとして記録する（溜まった分で通知が溢れないように）
@@ -215,6 +221,8 @@ async function check(user: CheckUser, now: Date): Promise<MailCheckResult> {
     data: rows.filter((row) => !neededIds.has(row.messageId)),
     skipDuplicates: true,
   });
+
+  if (toArchive.length > 0) await archiveJudged(user, toArchive);
 
   let delivered = 0;
   if (needed.length > 0) {
@@ -253,6 +261,28 @@ async function check(user: CheckUser, now: Date): Promise<MailCheckResult> {
   await advance(user.id, cursor, now, { partial, complete: decisions.size === items.length });
   const judgedMain = rows.filter((row) => isMainAccountMessage(row.messageId)).length;
   return { status: "checked", judged: rows.length, judgedMain, needed: needed.length, delivered, ...base };
+}
+
+/**
+ * 学んだ「アーカイブ」の傾向に合った新着を受信トレイから外す（#942）。AIDEは複数アカウントにまたがる操作を断るので
+ * アカウントごとに分ける。失敗しても判定・通知は止めない（メールは受信トレイに残るだけ。判定済みなので再試行はしない）。
+ */
+async function archiveJudged(user: CheckUser, ids: string[]) {
+  const groups = new Map<string, string[]>();
+  for (const id of ids) {
+    const key = mailAccountKeyOf(id) ?? "";
+    groups.set(key, [...(groups.get(key) ?? []), id]);
+  }
+  for (const group of groups.values()) {
+    const result = await applyMailAction(user, { action: "archive", ids: group, labelId: null });
+    if (!result.ok) {
+      console.warn(`[aide-bot] メールの自動アーカイブに失敗した: ${result.kind}`);
+      continue;
+    }
+    // 手動のアーカイブ（`/api/mail/actions`）と同じ後始末
+    await deleteListSummaries(user.id, group).catch(() => undefined);
+    await deleteAnalyses(user.id, group).catch(() => undefined);
+  }
 }
 
 async function advance(userId: string, cursor: Date, now: Date, options: { partial: boolean; complete: boolean }) {

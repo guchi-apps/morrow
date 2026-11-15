@@ -11,7 +11,7 @@ import { ANALYZE_RETRY_MS, shouldRetryAnalysis } from "@/lib/mail/analyze-retry"
 import { TYPEWRITER_MAX_MS, elapsedLabel, splitVisible } from "@/lib/mail/typewriter-core";
 import type { ReceiptState } from "@/lib/mail/flow-record-core";
 import type { MailAnalysis as Analysis } from "@/lib/mail/analyze-core";
-import { shortageTask, type BalanceCheck } from "@/lib/mail/withdrawal-core";
+import { shortageTask, type BalanceCheck, type CardCheck } from "@/lib/mail/withdrawal-core";
 
 /**
  * メールのAI分析（#766）。開いた時点で自動で要約と処理の提案を取り（`POST /api/mail/flow/analyze`。Codexは1回）、
@@ -34,6 +34,10 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
   const [balance, setBalance] = useState<BalanceCheck | null>(null);
   const [balanceBusy, setBalanceBusy] = useState(false);
   const [balanceError, setBalanceError] = useState<string | null>(null);
+  /** メールの確定額とAsset Managerのカード引き落とし見込みの突き合わせ（#910） */
+  const [card, setCard] = useState<CardCheck | null>(null);
+  const [cardBusy, setCardBusy] = useState(false);
+  const [cardError, setCardError] = useState<string | null>(null);
   const flow = useFlowCards(id);
   const { replace } = flow;
   const controller = useRef<AbortController | null>(null);
@@ -47,14 +51,32 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
     [replace],
   );
 
+  const confirmCard = useCallback(async () => {
+    setCardBusy(true);
+    setCardError(null);
+    try {
+      const response = await fetch("/api/mail/flow/card-confirm", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id }) });
+      const data = (await response.json().catch(() => null)) as { card?: CardCheck; error?: string } | null;
+      if (!response.ok || !data?.card) setCardError(data?.error ?? `登録できませんでした（HTTP ${response.status}）。`);
+      else setCard(data.card);
+    } catch {
+      setCardError("登録できませんでした（通信できませんでした）。結果が分からないので、画面を開き直して確かめてください。");
+    } finally {
+      setCardBusy(false);
+    }
+  }, [id]);
+
   const recheck = useCallback(async (account?: string) => {
     setBalanceBusy(true);
     setBalanceError(null);
     try {
       const response = await fetch("/api/mail/flow/balance", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, account }) });
-      const data = (await response.json().catch(() => null)) as { balance?: BalanceCheck | null; error?: string } | null;
+      const data = (await response.json().catch(() => null)) as { balance?: BalanceCheck | null; card?: CardCheck | null; error?: string } | null;
       if (!response.ok || !data) setBalanceError(data?.error ?? `確認できませんでした（HTTP ${response.status}）。`);
-      else showBalance(data.balance ?? null);
+      else {
+        showBalance(data.balance ?? null);
+        setCard(data.card ?? null);
+      }
     } catch {
       setBalanceError("確認できませんでした（通信できませんでした）。");
     } finally {
@@ -72,12 +94,14 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
         setError(outcome.error);
         return;
       }
-      const { summary, suggest, withdrawal, balance: check } = outcome.value;
+      const { summary, suggest, withdrawal, balance: check, card: cardCheck } = outcome.value;
       setError(null);
       setResult({ summary, suggest, withdrawal });
       setAnimate(!outcome.value.cached);
       setRunId((n) => n + 1);
       showBalance(check);
+      setCard(cardCheck ?? null);
+      setCardError(null);
       // おすすめを先頭に並べる
       const sorted = [...suggest.suggestions].sort((a, b) => Number(b.kind === suggest.recommended) - Number(a.kind === suggest.recommended));
       const next: Record<string, FlowRow> = {};
@@ -186,6 +210,10 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
               error={balanceError}
               onRecheck={() => void recheck()}
               onPick={(account) => void recheck(account)}
+              card={card}
+              cardBusy={cardBusy}
+              cardError={cardError}
+              onConfirmCard={() => void confirmCard()}
               task={
                 flow.rows["w-0"] ? (
                   <FlowRowButton
@@ -276,14 +304,14 @@ function SummaryReveal({ summary, points, animate, resetKey }: { summary: string
   );
 }
 
-type AnalyzeResponse = { ok: true; value: Analysis & { balance: BalanceCheck | null; cached: boolean } } | { ok: false; error: string };
+type AnalyzeResponse = { ok: true; value: Analysis & { balance: BalanceCheck | null; card: CardCheck | null; cached: boolean } } | { ok: false; error: string };
 
 /** 分析を取りに行く。別のメールを分析中（429）なら待って取り直す。中断されたら「中断」として返す（画面には出さない）。 */
 async function requestAnalysis(id: string, refresh: boolean, signal: AbortSignal, onWaiting: (reason: "busy" | "network") => void): Promise<AnalyzeResponse> {
   const aborted: AnalyzeResponse = { ok: false, error: "中断しました。" };
   for (let attempt = 0; ; attempt++) {
     let status: number | "network";
-    let data: (Analysis & { balance?: BalanceCheck | null; cached?: boolean; error?: string }) | null = null;
+    let data: (Analysis & { balance?: BalanceCheck | null; card?: CardCheck | null; cached?: boolean; error?: string }) | null = null;
     try {
       const response = await fetch("/api/mail/flow/analyze", {
         method: "POST",
@@ -293,8 +321,8 @@ async function requestAnalysis(id: string, refresh: boolean, signal: AbortSignal
         signal,
       });
       status = response.status;
-      data = (await response.json().catch(() => null)) as (Analysis & { balance?: BalanceCheck | null; cached?: boolean; error?: string }) | null;
-      if (response.ok && data?.summary && data.suggest) return { ok: true, value: { summary: data.summary, suggest: data.suggest, withdrawal: data.withdrawal ?? null, balance: data.balance ?? null, cached: data.cached === true } };
+      data = (await response.json().catch(() => null)) as (Analysis & { balance?: BalanceCheck | null; card?: CardCheck | null; cached?: boolean; error?: string }) | null;
+      if (response.ok && data?.summary && data.suggest) return { ok: true, value: { summary: data.summary, suggest: data.suggest, withdrawal: data.withdrawal ?? null, balance: data.balance ?? null, card: data.card ?? null, cached: data.cached === true } };
     } catch {
       // 別アプリへ移るなどで通信だけが途切れた。サーバーの分析は続いているので取り直す
       if (signal.aborted) return aborted;
@@ -316,7 +344,29 @@ const yen = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
 const stamp = (iso: string) => iso.slice(0, 16).replace("T", " ");
 
 /** 引き落とし前の残高確認（#842）。足りると言い切れないときは理由を出す。他の引き落とし・入金は含まない。 */
-function BalanceCard({ check, busy, error, onRecheck, onPick, task }: { check: BalanceCheck; busy: boolean; error: string | null; onRecheck: () => void; onPick: (account: string) => void; task: React.ReactNode }) {
+function BalanceCard({
+  check,
+  busy,
+  error,
+  onRecheck,
+  onPick,
+  task,
+  card,
+  cardBusy,
+  cardError,
+  onConfirmCard,
+}: {
+  check: BalanceCheck;
+  busy: boolean;
+  error: string | null;
+  onRecheck: () => void;
+  onPick: (account: string) => void;
+  task: React.ReactNode;
+  card: CardCheck | null;
+  cardBusy: boolean;
+  cardError: string | null;
+  onConfirmCard: () => void;
+}) {
   const [picking, setPicking] = useState(false);
   const badge =
     check.status === "enough"
@@ -350,6 +400,7 @@ function BalanceCard({ check, busy, error, onRecheck, onPick, task }: { check: B
         <p className="text-[0.6875rem] text-muted">残高は{stamp(check.asOf)}時点（Zaim連携）。この日までの他の引き落とし・入金は含みません。</p>
       )}
       <p className="text-[0.6875rem] text-muted">金額はメールに書かれた確定額です。Asset Managerの見込み額と違うときは、メールの額が正です。</p>
+      <CardMatch card={card} mailAmount={check.amount} busy={cardBusy} error={cardError} onConfirm={onConfirmCard} />
       {check.status === "unknown" && check.choices && (
         <>
           <div>
@@ -381,6 +432,43 @@ function BalanceCard({ check, busy, error, onRecheck, onPick, task }: { check: B
         </button>
       </div>
       {task}
+    </div>
+  );
+}
+
+/** Asset Managerのカード引き落とし見込みとの食い違い（#910）。押したときだけメールの額で上書きする（Asset Managerには見込みへ戻す操作がある）。 */
+function CardMatch({ card, mailAmount, busy, error, onConfirm }: { card: CardCheck | null; mailAmount: number; busy: boolean; error: string | null; onConfirm: () => void }) {
+  if (!card) return null;
+  if (card.status === "unknown") return <p className="text-[0.6875rem] text-muted">{card.reason}</p>;
+  if (card.status === "match") return <p className="text-[0.6875rem] text-muted">Asset Managerの見込み（{card.cardName}・{card.paymentDate}）はメールの額と一致しています。</p>;
+  if (card.status === "confirmed") {
+    return (
+      <p className="text-[0.6875rem] text-emerald-700 dark:text-emerald-300">
+        ✓ Asset Managerの見込み（{card.cardName}・{card.paymentDate}）をメールの額{yen(card.amount)}で登録済みです。
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-1.5 rounded-[10px] border border-amber-500/40 bg-amber-500/10 px-3 py-2" aria-label="カード引き落とし見込みとの食い違い">
+      <p className="font-bold text-amber-700 dark:text-amber-300">Asset Managerの見込みと額が違います</p>
+      <p className="tabular-nums">
+        {card.cardName}・{card.paymentDate}：見込み{yen(card.displayedAmount)}{card.source === "confirmed" ? "（別のメールの確定額）" : ""} → メール{yen(mailAmount)}
+      </p>
+      <div>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onConfirm}
+          className="rounded-[9px] bg-accent px-3 py-1.5 text-xs font-bold text-accent-foreground transition-opacity disabled:opacity-60"
+        >
+          {busy ? "登録しています…" : "メールの額で登録"}
+        </button>
+      </div>
+      {error && (
+        <p role="alert" className="text-danger">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

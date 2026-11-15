@@ -868,6 +868,13 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
   - 傾向の同一性は `notify`＋`text`（`ruleKey()`）。テストは `test/mail-learn.test.ts`
 - 帯は判定していない・不要と判定したメールにも出す（`mailTriageFor()`）
 
+### メールの自動アーカイブと購読解除の導線（#942）
+
+学習（#833）の第3の印「アーカイブする」。傾向は `notify: false` に `archive: true` を足した形（`LearnedRule.archive`。`ruleKey()` は `archive:<text>` で「知らせない」と別の傾向）、押した印は `MailFeedback.archive`。
+
+- **新着確認（`triage.ts`）は、判定が `needed: false` かつ `archive: true`（傾向に合う）で、傾向にアーカイブがあり、受信トレイにあるメールだけをアーカイブする**（`archiveJudged()`。AIDEは複数アカウントにまたがる操作を断るのでアカウントごと）。カード利用（#898）は対象外。失敗しても判定・通知は止めず再試行もしない。成功分は手動アーカイブと同じく要約・分析を消す
+- **「今後届かないように」は購読解除の意味**（Gmailのフィルタは作らない。AIDEに道具が無い）。`unsubscribe-core.ts` が本文HTML・テキストから `https` の配信停止リンクだけを探し、帯に「購読解除ページを開く」を出す。**Morrowは開くだけで自動では押さない**。AIDEのcontractにList-Unsubscribeヘッダーは無い
+
 ### メール一覧の要約（#851。#732の例外）
 
 受信トレイ表示の各行の下に、本文から作ったAI要約（最大2行）を出す。**メール由来の文面（要約1〜2文）を `MailListSummary` に持つ——「メール由来の文面をDBに残さない」（#732）の例外**。持つのは要約だけで、件名・差出人・本文は持たない（`list-summary.ts`・`list-summary-core.ts`・`test/mail-list-summary.test.ts`）。
@@ -915,6 +922,14 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 - 不足のときは「入金する」タスクの提案行を出す。登録は既存の確認シート→`/apply`（`aide_create_task`）で、押したときだけ
 - Push通知への組み込みは見送り（新着確認は件名・冒頭だけで額が取れない）
 - **口座名がメールに無い・合う口座が決められないときは、残高の一覧から口座を選んで再判定できる**（#909。`withPickedAccount()`・`POST /api/mail/flow/balance` の `account`。一覧にある名前だけ受け付け、選んだ口座は保存しない）。**金額はメールの確定額**と画面に明記する。Asset Managerのカード引き落とし見込みをMorrowから読む・メールの額で上書きする道具はAIDEに無いので、食い違いの検出・登録は別Issue
+
+### メールの確定額でカード引き落とし見込みを上書きする（#910）
+
+引き落とし前の残高確認のカードに、メールの額とAsset Managerのカード引き落とし見込みの食い違いを出し、「メールの額で登録」で上書きする（`withdrawal-core.ts` の `evaluateCardWithdrawal()`・`withdrawal.ts`・`POST /api/mail/flow/card-confirm`）。
+
+- **読みは `asset_manager_card_withdrawals`（分析・残高の取り直しのたびに引く）、書きは `asset_manager_confirm_card_withdrawal`**（許可リスト `CARD_WITHDRAWAL_WRITE_TOOLS`・`callCardWithdrawalWriteToolJson()`。メール用3本・Hermes用とは別の入口）。契約は `docs/external-tool-contracts.md`。**取り消し（見込みへ戻す）の道具はAIDEに無い**（Asset Managerのホームから戻す）
+- **同じ日の予定に、請求元・引き落とし口座の名前が合う1件だけを当てる**（決められなければ何も出さない。「カード」「銀行」は手掛かりにしない）。口は `{ id }` だけを受け取り、**額・日は分析の記憶、カードは見込みの読み直しでサーバーが決める**（画面の申告は受けない）。食い違いが無ければ書かない。冪等キーは `morrow-mail:<メールID>`
+- 見込み・確定額はDB・ログに残さない（#732）。取得できなかった回は `unknown`（一致と混ぜない）
 
 ### メール本文への指示（#784）
 
