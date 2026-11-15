@@ -80,6 +80,8 @@ export function ChatView({ userId, initialPending }: Props) {
   const [resumed, setResumed] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const turnRef = useRef<string | null>(null);
+  // 前回の会話の復元の中断口。復元中に「新しい会話」を選んだとき、遅れて届いた旧履歴で画面を上書きさせない（#936）
+  const restoreAbortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const busy = sending || chat.running;
@@ -122,6 +124,7 @@ export function ChatView({ userId, initialPending }: Props) {
     const storage = browserStorage();
     const remembered = loadSessionId(storage, userId);
     const controller = new AbortController();
+    restoreAbortRef.current = controller;
     void (async () => {
       if (!remembered) {
         setRestoring(false);
@@ -152,7 +155,10 @@ export function ChatView({ userId, initialPending }: Props) {
         if (!controller.signal.aborted) setRestoring(false);
       }
     })();
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      if (restoreAbortRef.current === controller) restoreAbortRef.current = null;
+    };
   }, [userId]);
 
   useEffect(() => {
@@ -247,6 +253,10 @@ export function ChatView({ userId, initialPending }: Props) {
 
   const newConversation = useCallback(() => {
     abortRef.current?.abort();
+    // 復元中なら取り消す（中断された復元は結果を反映しないので、読み込み中の表示もここで閉じる）
+    restoreAbortRef.current?.abort();
+    restoreAbortRef.current = null;
+    setRestoring(false);
     clearSessionId(browserStorage());
     setResumed(false);
     setChat(initialChatState);
