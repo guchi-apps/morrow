@@ -51,6 +51,9 @@ export function summarizeSuggestion(suggestion: Suggestion): string {
       const time = f.startTime ? `${f.startTime}${f.endTime ? `–${f.endTime}` : ""}` : null;
       return join([f.title, [md(f.date), time].filter(Boolean).join(" ") || null]);
     }
+    // 追跡は配送会社のページを開くだけで控えを残さない（#972）。ここへは来ない
+    case "tracking":
+      return "";
   }
 }
 
