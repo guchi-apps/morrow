@@ -24,6 +24,12 @@ type Props = {
   inTrash: boolean;
   showAccount: boolean;
   nowMs: number;
+  /** 上に固定する帯（#997）のクラス。検索欄はこの帯の末尾に入る。 */
+  stickyClassName: string;
+  /** 固定する帯の中、検索欄より上に置くもの（表示切替など）。 */
+  top: ReactNode;
+  /** 固定する帯のすぐ下に置くもの（「いま確認」の結果など）。 */
+  below?: ReactNode;
   /** 検索していないときの一覧（サーバーで描いたもの）。 */
   children: ReactNode;
 };
@@ -32,7 +38,7 @@ type Props = {
  * メールの検索欄と、検索結果への一覧の差し替え（#998）。Enterで画面全体を読み込み直さず、この下の一覧だけを結果に変える。
  * URLの `?q=` は書き換えるだけ（遷移しない）。×・空で送ると、サーバーで描いた元の一覧へすぐ戻る。
  */
-export function MailSearch({ initialQuery, view, account, labels, supportsLabels, inTrash, showAccount, nowMs, children }: Props) {
+export function MailSearch({ initialQuery, view, account, labels, supportsLabels, inTrash, showAccount, nowMs, stickyClassName, top, below, children }: Props) {
   const [text, setText] = useState(initialQuery);
   const [active, setActive] = useState(initialQuery);
   // 同じ語で送り直したときも結果を取り直す（覚えた結果があればすぐ返る）
@@ -67,47 +73,51 @@ export function MailSearch({ initialQuery, view, account, labels, supportsLabels
 
   return (
     <>
-      <form
-        role="search"
-        // 読み込み途中（ハイドレーション前）に送られたときは、従来どおり `/mail?q=` へ遷移する
-        action="/mail"
-        method="get"
-        onSubmit={(event) => {
-          event.preventDefault();
-          apply(text);
-          setNonce((n) => n + 1);
-          (event.currentTarget.elements.namedItem("q") as HTMLInputElement | null)?.blur();
-        }}
-        className="flex min-w-0 items-center gap-1.5 rounded-[9px] border border-border bg-surface px-2.5 focus-within:border-accent"
-      >
-        <Search className="size-3.5 shrink-0 text-muted" aria-hidden="true" />
-        {view !== "inbox" && <input type="hidden" name="view" value={view} />}
-        {account && <input type="hidden" name="acct" value={account} />}
-        <input
-          type="search"
-          name="q"
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          maxLength={TEXT_LIMIT}
-          enterKeyHint="search"
-          placeholder="メールを検索（AIが似たメールも探します）"
-          aria-label="メールを検索"
-          className="min-w-0 flex-1 bg-transparent py-1.5 text-xs outline-none [&::-webkit-search-cancel-button]:hidden"
-        />
-        {(text || active) && (
-          <button
-            type="button"
-            aria-label="検索をやめる"
-            onClick={() => {
-              setText("");
-              apply("");
-            }}
-            className="grid size-6 shrink-0 place-items-center rounded-md text-muted hover:bg-rail-active"
-          >
-            <X className="size-3.5" aria-hidden="true" />
-          </button>
-        )}
-      </form>
+      <div className={stickyClassName}>
+        {top}
+        <form
+          role="search"
+          // 読み込み途中（ハイドレーション前）に送られたときは、従来どおり `/mail?q=` へ遷移する
+          action="/mail"
+          method="get"
+          onSubmit={(event) => {
+            event.preventDefault();
+            apply(text);
+            setNonce((n) => n + 1);
+            (event.currentTarget.elements.namedItem("q") as HTMLInputElement | null)?.blur();
+          }}
+          className="flex min-w-0 items-center gap-1.5 rounded-[9px] border border-border bg-surface px-2.5 focus-within:border-accent"
+        >
+          <Search className="size-3.5 shrink-0 text-muted" aria-hidden="true" />
+          {view !== "inbox" && <input type="hidden" name="view" value={view} />}
+          {account && <input type="hidden" name="acct" value={account} />}
+          <input
+            type="search"
+            name="q"
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            maxLength={TEXT_LIMIT}
+            enterKeyHint="search"
+            placeholder="メールを検索（AIが似たメールも探します）"
+            aria-label="メールを検索"
+            className="min-w-0 flex-1 bg-transparent py-1.5 text-xs outline-none [&::-webkit-search-cancel-button]:hidden"
+          />
+          {(text || active) && (
+            <button
+              type="button"
+              aria-label="検索をやめる"
+              onClick={() => {
+                setText("");
+                apply("");
+              }}
+              className="grid size-6 shrink-0 place-items-center rounded-md text-muted hover:bg-rail-active"
+            >
+              <X className="size-3.5" aria-hidden="true" />
+            </button>
+          )}
+        </form>
+      </div>
+      {below}
 
       {active ? (
         <MailSearchResults
