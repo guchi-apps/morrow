@@ -8,8 +8,11 @@ describe("前回の会話の取り直しの再試行（#976）", () => {
     assert.equal(shouldRetryRestore(null), true);
     assert.equal(shouldRetryRestore("unreachable"), true);
     assert.equal(shouldRetryRestore("hermes_down"), true);
-    assert.equal(shouldRetryRestore("no_session"), false);
-    assert.equal(shouldRetryRestore("invalid"), false);
+    assert.equal(shouldRetryRestore("server_error"), true);
+    for (const kind of ["no_session", "invalid", "rejected", "not_configured", "failed", "bad_response"]) {
+      assert.equal(shouldRetryRestore(kind), false, kind);
+    }
+    assert.equal(shouldRetryRestore(undefined), false);
   });
 
   it("待ち時間は順に伸び、尽きたら null", () => {

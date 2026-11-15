@@ -181,7 +181,7 @@ export function ChatView({ userId, initialPending }: Props) {
               setResumed(messages.some((m) => m.text.trim() !== ""));
               return;
             }
-            kind = data?.kind ?? "failed";
+            kind = data?.kind ?? (response.status >= 500 ? "server_error" : "failed");
             if (kind === "no_session") {
               clearSessionId(storage);
               return;
@@ -194,6 +194,8 @@ export function ChatView({ userId, initialPending }: Props) {
             setRestoreFailed(true);
             return;
           }
+          // 再試行を待つあいだは送信を止めない。新しい会話を始めたら、遅れて届いた履歴は上書きガードで捨てられる
+          setRestoring(false);
           await sleep(delay, controller.signal);
           if (controller.signal.aborted) return;
         }
