@@ -81,7 +81,7 @@ export function useFlowCards(mailId: string) {
         const n = value.trim() === "" ? null : Number(value.replace(/[,，]/g, ""));
         fields[key] = n !== null && Number.isFinite(n) ? (card.kind === "subscription" && key === "amount" ? n : Math.round(n)) : null;
       } else {
-        fields[key] = value === "" && key !== "title" && key !== "name" && key !== "memo" ? null : value;
+        fields[key] = value === "" && key !== "title" && key !== "name" && key !== "memo" && key !== "number" ? null : value;
       }
       return { ...current, [rowId]: { ...row, card: { ...card, fields } as Suggestion } };
     });

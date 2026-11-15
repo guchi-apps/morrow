@@ -6,6 +6,7 @@ import type { ReceiptState } from "@/lib/mail/flow-record-core";
 import type { Suggestion } from "@/lib/mail/suggest-core";
 import { registeredSummary } from "@/lib/mail/subscription-match-view";
 import type { SubscriptionMatch } from "@/lib/mail/subscription-match-core";
+import { CARRIER_LABELS } from "@/lib/mail/tracking-link";
 import { cn } from "@/lib/utils";
 
 /** 提案の1行（#766）。押すとハーフモーダルが開く。分析と指示の返事（#784）の両方で使う。型だけをimportする。 */
@@ -71,6 +72,8 @@ function cardPreview(card: Suggestion): string {
         ? [card.fields.name, card.fields.amount !== null ? `${card.fields.amount.toLocaleString("ja-JP")}${card.fields.currency === "USD" ? "ドル" : "円"}` : null, card.fields.cycle === "YEARLY" ? "毎年" : "毎月"]
         : card.kind === "task"
           ? [card.fields.title, card.fields.due ? `期限 ${day(card.fields.due)}${card.fields.dueTime ? ` ${card.fields.dueTime}` : ""}` : null]
-          : [card.fields.title, day(card.fields.date), card.fields.startTime ? `${card.fields.startTime}〜${card.fields.endTime ?? ""}` : null];
+          : card.kind === "tracking"
+            ? [card.fields.carrier ? CARRIER_LABELS[card.fields.carrier] : null, card.fields.number]
+            : [card.fields.title, day(card.fields.date), card.fields.startTime ? `${card.fields.startTime}〜${card.fields.endTime ?? ""}` : null];
   return parts.filter((part): part is string => Boolean(part)).join("・");
 }
