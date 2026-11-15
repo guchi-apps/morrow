@@ -241,7 +241,7 @@ export function FlowSheet({ card, recommended, outcome, match, calendars, runnin
                   <input type="time" className={input} value={String(f.endTime ?? "")} onChange={(e) => onEdit("event", "endTime", e.target.value)} />
                 </Field>
                 <Field label="場所（任意）" className="col-span-2">
-                  <input className={input} value={String(f.location ?? "")} onChange={(e) => onEdit("event", "location", e.target.value)} />
+                  <input className={input} maxLength={100} value={String(f.location ?? "")} onChange={(e) => onEdit("event", "location", e.target.value)} />
                 </Field>
                 <Field label="保存先カレンダー" className="col-span-2">
                   <select className={input} value={String(f.calendarId ?? "")} onChange={(e) => onEdit("event", "calendarId", e.target.value)}>
