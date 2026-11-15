@@ -12,11 +12,14 @@ import { nextRestoreDelay, shouldRetryRestore } from "@/lib/hermes/restore-retry
 import {
   browserStorage,
   clearChatSnapshot,
+  clearActiveTurn,
   clearSessionId,
   loadChatSnapshot,
   loadSessionId,
+  saveActiveTurn,
   saveChatSnapshot,
   saveSessionId,
+  peekActiveTurn,
 } from "@/lib/hermes/session-memory";
 import { readSseEvents } from "@/lib/hermes/sse";
 import { mentionsWeather } from "@/lib/weather/chat-context-core";
@@ -94,6 +97,26 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+/** 画面が表に出ていて回線もあるまで待つ（裏にいる間のiOSは通信を切るので、戻るのを待ってから続きを取る。#1000）。 */
+function whenReady(signal: AbortSignal): Promise<void> {
+  const ready = () => document.visibilityState !== "hidden" && navigator.onLine !== false;
+  if (ready()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      if (!ready() && !signal.aborted) return;
+      document.removeEventListener("visibilitychange", done);
+      window.removeEventListener("online", done);
+      resolve();
+    };
+    document.addEventListener("visibilitychange", done);
+    window.addEventListener("online", done);
+    signal.addEventListener("abort", done, { once: true });
+  });
+}
+
+/** 続きの受け直しの間隔（ミリ秒）。尽きたら諦める。 */
+const RESUME_DELAYS = [500, 1500, 3000, 6000, 10_000];
+
 /** 画面遷移で戻ったときの控え（#976）。端末に覚えたセッションと同じ会話のときだけ使う。 */
 function snapshotFor(userId: string): ChatState | null {
   const snapshot = loadChatSnapshot(userId);
@@ -103,7 +126,12 @@ function snapshotFor(userId: string): ChatState | null {
 
 export function ChatView({ userId, initialPending }: Props) {
   // 控えがあれば取り直さず即表示する。画面を離れるとこのコンポーネントは捨てられるため、戻るたびの履歴取得を避ける
-  const [snapshot] = useState(() => snapshotFor(userId));
+  const [{ snapshot, resumeFrom }] = useState(() => {
+    const saved = snapshotFor(userId);
+    // 実行中のまま離れた会話は、続きを受け直せるときだけ実行中として開く（#1000）。受け直せなければ終わった扱い
+    const active = saved?.running ? peekActiveTurn(userId, saved) : null;
+    return { snapshot: saved && saved.running && !active ? endTurn(saved) : saved, resumeFrom: active };
+  });
   const [chat, setChat] = useState<ChatState>(snapshot ?? initialChatState);
   const chatRef = useRef(chat);
   const [input, setInput] = useState("");
@@ -115,6 +143,9 @@ export function ChatView({ userId, initialPending }: Props) {
   const [resumed, setResumed] = useState(snapshot !== null);
   const abortRef = useRef<AbortController | null>(null);
   const turnRef = useRef<string | null>(null);
+  // サーバーから受けたイベントの数と、ターンが終わったか（#1000。切れたあと続きから受け直す位置）
+  const receivedRef = useRef(0);
+  const endedRef = useRef(false);
   // 前回の会話の復元の中断口。復元中に「新しい会話」を選んだとき、遅れて届いた旧履歴で画面を上書きさせない（#936）
   const restoreAbortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -247,7 +278,17 @@ export function ChatView({ userId, initialPending }: Props) {
 
   // 画面を離れるとき、会話をメモリへ控える（#976。保存はしない）
   useEffect(() => {
-    return () => saveChatSnapshot(userId, chatRef.current);
+    return () => {
+      const state = chatRef.current;
+      // 実行中のターンはサーバーが続けている。戻ったら続きから受け直せるよう、位置を覚えておく（#1000）
+      if (state.running && state.turnId && !endedRef.current) {
+        saveActiveTurn(userId, state.turnId, receivedRef.current);
+        saveChatSnapshot(userId, state, true);
+      } else {
+        clearActiveTurn();
+        saveChatSnapshot(userId, state);
+      }
+    };
   }, [userId]);
 
   useEffect(() => {
@@ -257,6 +298,75 @@ export function ChatView({ userId, initialPending }: Props) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [chat.items, chat.running]);
+
+  // ターンのイベントを画面へ畳み込む。受けた数を数え、終わりのイベントを見たら印を立てる（#1000）
+  const consume = useCallback(async (body: ReadableStream<Uint8Array>) => {
+    for await (const event of readSseEvents<RelayEvent>(body, RELAY_EVENT_TYPES)) {
+      receivedRef.current += 1;
+      if (event.type === "turn") turnRef.current = event.data.turnId;
+      if (event.type === "message.complete" || event.type === "error") endedRef.current = true;
+      setChat((s) => {
+        const next = applyEvent(s, event);
+        chatRef.current = next;
+        return next;
+      });
+    }
+  }, []);
+
+  // 通信が切れたターンの続きを、サーバーが溜めた位置から受け直す（#1000）。終わりまで受けられたらtrue。
+  const resume = useCallback(
+    async (controller: AbortController): Promise<boolean> => {
+      for (let attempt = 0; attempt <= RESUME_DELAYS.length; attempt += 1) {
+        await whenReady(controller.signal);
+        if (controller.signal.aborted) return false;
+        const turnId = turnRef.current;
+        if (!turnId) return false;
+        try {
+          const response = await fetch(`/api/hermes/turns/${encodeURIComponent(turnId)}/events?after=${receivedRef.current}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          // 溜めが無い（再起動・期限切れ）。続きは受けられない
+          if (response.status === 404 || response.status === 410) return false;
+          if (response.ok && response.body) {
+            await consume(response.body);
+            if (endedRef.current) return true;
+          }
+        } catch {
+          if (controller.signal.aborted) return false;
+        }
+        const delay = RESUME_DELAYS[attempt];
+        if (delay === undefined) return false;
+        await sleep(delay, controller.signal);
+      }
+      return false;
+    },
+    [consume],
+  );
+
+  // 画面を離れている間も実行が続いていたターン（#1000）は、戻ったら続きから受け直す
+  useEffect(() => {
+    if (!resumeFrom) return;
+    clearActiveTurn();
+    const active = resumeFrom;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    receivedRef.current = active.received;
+    turnRef.current = active.turnId;
+    endedRef.current = false;
+    void (async () => {
+      const finished = await resume(controller);
+      if (controller.signal.aborted) return;
+      if (!finished) {
+        setChat((s) =>
+          addNotice(s, "error", "続きを受けられませんでした。途中まで実行された可能性があるので、結果を確認してから送り直してください。"),
+        );
+      }
+      setChat((s) => (s.running ? endTurn(s) : s));
+      if (abortRef.current === controller) abortRef.current = null;
+    })();
+    return () => controller.abort();
+  }, [resumeFrom, resume]);
 
   const send = useCallback(async () => {
     const text = input.trim();
@@ -292,9 +402,25 @@ export function ChatView({ userId, initialPending }: Props) {
       }
       started = true;
       setConnection("ok");
+      receivedRef.current = 0;
+      endedRef.current = false;
+      turnRef.current = null;
       setChat((s) => startTurn(s, text));
-      for await (const event of readSseEvents<RelayEvent>(response.body, RELAY_EVENT_TYPES)) {
-        setChat((s) => applyEvent(s, event));
+      try {
+        await consume(response.body);
+      } catch {
+        // 通信が切れた。下で続きを受け直す
+      }
+      // iOSで別アプリへ移ると通信が切られるが、サーバーはターンを続けている（#1000）。戻ったら続きから受け直す
+      if (!endedRef.current && !controller.signal.aborted && !(await resume(controller)) && !controller.signal.aborted) {
+        setChat((s) =>
+          addNotice(
+            s,
+            "error",
+            "アプリを離れるなどで接続が切れ、続きを受けられませんでした。途中まで実行された可能性があるので、結果を確認してから送り直してください。",
+          ),
+        );
+        void fetchStatus().then(setConnection);
       }
     } catch {
       if (!controller.signal.aborted) {
@@ -320,7 +446,7 @@ export function ChatView({ userId, initialPending }: Props) {
       setSending(false);
       if (abortRef.current === controller) abortRef.current = null;
     }
-  }, [input, sendBlocked, chat.sessionId]);
+  }, [input, sendBlocked, chat.sessionId, consume, resume]);
 
   const stop = useCallback(async () => {
     const controller = abortRef.current;
