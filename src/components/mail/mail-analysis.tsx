@@ -208,7 +208,7 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
               check={balance}
               busy={balanceBusy}
               error={balanceError}
-              onRecheck={() => void recheck()}
+              onRecheck={(account) => void recheck(account)}
               onPick={(account) => void recheck(account)}
               card={card}
               cardBusy={cardBusy}
@@ -343,7 +343,11 @@ async function requestAnalysis(id: string, refresh: boolean, signal: AbortSignal
 const yen = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
 const stamp = (iso: string) => iso.slice(0, 16).replace("T", " ");
 
-/** 引き落とし前の残高確認（#842）。足りると言い切れないときは理由を出す。他の引き落とし・入金は含まない。 */
+/**
+ * 引き落としの確認（#842・#910）。①Asset Managerのカード引き落とし見込みへメールの確定額を反映する欄を先に、
+ * ②引き落とし前の残高を後に、見出しで分けて出す（#963。口座を選んでも何が起きるか分からなかったため）。
+ * 選んだ口座は②の判定にだけ使い、①（カードの特定・反映）には使わない。「確認し直す」は①②を両方取り直し、選んだ口座も引き継ぐ。
+ */
 function BalanceCard({
   check,
   busy,
@@ -359,7 +363,7 @@ function BalanceCard({
   check: BalanceCheck;
   busy: boolean;
   error: string | null;
-  onRecheck: () => void;
+  onRecheck: (account?: string) => void;
   onPick: (account: string) => void;
   task: React.ReactNode;
   card: CardCheck | null;
@@ -368,54 +372,88 @@ function BalanceCard({
   onConfirmCard: () => void;
 }) {
   const [picking, setPicking] = useState(false);
+  const [picked, setPicked] = useState<string | null>(null);
   const badge =
     check.status === "enough"
       ? { text: "足りています", cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" }
       : check.status === "short"
         ? { text: `${yen(check.shortBy)} 足りません`, cls: "bg-danger-surface text-danger" }
         : { text: "確認できません", cls: "bg-amber-500/15 text-amber-700 dark:text-amber-300" };
+  const pickedNow = picked !== null && check.account === picked;
   return (
-    <div className="flex flex-col gap-1.5 border-t border-border pt-2" aria-label="引き落とし前の残高確認">
-      <p className="flex flex-wrap items-center gap-2">
-        <span className="text-[0.6875rem] text-muted">🏦 引き落とし前の残高確認</span>
-        <span className={`rounded-full px-2.5 py-0.5 text-[0.6875rem] font-bold ${badge.cls}`}>{badge.text}</span>
-      </p>
+    <div className="flex flex-col gap-2 border-t border-border pt-2" aria-label="引き落としの確認">
+      <p className="text-[0.6875rem] text-muted">🏦 引き落とし（メールの確定額）</p>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 tabular-nums">
-        <dt className="text-muted">引き落とし額（メール）</dt>
+        <dt className="text-muted">引き落とし額</dt>
         <dd className="text-right">{yen(check.amount)}{check.payee ? `（${check.payee}）` : ""}</dd>
         <dt className="text-muted">引き落とし日</dt>
         <dd className="text-right">{check.date ?? "メールに記載なし"}</dd>
-        {check.status !== "unknown" && (
-          <>
-            <dt className="text-muted">{check.account}の残高</dt>
-            <dd className="text-right">{yen(check.balance)}</dd>
-            <dt className="text-muted">引き落とし後の見込み</dt>
-            <dd className={`text-right font-bold ${check.status === "short" ? "text-danger" : ""}`}>{yen(check.after)}</dd>
-          </>
-        )}
       </dl>
-      {check.status === "unknown" ? (
-        <p className="text-muted">{check.reason}</p>
-      ) : (
-        <p className="text-[0.6875rem] text-muted">残高は{stamp(check.asOf)}時点（Zaim連携）。この日までの他の引き落とし・入金は含みません。</p>
-      )}
-      <p className="text-[0.6875rem] text-muted">金額はメールに書かれた確定額です。Asset Managerの見込み額と違うときは、メールの額が正です。</p>
-      <CardMatch card={card} mailAmount={check.amount} busy={cardBusy} error={cardError} onConfirm={onConfirmCard} />
-      {check.status === "unknown" && check.choices && (
-        <>
+
+      <section className="flex flex-col gap-1.5 rounded-[10px] border border-border px-3 py-2" aria-label="Asset Managerの引き落とし見込み">
+        <h3 className="text-xs font-bold">① Asset Managerの引き落とし見込みへ反映</h3>
+        <p className="text-[0.6875rem] text-muted">メールの額は確定額です。見込みと違うときは「メールの額で登録」でAsset Managerの見込みを置き換えます。</p>
+        <CardMatch card={card} mailAmount={check.amount} busy={cardBusy} error={cardError} onConfirm={onConfirmCard} />
+        {card?.status === "unknown" && (
           <div>
             <button
               type="button"
               disabled={busy}
-              onClick={() => setPicking(true)}
-              className="rounded-[9px] bg-accent px-3 py-1.5 text-xs font-bold text-accent-foreground transition-opacity disabled:opacity-60"
+              onClick={() => onRecheck(picked ?? undefined)}
+              className="rounded-[9px] border border-border bg-background px-2.5 py-1 text-[0.6875rem] font-bold transition-colors hover:bg-rail-active disabled:opacity-60"
             >
-              🏦 口座を選ぶ…
+              {busy ? "取得しています…" : "↻ 見込みを取得し直す"}
             </button>
           </div>
-          <AccountPickerSheet open={picking} choices={check.choices} busy={busy} onPick={onPick} onClose={() => setPicking(false)} />
-        </>
-      )}
+        )}
+      </section>
+
+      <section className="flex flex-col gap-1.5 rounded-[10px] border border-border px-3 py-2" aria-label="引き落とし前の残高確認">
+        <h3 className="flex flex-wrap items-center gap-2 text-xs font-bold">
+          ② 引き落とし前の残高
+          <span className={`rounded-full px-2.5 py-0.5 text-[0.6875rem] font-bold ${badge.cls}`}>{badge.text}</span>
+        </h3>
+        {pickedNow && <p className="text-[0.6875rem]">選んだ口座「{picked}」で判定しました（残高の判定にだけ使います）。</p>}
+        {check.status !== "unknown" && (
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 tabular-nums">
+            <dt className="text-muted">{check.account}の残高</dt>
+            <dd className="text-right">{yen(check.balance)}</dd>
+            <dt className="text-muted">引き落とし後の見込み</dt>
+            <dd className={`text-right font-bold ${check.status === "short" ? "text-danger" : ""}`}>{yen(check.after)}</dd>
+          </dl>
+        )}
+        {check.status === "unknown" ? (
+          <p className="text-muted">{check.reason}</p>
+        ) : (
+          <p className="text-[0.6875rem] text-muted">残高は{stamp(check.asOf)}時点（Zaim連携）。この日までの他の引き落とし・入金は含みません。</p>
+        )}
+        {check.status === "unknown" && check.choices && (
+          <>
+            <div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setPicking(true)}
+                className="rounded-[9px] bg-accent px-3 py-1.5 text-xs font-bold text-accent-foreground transition-opacity disabled:opacity-60"
+              >
+                {pickedNow ? "🏦 別の口座を選ぶ…" : "🏦 口座を選ぶ…"}
+              </button>
+            </div>
+            <AccountPickerSheet
+              open={picking}
+              choices={check.choices}
+              busy={busy}
+              onPick={(account) => {
+                setPicked(account);
+                onPick(account);
+              }}
+              onClose={() => setPicking(false)}
+            />
+          </>
+        )}
+        {task}
+      </section>
+
       {error && (
         <p role="alert" className="text-danger">
           {error}
@@ -425,21 +463,21 @@ function BalanceCard({
         <button
           type="button"
           disabled={busy}
-          onClick={onRecheck}
+          onClick={() => onRecheck(picked ?? undefined)}
           className="rounded-[9px] border border-border bg-background px-2.5 py-1 text-[0.6875rem] font-bold transition-colors hover:bg-rail-active disabled:opacity-60"
         >
-          {busy ? "確認しています…" : "↻ 残高を確認し直す"}
+          {busy ? "確認しています…" : "↻ 確認し直す"}
         </button>
       </div>
-      {task}
     </div>
   );
 }
 
 /** Asset Managerのカード引き落とし見込みとの食い違い（#910）。押したときだけメールの額で上書きする（Asset Managerには見込みへ戻す操作がある）。 */
 function CardMatch({ card, mailAmount, busy, error, onConfirm }: { card: CardCheck | null; mailAmount: number; busy: boolean; error: string | null; onConfirm: () => void }) {
-  if (!card) return null;
-  if (card.status === "unknown") return <p className="text-[0.6875rem] text-muted">{card.reason}</p>;
+  if (!card) return <p className="text-[0.6875rem] text-muted">メールに引き落とし日が無いため、見込みと突き合わせられません。</p>;
+  if (card.status === "unknown") return <p className="text-danger">{card.reason}</p>;
+  if (card.status === "none") return <p className="text-[0.6875rem] text-muted">{card.reason}</p>;
   if (card.status === "match") return <p className="text-[0.6875rem] text-muted">Asset Managerの見込み（{card.cardName}・{card.paymentDate}）はメールの額と一致しています。</p>;
   if (card.status === "confirmed") {
     return (

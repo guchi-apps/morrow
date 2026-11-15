@@ -33,7 +33,7 @@ export function AccountPickerSheet({ open, choices, busy, onPick, onClose }: { o
               ✕
             </button>
           </div>
-          <p className="text-[0.6875rem] text-muted">選ぶと閉じて、その口座の残高で確認します。</p>
+          <p className="text-[0.6875rem] text-muted">選ぶと閉じて、その口座の残高で引き落とし後に足りるかを確認します。残高の判定にだけ使い、Asset Managerの見込みへの反映（①）には影響しません。</p>
           <ul>
             {choices.map((name) => (
               <li key={name} className="border-b border-border last:border-b-0">
