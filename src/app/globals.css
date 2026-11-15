@@ -173,41 +173,6 @@
   padding-bottom: 0.625rem;
 }
 
-/* メール本文の操作バー（#970。`MailDetailActions`）。スマホは下部ナビ（高さ54px＋下の隙間10px）の真上、
-   lg以上は左の帯（276px）を除いた領域の下端中央。キーボード表示中はナビが消えるので下端へ寄せる。
-   バーの高さ・位置を変えたら `.mobile-tab-pad` の余白と揃える。 */
-.mail-action-bar {
-  inset-inline: 0.875rem;
-  bottom: calc(5rem + var(--app-bottom-inset));
-}
-
-@media (min-width: 1024px) {
-  .mail-action-bar {
-    left: 276px;
-    right: 0;
-    bottom: calc(1rem + var(--app-bottom-inset));
-  }
-}
-
-:root[data-keyboard="open"] .mail-action-bar {
-  bottom: 0.625rem;
-}
-
-/* 本文の下端をバーのぶん空ける（46px＋隙間）。スマホはタブバーの余白に足す */
-.mail-action-pad {
-  padding-bottom: calc(4.5rem + 3.5rem + var(--app-bottom-inset));
-}
-
-@media (min-width: 1024px) {
-  .mail-action-pad {
-    padding-bottom: calc(4.5rem + var(--app-bottom-inset));
-  }
-}
-
-:root[data-keyboard="open"] .mail-action-pad {
-  padding-bottom: 4rem;
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
