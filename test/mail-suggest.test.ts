@@ -195,6 +195,16 @@ describe("toolCallFor", () => {
     assert.equal(toolCallFor(normalizeSuggestion("event", { title: "t" })!, mail, "u1").ok, false);
   });
 
+  it("予定の場所は正規化されて aide_create_event の location に載り、空なら載せない（#949）", () => {
+    const withPlace = toolCallFor(normalizeSuggestion("event", { title: "オイル交換", date: "2026-11-15", startTime: "17:45", location: "オートバックス高槻店" })!, mail, "u1");
+    assert.ok(withPlace.ok);
+    assert.equal(withPlace.args.location, "オートバックス高槻店");
+    assert.equal(withPlace.args.startTime, "17:45");
+    const without = toolCallFor(normalizeSuggestion("event", { title: "オイル交換", date: "2026-11-15", location: "  " })!, mail, "u1");
+    assert.ok(without.ok);
+    assert.equal("location" in without.args, false);
+  });
+
   it("品名も品目も無ければ支払先を品名にする（Asset Managerは品目が無いと name 必須）", () => {
     const call = toolCallFor(normalizeSuggestion("payment", { place: "店", date: "2026-11-05" })!, mail, "u1");
     assert.ok(call.ok);
