@@ -70,7 +70,7 @@ export async function updateLearnedRules<T>(
   throw new Error("傾向の一覧の更新が他の書き込みと重なり続けた");
 }
 
-export async function learnFromMail(user: MailUser, messageId: string, notify: boolean): Promise<LearnOutcome> {
+export async function learnFromMail(user: MailUser, messageId: string, notify: boolean, archive = false): Promise<LearnOutcome> {
   const release = acquireMailCodex(user.id, { kind: "learn", key: messageId });
   if (!release) {
     const busyWith = currentMailCodex(user.id)?.kind;
@@ -84,7 +84,7 @@ export async function learnFromMail(user: MailUser, messageId: string, notify: b
     return { ok: false, kind: "busy", message };
   }
   try {
-    return await run(user, messageId, notify);
+    return await run(user, messageId, notify, archive);
   } catch (error) {
     console.error("[aide-bot] メール通知の学習に失敗した", error instanceof Error ? error.message : error);
     return { ok: false, kind: "failed", message: "学習できませんでした。もう一度試してください。" };
@@ -93,7 +93,7 @@ export async function learnFromMail(user: MailUser, messageId: string, notify: b
   }
 }
 
-async function run(user: MailUser, messageId: string, notify: boolean): Promise<LearnOutcome> {
+async function run(user: MailUser, messageId: string, notify: boolean, archive: boolean): Promise<LearnOutcome> {
   const mail = await getMail(user, messageId);
   if (!mail.ok) return mail;
   const { message } = mail.value;
@@ -117,6 +117,7 @@ async function run(user: MailUser, messageId: string, notify: boolean): Promise<
       subject: message.subject,
       snippet: message.snippet || plainBody(message.text, message.html).slice(0, SNIPPET_LIMIT),
       notify,
+      archive: !notify && archive,
       judged: triage ? (triage.needed ? "notified" : "skipped") : "none",
     }),
     timeoutMs: LEARN_TIMEOUT_MS,
@@ -141,8 +142,8 @@ async function run(user: MailUser, messageId: string, notify: boolean): Promise<
   }
   await db.mailFeedback.upsert({
     where: { userId_messageId: { userId: user.id, messageId } },
-    create: { userId: user.id, messageId, notify },
-    update: { notify },
+    create: { userId: user.id, messageId, notify, archive: !notify && archive },
+    update: { notify, archive: !notify && archive },
   });
   // 取り消しは学習が当てた差分を逆に当てる（`revertLearnResult()`）ので、差分を返す
   const target = parsed.learned;

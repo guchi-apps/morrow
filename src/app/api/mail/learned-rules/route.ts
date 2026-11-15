@@ -6,7 +6,7 @@ import { updateLearnedRules } from "@/lib/mail/learn";
 import { removeLearnedRule } from "@/lib/mail/learn-core";
 
 /**
- * 学習した傾向（#833）を1件削除する。`{ "rule": { "text", "notify" } }`。画面の「削除」が名指しで送る。
+ * 学習した傾向（#833）を1件削除する。`{ "rule": { "text", "notify", "archive"? } }`。画面の「削除」が名指しで送る。
  *
  * **画面が見ていた一覧で丸ごと置き換えない**（#847）。学習・取り消しが別のタブで同時に動いていても、
  * いまの一覧から名指しの1件だけを外す（`updateLearnedRules()` が他の書き込みと重なったら読み直す）。
@@ -22,13 +22,13 @@ export async function DELETE(request: Request) {
   const body = await readJsonObject(request);
   const rule = body?.rule;
   if (typeof rule !== "object" || rule === null) return NextResponse.json({ error: "傾向の指定が不正です。" }, { status: 400 });
-  const { text, notify } = rule as Record<string, unknown>;
+  const { text, notify, archive } = rule as Record<string, unknown>;
   if (typeof text !== "string" || typeof notify !== "boolean") {
     return NextResponse.json({ error: "傾向の指定が不正です。" }, { status: 400 });
   }
   try {
     const rules = await updateLearnedRules(user.id, (current) => {
-      const next = removeLearnedRule(current, { text, notify });
+      const next = removeLearnedRule(current, { text, notify, archive: archive === true });
       return { rules: next, result: next };
     });
     return NextResponse.json({ rules });
