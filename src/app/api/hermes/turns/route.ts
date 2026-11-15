@@ -6,6 +6,7 @@ import { HermesError } from "@/lib/hermes/client-core";
 import { SESSION_ID_PATTERN, type BridgeEvent } from "@/lib/hermes/contract";
 import { describeHermesError, RATE_LIMITED } from "@/lib/hermes/errors";
 import { markNotesReported, pendingHermesNotes, recordAutoAction, ingestStreamToolStart } from "@/lib/hermes/proposals";
+import { buildPrompt } from "@/lib/hermes/prompt-attachment";
 import { parseProposalEvent } from "@/lib/hermes/proposal-core";
 import { recordHermesTurnUsage } from "@/lib/hermes/record-usage";
 import type { RelayEvent } from "@/lib/hermes/stream-view";
@@ -70,7 +71,7 @@ export async function POST(request: Request) {
   const notes = continuing ? await pendingHermesNotes(user.id, continuing) : { text: "", ids: [] };
   // メールに触れる指示なら、検索して該当メールを先頭へ添える（#813。失敗してもターンは止めない）
   const mailContext = await mailContextFor(user, text).catch(() => null);
-  const prompt = [notes.text, mailContext?.prompt, text].filter((part) => part).join("\n\n");
+  const prompt = buildPrompt([notes.text, mailContext?.prompt], text);
 
   let events: AsyncGenerator<BridgeEvent>;
   try {

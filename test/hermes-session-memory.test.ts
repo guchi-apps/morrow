@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { clearSessionId, loadSessionId, saveSessionId, type StorageLike } from "@/lib/hermes/session-memory";
+import { buildPrompt, stripAttachments } from "@/lib/hermes/prompt-attachment";
 import { initialChatState, restoreFromHistory } from "@/lib/hermes/stream-view";
 
 function fakeStorage(): StorageLike & { data: Map<string, string> } {
@@ -48,5 +49,15 @@ describe("チャットの前回の会話の記憶（#929）", () => {
     const empty = restoreFromHistory(initialChatState, "sess-2", []);
     assert.equal(empty.items.length, 0);
     assert.equal(empty.sessionId, "sess-2");
+  });
+
+  it("Morrowが足した注記・メール本文は復元で落とし、入力部分だけ出す", () => {
+    const sent = buildPrompt(["確認待ちの伝達", "メール本文"], "返信どうする？");
+    assert.equal(stripAttachments(sent), "返信どうする？");
+    assert.equal(buildPrompt([null, ""], "そのまま"), "そのまま");
+    assert.equal(stripAttachments("区切りなし"), "区切りなし");
+    assert.equal(stripAttachments("前<!--morrow-context-->閉じていない"), "前");
+    const restored = restoreFromHistory(initialChatState, "s", [{ role: "user", text: sent }]);
+    assert.deepEqual(restored.items.map((i) => (i.kind === "user" ? i.text : null)), ["返信どうする？"]);
   });
 });
