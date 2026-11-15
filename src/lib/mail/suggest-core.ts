@@ -367,17 +367,21 @@ export function parseSuggestReply(answer: string): SuggestResult | null {
   const top = record(raw);
   if (!top) return null;
 
-  const suggestions: Suggestion[] = [];
-  const seen = new Set<SuggestKind>();
+  const all: Suggestion[] = [];
+  const seenAll = new Set<SuggestKind>();
   for (const item of Array.isArray(top.suggestions) ? top.suggestions : []) {
     const entry = record(item);
-    if (!entry || !isKind(entry.kind) || seen.has(entry.kind)) continue;
+    if (!entry || !isKind(entry.kind) || seenAll.has(entry.kind)) continue;
     const suggestion = normalizeSuggestion(entry.kind, entry.fields, text(entry.reason, REASON_LIMIT), entry.confidence);
     if (!suggestion) continue;
-    seen.add(suggestion.kind);
-    suggestions.push(suggestion);
-    if (suggestions.length >= SUGGEST_MAX) break;
+    seenAll.add(suggestion.kind);
+    all.push(suggestion);
   }
+  // 上限を超えるときも、追跡番号が読めた追跡提案は必ず残す（#983。上限内の最後の候補と入れ替える）
+  const suggestions = all.slice(0, SUGGEST_MAX);
+  const tracking = all.find((s) => s.kind === "tracking");
+  if (tracking && !suggestions.includes(tracking)) suggestions[SUGGEST_MAX - 1] = tracking;
+  const seen = new Set<SuggestKind>(suggestions.map((s) => s.kind));
   const recommended = isKind(top.recommended) && seen.has(top.recommended) ? top.recommended : null;
   // 推奨が示されなかった回は、確度のいちばん高い候補を推奨にする
   const fallback = suggestions.length > 0 ? [...suggestions].sort((a, b) => b.confidence - a.confidence)[0]!.kind : null;
