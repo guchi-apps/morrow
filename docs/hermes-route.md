@@ -87,7 +87,7 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 ## 会話の履歴（#752）
 
 画面を開き直したときに前のやり取りを見せるため、ブリッジが履歴を返す（`hermes-bridge/history.ts`）。Morrowは受け取って表示するだけで、**保存しない**（`docs/hermes-actions.md`「実行の記録」）。
-**チャット画面は #929 で表示する**: 端末のlocalStorageにセッションidだけを利用者idと組で覚え（`session-memory.ts`）、開いたとき `GET /api/hermes/sessions/<id>/messages` が `hermesClient().history()` を中継して前回の発言を復元する（道具のチップ・結果カードは復元しない）。「新しい会話」・`no_session` で記憶を消す。Morrowのサーバーには何も保存しない。Morrowが発言の先頭へ足す注記・メール本文は `buildPrompt()`（`prompt-attachment.ts`）の区切りで囲み、復元では落とす。**履歴APIの口はセッションidの持ち主をMorrow側で照合しない**（利用者idとの組は端末の取り違え防止で、サーバーの防御ではない。実質1人利用とidの推測困難さを前提にしている。複数利用者にするなら、id発行時に対応づける別案が要る）。
+**チャット画面は #929 で表示する**: 端末のlocalStorageにセッションidだけを利用者idと組で覚え（`session-memory.ts`）、開いたとき `GET /api/hermes/sessions/<id>/messages` が `hermesClient().history()` を中継して前回の発言を復元する（道具のチップ・結果カードは復元しない）。「新しい会話」・`no_session` で記憶を消す。Morrowのサーバーには何も保存しない。Morrowが発言の先頭へ足す注記・メール本文は `buildPrompt()`（`prompt-attachment.ts`）の区切りで囲み、復元では落とす。**セッションidの持ち主は `HermesSession`（#937。idと利用者idだけ）で照合する**: 履歴APIは持ち主でなければ404（`no_session`）、継続ターンは持ち主でなければ新規会話として始める。ターン開始の `turn` イベントで記録する。**この対応づけを入れる前のセッションは持ち主不明＝新規会話扱い**（前回の会話は復元されない）。
 
 - **`source` が `morrow` のセッションだけ返す。** Discord（default profile）など他のセッションは、無いときと同じ404（`no_session`）で、中身も有無も見せない
 - **WebSocketの `session.resume`＋`session.history` は使わない。** 読むだけでHermesに生きたセッションができる。RESTは読み取りだけで副作用が無い（同じ `X-Hermes-Session-Token`）
