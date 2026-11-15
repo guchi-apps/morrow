@@ -80,7 +80,7 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
           icon={Newspaper}
           label="通知する内容"
           badge={enabledCategories.length}
-          summary={enabledCategories.length > 0 ? `${enabledCategories.length}種類を仕入れ中` : "仕入れを止めています"}
+          summary={enabledCategories.length > 0 ? `ニュースを仕入れる種類・${enabledCategories.length}種類を仕入れ中` : "ニュースを仕入れる種類・仕入れを止めています"}
         >
           <p className="text-[0.6875rem] leading-relaxed text-muted">
             チェックした種類だけを、定時のお知らせの前と「最近の記事を取得する」を押したときにウェブで調べます。
