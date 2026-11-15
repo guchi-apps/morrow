@@ -3,7 +3,7 @@ import Link from "next/link";
 import { after } from "next/server";
 import { redirect } from "next/navigation";
 
-import { MailAccountTabs } from "@/components/mail/mail-account-tabs";
+import { MailAccountMenu } from "@/components/mail/mail-account-menu";
 import { MailCheckButton } from "@/components/mail/mail-check-button";
 import { MailCriteriaDialog } from "@/components/mail/mail-criteria-dialog";
 import { MailCriteriaForm } from "@/components/mail/mail-criteria-form";
@@ -114,55 +114,66 @@ export default async function MailPage({ searchParams }: Props) {
   if (q) self.set("q", q);
   const back = `/mail${self.size > 0 ? `?${self}` : ""}`;
 
-  const heading = MAIL_VIEWS.find((item) => item.key === view)!.label;
-
   // メールに付けた印から学んだ傾向（#833）
   const learnedRules = normalizeLearnedRules(user.mailLearnedRules, jstDayKey(now));
 
+  const checkedAt = user.mailCheckedAt;
+
   return (
     <div className="mobile-tab-pad min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-[900px] flex-col gap-3.5 px-3.5 py-4 md:px-7 md:py-6">
-        <h2 className="text-base font-bold tracking-tight">{heading}</h2>
-
-        <div className="flex flex-col gap-2">
-          <p className="text-[0.6875rem] text-muted">
-            {user.mailCheckedAt
-              ? `最終確認 ${jstTimeLabel(user.mailCheckedAt)}（${elapsedLabel(user.mailCheckedAt, now)}）・15分ごとに自動で確認`
-              : "まだ新着を確認していません"}
-          </p>
-          <p className="text-[0.6875rem] leading-relaxed text-muted">新着のうち必要なものだけを通知でお知らせします。</p>
-          <MailCheckButton />
-        </div>
+      <div className="mx-auto flex w-full max-w-[900px] flex-col gap-3.5 px-3.5 pb-4 md:px-7 md:pb-6">
+        {/* ヘッダー右上のアイコン（いま確認 → アカウント → お知らせする基準。並びは order で固定）。中身はポータルで置き場へ入る */}
+        {showAccounts && result.ok && (
+          <MailAccountMenu
+            items={accounts.map((item) => ({ key: item.key, name: item.name, on: selected.includes(item.key), href: accountHref(item.key) }))}
+            failedNames={result.value.failedAccounts}
+          />
+        )}
         <MailCriteriaDialog learnedCount={learnedRules.length} custom={Boolean(user.mailCriteria)}>
           <MailCriteriaForm initial={user.mailCriteria} defaultCriteria={DEFAULT_MAIL_CRITERIA} />
           <MailLearnedRules initial={learnedRules} />
         </MailCriteriaDialog>
 
-        {showAccounts && result.ok && (
-          <MailAccountTabs accounts={accounts} selected={selected} hrefFor={accountHref} failedNames={result.value.failedAccounts} />
-        )}
+        {/* 表示切替と検索は上に固定し、その下の一覧だけを流す（#997） */}
+        <div className="sticky top-0 z-10 -mx-3.5 flex flex-col gap-2 border-b border-border bg-background px-3.5 pb-2.5 pt-3 md:-mx-7 md:px-7 md:pt-5">
+          <div className="flex items-center gap-2">
+            <nav aria-label="表示するメール" className="flex shrink-0 flex-nowrap gap-1 text-xs sm:gap-1.5">
+              {MAIL_VIEWS.map((item) => {
+                const on = item.key === view;
+                return (
+                  <Link
+                    key={item.key}
+                    href={viewHref(item.key)}
+                    aria-current={on ? "page" : undefined}
+                    className={cn(
+                      "whitespace-nowrap rounded-full border px-2.5 py-1.5 transition-colors sm:px-3",
+                      on ? "border-foreground bg-foreground text-background" : "border-border bg-surface hover:bg-rail-active",
+                    )}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </nav>
+            <p className="ml-auto min-w-0 text-right text-[0.625rem] leading-snug text-muted sm:text-[0.6875rem]">
+              {checkedAt ? (
+                <>
+                  <span className="sm:hidden">
+                    {jstTimeLabel(checkedAt)}確認（{elapsedLabel(checkedAt, now)}）
+                    <br />
+                    15分ごとに自動
+                  </span>
+                  <span className="hidden sm:inline">
+                    最終確認 {jstTimeLabel(checkedAt)}（{elapsedLabel(checkedAt, now)}）・15分ごとに自動で確認
+                  </span>
+                </>
+              ) : (
+                "まだ新着を確認していません"
+              )}
+            </p>
+          </div>
 
-        <nav aria-label="表示するメール" className="flex flex-wrap gap-1.5 text-xs">
-          {MAIL_VIEWS.map((item) => {
-            const on = item.key === view;
-            return (
-              <Link
-                key={item.key}
-                href={viewHref(item.key)}
-                aria-current={on ? "page" : undefined}
-                className={cn(
-                  "rounded-full border px-3 py-1.5 transition-colors",
-                  on ? "border-foreground bg-foreground text-background" : "border-border bg-surface hover:bg-rail-active",
-                )}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
-
-        <div className="flex items-center gap-2">
-          <form action="/mail" method="get" role="search" className="flex min-w-0 flex-1 items-center gap-1.5 rounded-[9px] border border-border bg-surface px-2.5">
+          <form action="/mail" method="get" role="search" className="flex min-w-0 items-center gap-1.5 rounded-[9px] border border-border bg-surface px-2.5">
             <Search className="size-3.5 shrink-0 text-muted" aria-hidden="true" />
             {view !== "inbox" && <input type="hidden" name="view" value={view} />}
             {account && <input type="hidden" name="acct" value={account} />}
@@ -177,6 +188,9 @@ export default async function MailPage({ searchParams }: Props) {
             />
           </form>
         </div>
+
+        {/* 「いま確認」のボタンはヘッダーへ。結果のメッセージだけがここ（固定部分の下）に出る */}
+        <MailCheckButton />
 
         {!result.ok ? (
           <p role="alert" className="rounded-[10px] border border-danger/30 bg-danger-surface px-3.5 py-2.5 text-xs leading-relaxed text-danger">
