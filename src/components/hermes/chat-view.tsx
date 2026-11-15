@@ -203,10 +203,14 @@ export function ChatView({ userId, initialPending }: Props) {
     } catch {
       if (!controller.signal.aborted) {
         if (started) {
-          // iOSで別アプリへ移ると通信が切られ、実行は途中で止まる（#930）。指示を入力欄へ戻して、もう一度送れるようにする
-          setInput((current) => (current === "" ? text : current));
+          // iOSで別アプリへ移ると通信が切られ、実行は途中で止まる（#930）。指示はHermesへ届いて書き込みが済んでいる場合があるので、
+          // 入力は戻さない（再送すると二重に実行しうる）。結果を確かめてから送り直してもらう
           setChat((s) =>
-            addNotice(s, "error", "アプリを離れるなどで接続が切れ、実行が途中で止まりました。指示を入力欄へ戻したので、もう一度送ってください。"),
+            addNotice(
+              s,
+              "error",
+              "アプリを離れるなどで接続が切れ、実行が途中で止まりました。途中まで実行された可能性があるので、結果を確認してから送り直してください。",
+            ),
           );
           void fetchStatus().then(setConnection);
         } else {
