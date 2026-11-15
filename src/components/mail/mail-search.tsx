@@ -143,7 +143,7 @@ type QueryState = { query: string; status: "run" | "done" | "failed"; count: num
 
 type State = {
   rows: MailListRow[];
-  /** 行ごとに、AIの条件で見つかった場合のその条件（キーワード一致は無し）。 */
+  /** 行ごとに、AIの検索語で見つかった場合のその条件（キーワード一致は無し）。 */
   foundBy: Record<string, string>;
   keywordDone: boolean;
   queries: QueryState[] | null;
@@ -291,7 +291,7 @@ function MailSearchResults({
     }
     for (const row of state.rows) {
       const query = state.foundBy[row.id];
-      if (query) annotations[row.id] = { note: `AIの条件「${query}」で見つかった候補` };
+      if (query) annotations[row.id] = { note: `AIの検索語「${query}」で見つかった候補` };
     }
     return { shown: state.rows, folded: [], annotations };
   }, [state.rows, state.ranks, state.foundBy]);
@@ -386,7 +386,7 @@ function SearchProgress({ state, total }: { state: State; total: number }) {
         {title}
         {state.done && total > 0 && (
           <span className="font-normal text-muted">
-            ・候補 {total}通{allQueries > 0 ? `・${allQueries + 1}つの条件で検索` : ""}
+            ・候補 {total}通{allQueries > 0 ? `・${allQueries + 1}つの語で検索` : ""}
           </span>
         )}
       </p>
@@ -396,7 +396,7 @@ function SearchProgress({ state, total }: { state: State; total: number }) {
         </div>
       )}
       {state.queries && state.queries.length > 0 && (running || !state.ranks) && (
-        <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="AIが作った検索条件">
+        <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="AIが作った検索語">
           {state.queries.map((item) => (
             <li
               key={item.query}
@@ -413,7 +413,7 @@ function SearchProgress({ state, total }: { state: State; total: number }) {
       )}
       {running && state.keywordDone && (
         <p className="mt-1.5 text-muted">
-          キーワードに一致した {keywordCount}通{aiCount > 0 ? ` ＋ AIの条件で見つかった ${aiCount}通` : ""}。調べ終わったら近い順に並べ替えます。
+          キーワードに一致した {keywordCount}通{aiCount > 0 ? ` ＋ AIの検索語で見つかった ${aiCount}通` : ""}。調べ終わったら近い順に並べ替えます。
         </p>
       )}
       {state.notice && <p className="mt-1.5 text-muted">{state.notice}</p>}

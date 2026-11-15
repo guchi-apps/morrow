@@ -20,8 +20,8 @@ import {
  * メールのAI検索（#998）の本体。**サーバー専用。** 段階ごとの知らせ（`SearchEvent`）を順に積み、口（`/api/mail/search`）がNDJSONで流す。
  *
  * - 一覧の取得はすべて `listMailForPage()` → `listMail()` を通る（**持ち主の照合込み**。#683）
- * - Codex（用途「メールの判定」のモデル）は利用者ごとに同時1件（`codex-lock.ts`）。分析の先回りが走っていれば少し待ち、
- *   取れなければキーワードの結果だけで終える（`ai_unavailable`）
+ * - Codex（用途「メールの判定」のモデル）は利用者ごとに同時1件（`codex-lock.ts`）。条件づくりから並べ替えまで1つの排他を持ち続ける。
+ *   分析の先回りが走っていれば少し待ち（待つ間は先回りが譲る）、取れなければキーワードの結果だけで終える（`ai_unavailable`）
  * - 同じ条件の検索は、走っている1回を共有し、終わった結果は10分だけプロセス内に覚える（本文から戻るたびにAIを呼び直さない）。
  *   画面が途中で離れても最後まで走って覚える。DB・ログには件名などを残さない
  */
@@ -136,14 +136,29 @@ async function execute(user: MailUser, params: MailSearchParams, emit: (event: E
   }
   emit({ type: "keyword", rows: keyword.rows, partial: keyword.partial });
 
-  // 2. AIに検索条件を作らせる
-  const model = await modelFor(user.id, "mail");
-  let queries: string[] | null = null;
-  const queryLock = await acquireWithWait(user.id, `search:${q}`);
-  if (!queryLock) {
+  // 2〜4はCodexの排他を1つ持ち続ける（条件づくりと並べ替えの間に、先回りの分析・要約が割り込んで並べ替えが取れなくなるため）
+  const release = await acquireWithWait(user.id, `search:${q}`);
+  if (!release) {
     emit({ type: "ai_unavailable", reason: "メールのAIが別の処理を実行中のため、キーワードに一致したメールだけを出しています。" });
     return;
   }
+  try {
+    await withAi(user, q, emit, found, fetchNew);
+  } finally {
+    release();
+  }
+}
+
+async function withAi(
+  user: MailUser,
+  q: string,
+  emit: (event: Event) => void,
+  found: Map<string, MailSummary>,
+  fetchNew: (query: string) => Promise<{ ok: true; partial: boolean; rows: MailListRow[] } | { ok: false }>,
+): Promise<void> {
+  // 2. AIに検索語を作らせる
+  const model = await modelFor(user.id, "mail");
+  let queries: string[] | null = null;
   try {
     const result = await runCodexRecorded({
       userId: user.id,
@@ -156,8 +171,6 @@ async function execute(user: MailUser, params: MailSearchParams, emit: (event: E
     queries = parseSearchQueries(result.messages.at(-1) ?? result.text, q);
   } catch (error) {
     console.error("[aide-bot] メール検索の条件を作れなかった", error instanceof Error ? error.message : error);
-  } finally {
-    queryLock();
   }
   if (queries === null) {
     emit({ type: "ai_unavailable", reason: "AIで検索条件を作れなかったため、キーワードに一致したメールだけを出しています。" });
@@ -182,11 +195,6 @@ async function execute(user: MailUser, params: MailSearchParams, emit: (event: E
   const candidates = [...found.values()].slice(0, RANK_CANDIDATE_MAX);
   if (candidates.length === 0) return;
   emit({ type: "ranking", count: candidates.length });
-  const rankLock = await acquireWithWait(user.id, `search-rank:${q}`);
-  if (!rankLock) {
-    emit({ type: "ai_unavailable", reason: "メールのAIが別の処理を実行中のため、近い順への並べ替えはしていません。" });
-    return;
-  }
   try {
     const result = await runCodexRecorded({
       userId: user.id,
@@ -205,7 +213,5 @@ async function execute(user: MailUser, params: MailSearchParams, emit: (event: E
   } catch (error) {
     console.error("[aide-bot] メール検索の並べ替えに失敗した", error instanceof Error ? error.message : error);
     emit({ type: "ai_unavailable", reason: "AIの並べ替えに失敗したため、見つかった順に出しています。" });
-  } finally {
-    rankLock();
   }
 }
