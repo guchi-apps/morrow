@@ -193,7 +193,11 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
               />
               <Link
                 href={href}
-                onClick={() => setOpening(message.id)}
+                onClick={(event) => {
+                  // 修飾キー付き（新しいタブで開く）では、この画面の行を「開いている」印にしない
+                  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                  setOpening(message.id);
+                }}
                 className="grid min-w-0 flex-1 gap-0.5 md:grid-cols-[170px_1fr_auto] md:items-center md:gap-3">
                 <span className="flex min-w-0 items-baseline justify-between gap-2 md:contents">
                   <span className={cn("truncate text-[0.8125rem]", message.unread && "font-bold")}>{senderName(message.from)}</span>
