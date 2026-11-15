@@ -30,6 +30,7 @@ import { weatherContextFor } from "@/lib/weather/chat-context";
  * - `morrow_propose_action` の呼び出しは、確認カード（`HermesProposal`）を保存して `proposal` イベントに置き換える
  * - 取り消せる書き込みの `tool.complete` は、道具名と成否だけを記録する（引数・結果の本文は残さない）
  * - **画面の接続が切れてもターンは続く**（#1000。溜め `turn-pump.ts` と `turns/<id>/events` で続きを受け直す）。「止める」・1ターンの上限で止まる
+ * - 最初のイベントは `turn`（ブリッジの契約）。レスポンス前に受けてidを `x-hermes-turn-id` で渡す（#1005）
  * - 使用量はターンの終わりに1行（`recordHermesTurnUsage()`。#737）
  */
 
@@ -118,6 +119,8 @@ export async function POST(request: Request) {
         // すでに別の利用者のセッション。idをブラウザへ渡さず、ターンも続けない
         console.error("[aide-bot] 別の利用者のHermesセッションidが返った");
         await (await hermesClient()).interrupt(turn.data.turnId).catch(() => {});
+        void events.return(undefined).catch(() => {});
+        lastStarts.delete(user.id);
         return NextResponse.json({ error: "会話を始められませんでした。もう一度お試しください。", kind: "hermes_down" }, { status: 502 });
       }
       registerTurn(turnId, user.id);
@@ -125,7 +128,11 @@ export async function POST(request: Request) {
       log.push(turn);
       // 本文が届く前に画面が離れていた（止める・新しい会話・画面離脱）。ターンの存在を知らせる先が無いので、ここで止める
       if (request.signal.aborted) {
-        await (await hermesClient()).interrupt(turnId).catch(() => {});
+        try {
+          await (await hermesClient()).interrupt(turnId);
+        } catch {
+          // 止められなくても、読み切りと後始末はpumpが行う
+        }
       }
     } else if (!first.done) {
       rest = (async function* () {

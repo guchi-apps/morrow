@@ -284,7 +284,7 @@ export function ChatView({ userId, initialPending }: Props) {
       // 実行中のターンはサーバーが続けている。戻ったら続きから受け直せるよう、位置を覚えておく（#1000）
       // turnId はヘッダーで先に受けた値（turnRef）も見る。最初のイベント前に離れても続きを受け直せる（#1005）
       const activeTurnId = state.turnId ?? turnRef.current;
-      if (state.running && activeTurnId && !endedRef.current) {
+      if ((state.running || abortRef.current !== null) && activeTurnId && !endedRef.current) {
         saveActiveTurn(userId, activeTurnId, receivedRef.current);
         saveChatSnapshot(userId, state, true);
       } else {
