@@ -1,6 +1,5 @@
 "use client";
 
-import type { LucideIcon } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -12,13 +11,17 @@ import { HEADER_ICON_BUTTON, useHeaderSlot } from "@/components/chat/header-acti
  * 開いている間だけ中身を描くので、開くたびに最新の値で初期化される。
  */
 export function HeaderDialog({
-  icon: Icon,
+  icon,
   label,
   summary,
   badge,
   children,
 }: {
-  icon: LucideIcon;
+  /**
+   * 描画済みのアイコン要素（例: `<Clock className="size-4" aria-hidden="true" />`）。
+   * サーバーコンポーネントから使うので、コンポーネント（関数）そのものは渡せない（#977）。
+   */
+  icon: ReactNode;
   label: string;
   /** モーダル見出しの下とアイコンのtitleに出す状態の要約。 */
   summary: string;
@@ -39,7 +42,7 @@ export function HeaderDialog({
 
   const button = (
     <button type="button" onClick={() => setOpen(true)} aria-label={label} title={`${label}（${summary}）`} aria-haspopup="dialog" className={HEADER_ICON_BUTTON}>
-      <Icon className="size-4" aria-hidden="true" />
+      {icon}
       {badge !== undefined && badge > 0 && (
         <span aria-hidden="true" className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-accent px-1 text-[0.625rem] font-bold leading-4 text-accent-foreground">
           {badge}
