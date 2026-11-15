@@ -3,13 +3,14 @@
 import { useMemo, useState } from "react";
 
 import { MODEL_USE_META } from "@/lib/chat-model";
+import { formatJpy, formatUsd } from "@/lib/model-pricing";
 import { USAGE_BUCKETS, formatTokens, niceMax, type DayUsage } from "@/lib/usage-daily";
 import type { UsageBucket } from "@/lib/usage-feature";
 import { cn } from "@/lib/utils";
 
 /**
  * 用途別・日毎のトークン使用量（#945）。日本時間の日付で積み上げた棒を並べ、棒を押すとその日の内訳を出す。
- * 金額は出さない（Codexはサブスク定額で実請求が無い）。グラフライブラリは使わず、divで描く。
+ * 金額は公開API価格での換算の目安（#996。Codexはサブスク定額で実請求は無い）。グラフライブラリは使わず、divで描く。
  */
 
 const PERIODS = [7, 14, 30] as const;
@@ -52,6 +53,8 @@ export function UsageChart({ days }: { days: DayUsage[] | null }) {
 
   const total = shown.reduce((sum, d) => sum + d.total, 0);
   const calls = shown.reduce((sum, d) => sum + d.calls, 0);
+  const cost = shown.reduce((sum, d) => sum + d.costUsd, 0);
+  const unpriced = shown.reduce((sum, d) => sum + d.unpricedCalls, 0);
   const max = niceMax(Math.max(0, ...shown.map((d) => d.total)));
   const detail = shown.find((d) => d.day === selected) ?? null;
   const rows = USAGE_BUCKETS.map((bucket) => {
@@ -65,9 +68,11 @@ export function UsageChart({ days }: { days: DayUsage[] | null }) {
           output: acc.output + b.output,
           cache: acc.cache + b.cache,
           calls: acc.calls + b.calls,
+          costUsd: acc.costUsd + b.costUsd,
+          unpricedCalls: acc.unpricedCalls + b.unpricedCalls,
         };
       },
-      { total: 0, input: 0, output: 0, cache: 0, calls: 0 },
+      { total: 0, input: 0, output: 0, cache: 0, calls: 0, costUsd: 0, unpricedCalls: 0 },
     );
     return { bucket, ...sum };
   });
@@ -100,10 +105,10 @@ export function UsageChart({ days }: { days: DayUsage[] | null }) {
         </div>
       </div>
       <p className="text-[0.72rem] leading-snug text-muted">
-        日毎の合計（入力・出力・キャッシュ）。サブスク定額のため金額は出しません。
+        日毎の合計（入力・出力・キャッシュ）。金額は公開API価格での換算の目安で、実際はサブスク定額のため請求されません。
       </p>
 
-      <dl className="flex gap-5">
+      <dl className="flex flex-wrap gap-x-5 gap-y-2">
         <div>
           <dt className="text-[0.6875rem] text-muted">期間の合計</dt>
           <dd className="text-lg font-semibold tabular-nums">{formatTokens(total)}</dd>
@@ -115,6 +120,13 @@ export function UsageChart({ days }: { days: DayUsage[] | null }) {
         <div>
           <dt className="text-[0.6875rem] text-muted">呼び出し</dt>
           <dd className="text-lg font-semibold tabular-nums">{calls}回</dd>
+        </div>
+        <div>
+          <dt className="text-[0.6875rem] text-muted">概算金額（換算）</dt>
+          <dd className="text-lg font-semibold tabular-nums text-accent">≈ {formatUsd(cost)}</dd>
+          <dd className="text-[0.6875rem] text-muted">
+            {formatJpy(cost)}・1日 ≈ {formatUsd(cost / shown.length)}
+          </dd>
         </div>
       </dl>
 
@@ -179,10 +191,21 @@ export function UsageChart({ days }: { days: DayUsage[] | null }) {
                 入力 {formatTokens(row.input)} ・ 出力 {formatTokens(row.output)} ・ キャッシュ {formatTokens(row.cache)} ・ {row.calls}回
               </small>
             </span>
-            <b className="tabular-nums">{formatTokens(row.total)}</b>
+            <span className="text-right tabular-nums">
+              <b className="block">{formatTokens(row.total)}</b>
+              {row.calls > 0 && row.costUsd > 0 && <em className="text-xs not-italic text-accent">≈ {formatUsd(row.costUsd)}</em>}
+            </span>
           </li>
         ))}
       </ul>
+      <p className="text-[0.6875rem] leading-snug text-muted">
+        GPT-6系の単価は出典が未確認の仮の値です。金額は傾向を見るための目安として読んでください。
+      </p>
+      {unpriced > 0 && (
+        <p className="text-[0.6875rem] leading-snug text-muted">
+          単価が未確認のモデルの呼び出し（{unpriced}回）は金額に含めていません。
+        </p>
+      )}
     </section>
   );
 }

@@ -1,11 +1,13 @@
 import { jstDayKey } from "@/lib/day-key";
+import { estimateCostUsd } from "@/lib/model-pricing";
 import { usageBucketOf, type UsageBucket } from "@/lib/usage-feature";
 
 /**
  * モデル画面の使用量グラフ（#945）の集計。**Prismaに触れない純粋なモジュール**（クライアントからも
  * importする。DBの取り出しは `@/lib/usage` の `dailyUsageRows()`）。
  *
- * 金額は出さない。Codexはサブスク定額で実際の請求額が無く、単価表も#634で消えている。
+ * 金額は公開API価格での換算の目安（#996。`@/lib/model-pricing`）。Codexはサブスク定額で実際の請求は無い。
+ * 単価の無いモデルの呼び出しは金額に含めず、`unpricedCalls` で数える。
  * 日付の境目は日本時間（`jstDayKey()`）。
  */
 
@@ -16,6 +18,7 @@ export const USAGE_BUCKETS: readonly UsageBucket[] = ["topic", "mail_suggest", "
 
 export type UsageRowLike = {
   createdAt: Date;
+  model: string;
   feature: string;
   inputTokens: number;
   outputTokens: number;
@@ -31,6 +34,10 @@ export type BucketUsage = {
   output: number;
   cache: number;
   calls: number;
+  /** 単価のあるモデルの呼び出しの概算金額（USD）。 */
+  costUsd: number;
+  /** 単価が無く金額に含められなかった呼び出し数。 */
+  unpricedCalls: number;
 };
 
 export type DayUsage = {
@@ -38,11 +45,13 @@ export type DayUsage = {
   day: string;
   total: number;
   calls: number;
+  costUsd: number;
+  unpricedCalls: number;
   buckets: Record<UsageBucket, BucketUsage>;
 };
 
 function emptyBucket(): BucketUsage {
-  return { total: 0, input: 0, output: 0, cache: 0, calls: 0 };
+  return { total: 0, input: 0, output: 0, cache: 0, calls: 0, costUsd: 0, unpricedCalls: 0 };
 }
 
 /** 今日を末尾に、`days` 日ぶんの日付の鍵を古い順に返す。 */
@@ -60,6 +69,8 @@ export function buildDailyUsage(rows: UsageRowLike[], now: Date, days: number): 
     day,
     total: 0,
     calls: 0,
+    costUsd: 0,
+    unpricedCalls: 0,
     buckets: { topic: emptyBucket(), mail_suggest: emptyBucket(), mail: emptyBucket(), other: emptyBucket() },
   }));
   const byDay = new Map(result.map((entry) => [entry.day, entry]));
@@ -79,6 +90,15 @@ export function buildDailyUsage(rows: UsageRowLike[], now: Date, days: number): 
     bucket.calls += 1;
     entry.total += total;
     entry.calls += 1;
+
+    const cost = estimateCostUsd(row.model, row);
+    if (cost === null) {
+      bucket.unpricedCalls += 1;
+      entry.unpricedCalls += 1;
+    } else {
+      bucket.costUsd += cost;
+      entry.costUsd += cost;
+    }
   }
 
   return result;

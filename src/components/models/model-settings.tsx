@@ -14,6 +14,7 @@ import {
   type ModelUse,
   type ModelUseGroup,
 } from "@/lib/chat-model";
+import { priceLabel } from "@/lib/model-pricing";
 import { cn } from "@/lib/utils";
 
 /**
@@ -83,6 +84,9 @@ export function ModelSettings({ initial }: Props) {
         <p className="mt-2 text-sm leading-relaxed text-muted">
           用途ごとに使うモデルを選びます。賢いモデルほど、ChatGPTサブスクの利用枠が早く減ります。
         </p>
+        <p className="mt-1 text-[0.6875rem] leading-snug text-muted">
+          選択肢の金額は、100万トークンあたりの単価（入力 / 出力）の目安です。StatusHubの単価表に基づく換算で、実際はサブスク定額のため請求されません。
+        </p>
       </header>
 
       {GROUPS.map((group) => (
@@ -138,6 +142,9 @@ export function ModelSettings({ initial }: Props) {
                         )}
                         {model.label}
                         <small className="text-[0.625rem] font-normal text-muted">{model.hint}</small>
+                        <small className="text-[0.625rem] font-normal text-accent">
+                          {priceLabel(model.id) ?? "単価未確認"}
+                        </small>
                       </label>
                     );
                   })}

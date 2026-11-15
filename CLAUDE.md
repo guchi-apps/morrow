@@ -636,7 +636,7 @@ issue-deckの共有トークンAPIから実行時に取る**（`src/lib/shared-t
 
 ### モデル画面の使用量グラフ（#945）
 
-モデル画面（`/models`）の上部に、利用者自身の `ApiUsage` を日本時間の日付×用途で積んだ棒グラフ（7／14／30日。棒を押すとその日の内訳）を出す。**金額は出さない**（Codexはサブスク定額で実請求が無く、単価表も#634で消えている。単価が確認できたら足す）。
+モデル画面（`/models`）の上部に、利用者自身の `ApiUsage` を日本時間の日付×用途で積んだ棒グラフ（7／14／30日。棒を押すとその日の内訳）を出す。**金額は公開API価格での換算の目安として出す**（#996。Codexはサブスク定額で実請求は無い。単価は StatusHub の `src/lib/ai-app-usage/models.ts` の写しを `src/lib/model-pricing.ts` に持つ二重管理で、StatusHub 側が変わったら直す。単価の無いモデル〔`gpt-6-astra`〕は金額に含めず「単価未確認」と出す。円換算は固定レート150円）。
 
 - 集計は純粋な `src/lib/usage-daily.ts`（`test/usage-daily.test.ts`）、DBの取り出しは `dailyUsageRows()`（`usage.ts`）、画面は `src/components/models/usage-chart.tsx`（依存は足さずdivで描く）。取得に失敗してもモデルの選択は開ける
 - **記録の機能名（`feature`）→グラフの用途は `USAGE_FEATURE_BUCKETS`（`usage-feature.ts`）。** 選択カードの3用途と一対一ではない（学習・一覧要約は「メールの判定」のモデル）。対応表に無い機能・空文字は「その他」。**機能を足したらここも足す**（型で落ちる）
