@@ -500,7 +500,8 @@ export function ChatView({ userId, initialPending }: Props) {
       startInterruptFlush(storage);
       return;
     }
-    // 止まったあとは、応答が来なくても接続を閉じる
+    // 止まったあとは、応答が来なくても接続を閉じる（先の「届いていません」の通知は残さない）
+    setChat((s) => ({ ...s, items: s.items.filter((item) => !(item.kind === "notice" && item.text.startsWith("止める操作が届いていません"))) }));
     window.setTimeout(() => {
       if (abortRef.current === controller) controller?.abort();
     }, 8000);

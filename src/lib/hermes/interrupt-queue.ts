@@ -80,7 +80,10 @@ export const INTERRUPT_RETRY_DELAYS = [2000, 5000, 10000, 30000, 60000];
 /** 実際の送信（ブラウザ）。通信失敗はnull。 */
 export async function sendInterrupt(turnId: string): Promise<number | null> {
   try {
-    const response = await fetch(`/api/hermes/turns/${encodeURIComponent(turnId)}/interrupt`, { method: "POST" });
+    const response = await fetch(`/api/hermes/turns/${encodeURIComponent(turnId)}/interrupt`, {
+      method: "POST",
+      signal: AbortSignal.timeout(10000),
+    });
     return response.status;
   } catch {
     return null;
@@ -88,13 +91,18 @@ export async function sendInterrupt(turnId: string): Promise<number | null> {
 }
 
 let flushing = false;
+/** 待機中の再送ループを今すぐ起こす（新しい控えが増えたとき）。 */
+let wake: (() => void) | null = null;
 
 /**
  * 控えを送りきるまで間隔をあけて再送する（画面のコンポーネントが消えても、ページが生きている間は続く）。
- * すでに走っていれば何もしない。
+ * すでに走っていれば、待機を切り上げて今すぐ送らせる（新しい控えを間隔明けまで待たせない）。
  */
 export function startInterruptFlush(storage: InterruptStorage | null): void {
-  if (flushing) return;
+  if (flushing) {
+    wake?.();
+    return;
+  }
   flushing = true;
   void (async () => {
     try {
@@ -102,10 +110,18 @@ export function startInterruptFlush(storage: InterruptStorage | null): void {
         if (!(await flushInterrupts(storage, sendInterrupt))) return;
         const delay = INTERRUPT_RETRY_DELAYS[attempt];
         if (delay === undefined) return;
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, delay);
+          wake = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+        });
+        wake = null;
       }
     } finally {
       flushing = false;
+      wake = null;
     }
   })();
 }
