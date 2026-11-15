@@ -132,7 +132,7 @@
 
 @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
   .mobile-tab-bar {
-    background: color-mix(in srgb, var(--surface) 42%, transparent);
+    background: color-mix(in srgb, var(--surface) 22%, transparent);
     -webkit-backdrop-filter: blur(22px) saturate(1.8);
     backdrop-filter: blur(22px) saturate(1.8);
   }
@@ -142,10 +142,10 @@
   display: none;
 }
 
-/* 下部ナビのぶん、各スクロール領域の内側の下端を空ける（#928。高さ66px＋下の隙間10px。
+/* 下部ナビのぶん、各スクロール領域の内側の下端を空ける（#928。高さ54px＋下の隙間10px。
    本文の外側で空けるとバーの下が単色の地になり透けないため、スクロール領域の中で取る）。 */
 .mobile-tab-pad {
-  padding-bottom: calc(5rem + var(--app-bottom-inset));
+  padding-bottom: calc(4.5rem + var(--app-bottom-inset));
 }
 
 @media (min-width: 1024px) {
@@ -160,7 +160,7 @@
 
 /* チャットの入力欄（#928）。バーの上に収める。入力欄の地は不透明のまま、下の余白もその中に含める。 */
 .mobile-tab-pad-form {
-  padding-bottom: calc(5rem + 0.625rem + var(--app-bottom-inset));
+  padding-bottom: calc(4.5rem + 0.625rem + var(--app-bottom-inset));
 }
 
 @media (min-width: 1024px) {
@@ -171,41 +171,6 @@
 
 :root[data-keyboard="open"] .mobile-tab-pad-form {
   padding-bottom: 0.625rem;
-}
-
-/* メール本文の操作バー（#970。`MailDetailActions`）。スマホは下部ナビ（高さ66px＋下の隙間10px）の真上、
-   lg以上は左の帯（276px）を除いた領域の下端中央。キーボード表示中はナビが消えるので下端へ寄せる。
-   バーの高さ・位置を変えたら `.mobile-tab-pad` の余白と揃える。 */
-.mail-action-bar {
-  inset-inline: 0.875rem;
-  bottom: calc(5.5rem + var(--app-bottom-inset));
-}
-
-@media (min-width: 1024px) {
-  .mail-action-bar {
-    left: 276px;
-    right: 0;
-    bottom: calc(1rem + var(--app-bottom-inset));
-  }
-}
-
-:root[data-keyboard="open"] .mail-action-bar {
-  bottom: 0.625rem;
-}
-
-/* 本文の下端をバーのぶん空ける（46px＋隙間）。スマホはタブバーの余白に足す */
-.mail-action-pad {
-  padding-bottom: calc(5rem + 3.5rem + var(--app-bottom-inset));
-}
-
-@media (min-width: 1024px) {
-  .mail-action-pad {
-    padding-bottom: calc(4.5rem + var(--app-bottom-inset));
-  }
-}
-
-:root[data-keyboard="open"] .mail-action-pad {
-  padding-bottom: 4rem;
 }
 
 body {
