@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import { MailAccountTabs } from "@/components/mail/mail-account-tabs";
 import { MailCheckButton } from "@/components/mail/mail-check-button";
+import { MailCriteriaDialog } from "@/components/mail/mail-criteria-dialog";
 import { MailCriteriaForm } from "@/components/mail/mail-criteria-form";
 import { MailLearnedRules } from "@/components/mail/mail-learned-rules";
 import { elapsedLabel } from "@/components/mail/mail-format";
@@ -124,41 +125,18 @@ export default async function MailPage({ searchParams }: Props) {
         <h2 className="text-base font-bold tracking-tight">{heading}</h2>
 
         <div className="flex flex-col gap-2">
-          <MailCheckButton
-            status={
-              user.mailCheckedAt
-                ? `最終確認 ${jstTimeLabel(user.mailCheckedAt)}（${elapsedLabel(user.mailCheckedAt, now)}）・15分ごとに自動で確認`
-                : "まだ新着を確認していません"
-            }
-          />
+          <p className="text-[0.6875rem] text-muted">
+            {user.mailCheckedAt
+              ? `最終確認 ${jstTimeLabel(user.mailCheckedAt)}（${elapsedLabel(user.mailCheckedAt, now)}）・15分ごとに自動で確認`
+              : "まだ新着を確認していません"}
+          </p>
           <p className="text-[0.6875rem] leading-relaxed text-muted">新着のうち必要なものだけを通知でお知らせします。</p>
+          <MailCheckButton />
         </div>
-
-        <details className="group rounded-xl border border-border bg-surface">
-          <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
-            <svg
-              viewBox="0 0 24 24"
-              className="size-4 shrink-0 text-accent transition-transform group-open:rotate-90"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="m9 18 6-6-6-6" />
-            </svg>
-            <span className="text-[0.8125rem] font-bold">お知らせする基準</span>
-            <span className="ml-auto text-right text-[0.6875rem] text-muted">
-              {user.mailCriteria ? "設定済み" : "既定の基準"}
-              {learnedRules.length > 0 ? `・学習した傾向 ${learnedRules.length}件` : "・変更する"}
-            </span>
-          </summary>
-          <div className="flex flex-col gap-3.5 border-t border-border px-4 py-3.5">
-            <MailCriteriaForm initial={user.mailCriteria} defaultCriteria={DEFAULT_MAIL_CRITERIA} />
-            <MailLearnedRules initial={learnedRules} />
-          </div>
-        </details>
+        <MailCriteriaDialog learnedCount={learnedRules.length} custom={Boolean(user.mailCriteria)}>
+          <MailCriteriaForm initial={user.mailCriteria} defaultCriteria={DEFAULT_MAIL_CRITERIA} />
+          <MailLearnedRules initial={learnedRules} />
+        </MailCriteriaDialog>
 
         {showAccounts && result.ok && (
           <MailAccountTabs accounts={accounts} selected={selected} hrefFor={accountHref} failedNames={result.value.failedAccounts} />
