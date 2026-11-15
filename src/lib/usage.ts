@@ -107,6 +107,7 @@ export async function dailyUsageRows(userId: string, now: Date, days: number): P
     where: { userId, createdAt: { gte: since } },
     select: {
       createdAt: true,
+      model: true,
       feature: true,
       inputTokens: true,
       outputTokens: true,

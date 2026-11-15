@@ -4,8 +4,9 @@ import { test } from "node:test";
 import { buildDailyUsage, formatTokens, niceMax, recentDayKeys } from "../src/lib/usage-daily.ts";
 import { usageBucketOf } from "../src/lib/usage-feature.ts";
 
-const row = (at: string, feature: string, input = 100, output = 10, cacheRead = 0) => ({
+const row = (at: string, feature: string, input = 100, output = 10, cacheRead = 0, model = "gpt-6-luna") => ({
   createdAt: new Date(at),
+  model,
   feature,
   inputTokens: input,
   outputTokens: output,
@@ -61,4 +62,20 @@ test("トークン数の表記と縦軸の丸め", () => {
   assert.equal(niceMax(0), 1);
   assert.equal(niceMax(380000), 500000);
   assert.equal(niceMax(100), 100);
+});
+
+test("概算金額は行のモデルの単価で換算し、単価の無いモデルは金額に含めず数える", () => {
+  const now = new Date("2026-11-15T03:00:00Z");
+  const days = buildDailyUsage(
+    [
+      row("2026-11-15T01:00:00Z", "topic", 1_000_000, 1_000_000, 0, "gpt-6-sol"), // $2 + $10
+      row("2026-11-15T01:00:00Z", "topic", 1_000_000, 0, 0, "gpt-6-astra"), // 単価なし
+    ],
+    now,
+    1,
+  );
+  assert.equal(days[0].costUsd, 12);
+  assert.equal(days[0].unpricedCalls, 1);
+  assert.equal(days[0].buckets.topic.costUsd, 12);
+  assert.equal(days[0].buckets.topic.unpricedCalls, 1);
 });
