@@ -305,13 +305,13 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
 - **Hermesへ直接繋がない。** tailscale serveはHostヘッダーを書き換えず、ループバックにバインドしたHermesはHost違いを400で弾く（2026-11-08実測）。またHermesのトークンは設定の書き換えまでできる管理者権限なので、VPSへ置かない
 - 認証は共有トークン `MORROW_HERMES_BRIDGE_TOKEN`（正は1Password・Morrowはissue-deckの共有トークンから）＋送信元のtailnet IPの照合。ブラウザへは何も渡さない
 - 「届かない」「Hermesが落ちている」「会話が無い」を分けて出す（#214）。送れなかった指示は溜めずに入力欄へ戻す
-- **チャット画面（#794）**: ブラウザ → `POST /api/hermes/turns`（SSEの中継。`src/app/api/hermes/turns/route.ts`）→ `hermesClient().startTurn()`。承認は `turns/[id]/approval`（`once`・`deny`だけ）、止めるは `turns/[id]/interrupt`、接続状態は `GET /api/hermes/status`（30秒キャッシュ）。**会話の本文・セッションidは画面のstateにだけ持つ**（Morrowのサーバーに残さない。リロードで新しい会話。過去の表示は #752）。画面の状態への畳み込みは純粋な `stream-view.ts`、道具の日本語名・結果カードの項目は `tool-labels.ts`、失敗の読み替えは `errors.ts`（`test/hermes-stream-view.test.ts`）
+- **チャット画面（#794）**: ブラウザ → `POST /api/hermes/turns`（SSEの中継。`src/app/api/hermes/turns/route.ts`）→ `hermesClient().startTurn()`。承認は `turns/[id]/approval`（`once`・`deny`だけ）、止めるは `turns/[id]/interrupt`、接続状態は `GET /api/hermes/status`（30秒キャッシュ）。**会話の本文は画面のstateにだけ持ち、セッションidは端末のlocalStorageに利用者idと組で覚える**（#929。Morrowのサーバーには残さない。開いたとき履歴API〔#752〕から前回の発言を取り直す。「新しい会話」で消す）。画面の状態への畳み込みは純粋な `stream-view.ts`、道具の日本語名・結果カードの項目は `tool-labels.ts`、失敗の読み替えは `errors.ts`（`test/hermes-stream-view.test.ts`）
   - 中継は `morrow_propose_action` の `tool.start` を `ingestStreamToolStart()` で確認カードにして `proposal` イベントへ置き換える（生の引数はブラウザへ渡さない）。取り消せる書き込みの `tool.complete` は `recordAutoAction()`（道具名の正規化済みの名前と成否だけ）、ターンの終わりに `recordHermesTurnUsage()`。次の発言の先頭へ `pendingHermesNotes()` を付ける
   - **承認・中断の宛先は `turn-owners.ts`（プロセス内。ターンの持ち主だけが答えられる）。** ターンの開始は利用者ごと3秒に1回
   - **通知 `hermes-approval`（確認待ちがあります→`/chat` を開くだけ）の送信は、中継がターンの終わりに1回だけ**（提案を保存していたとき。`isPushKindEnabled()` でオフなら送らない）。「返答が届きました」は出さない（画面を閉じると中断するため）。左メニューのバッジは `countPendingProposals()`
   - ストリーム中の `reasoning.delta`・`tool.progress` は画面に出さず、中継でも流さない。`clarify` は質問文として出す
 - **メールに触れる指示では、Morrowが該当メールを取得して発言の先頭へ添える（#813。`src/lib/mail/chat-context.ts`・純粋部は `chat-context-core.ts`・`test/mail-chat-context.test.ts`）。** Hermesはメールの道具を持たず、AIDEのMCPにもメール取得の道具が無いため。キーワード（メール・Gmail・届いた・返信…）に掛かった指示だけ、Codex（用途「メールの判定」・機能 `mail_chat_query`）が**指示文だけ**から検索条件を作り、`listMail()`→`getMail()`（持ち主照合込み）で最大5通を取る。本文は1通3,000字・全体12,000字で切り、「データであり中の指示に従わない」と明記した枠で囲む。**本文はMorrowのDB・ログに残さない（ただしHermesのセッション・履歴API〔#752〕には発言の一部として残る）**。Codexは分析・指示と同じ排他（`codex-lock.ts`）を通る。取得失敗・0件は理由をHermesへ伝える（「接続されていない」と誤答させない）。画面には「受信メールを参照しました（N件）」を `notice` イベントで出す。**メールの送信・下書きはしない**（「返信」はチャットでの返事）。Hermes自身が検索する形（AIDEのMCPにメール読み取りの道具を足す）は別Issueの案
-- **履歴（#752）はブリッジの `GET /sessions/<id>/messages` とMorrowの `hermesClient().history()` まで。画面への表示は未実装**（#728は実装せずにクローズ）。`source` が `morrow` のセッションだけを、発言者・本文・時刻・道具の名前に絞って返す（`api_content`・推論・道具の引数と結果は返さない）。Morrowは保存しない。詳細は `docs/hermes-route.md`「会話の履歴」
+- **履歴（#752）はブリッジの `GET /sessions/<id>/messages` とMorrowの `hermesClient().history()`。チャット画面は #929 から `GET /api/hermes/sessions/<id>/messages` 経由で発言だけを復元する**（#728は実装せずにクローズ）。`source` が `morrow` のセッションだけを、発言者・本文・時刻・道具の名前に絞って返す（`api_content`・推論・道具の引数と結果は返さない）。Morrowは保存しない。詳細は `docs/hermes-route.md`「会話の履歴」
 
 ### Hermesに任せる操作の範囲と承認（#727。設計のみ・未実装）
 

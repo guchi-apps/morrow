@@ -87,7 +87,7 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 ## 会話の履歴（#752）
 
 画面を開き直したときに前のやり取りを見せるため、ブリッジが履歴を返す（`hermes-bridge/history.ts`）。Morrowは受け取って表示するだけで、**保存しない**（`docs/hermes-actions.md`「実行の記録」）。
-**画面への表示は未実装**（チャット画面は #794 で作ったが、初版は開いている間のやり取りだけ。表示は別Issueで、Morrowの `hermesClient().history()` を呼ぶ）。
+**チャット画面は #929 で表示する**: 端末のlocalStorageにセッションidだけを利用者idと組で覚え（`session-memory.ts`）、開いたとき `GET /api/hermes/sessions/<id>/messages` が `hermesClient().history()` を中継して前回の発言を復元する（道具のチップ・結果カードは復元しない）。「新しい会話」・`no_session` で記憶を消す。Morrowのサーバーには何も保存しない。
 
 - **`source` が `morrow` のセッションだけ返す。** Discord（default profile）など他のセッションは、無いときと同じ404（`no_session`）で、中身も有無も見せない
 - **WebSocketの `session.resume`＋`session.history` は使わない。** 読むだけでHermesに生きたセッションができる。RESTは読み取りだけで副作用が無い（同じ `X-Hermes-Session-Token`）

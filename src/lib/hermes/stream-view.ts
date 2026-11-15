@@ -66,6 +66,22 @@ export type ChatState = {
 
 export const initialChatState: ChatState = { items: [], sessionId: null, turnId: null, running: false, nextId: 1 };
 
+/** 前回の会話の履歴（#929）を並びへ戻す。発言の文だけで、道具のチップ・結果カードは復元しない。 */
+export function restoreFromHistory(
+  state: ChatState,
+  sessionId: string,
+  messages: ReadonlyArray<{ role: "user" | "assistant"; text: string }>,
+): ChatState {
+  let nextId = state.nextId;
+  const items: ChatItem[] = [];
+  for (const m of messages) {
+    if (m.text.trim() === "") continue;
+    items.push(m.role === "user" ? { kind: "user", id: nextId++, text: m.text } : { kind: "assistant", id: nextId++, text: m.text, done: true });
+  }
+  if (items.length === 0) return { ...state, sessionId };
+  return { ...state, sessionId, items: [...items, ...state.items], nextId };
+}
+
 function push(state: ChatState, item: (id: number) => ChatItem): ChatState {
   return { ...state, items: [...state.items, item(state.nextId)], nextId: state.nextId + 1 };
 }
