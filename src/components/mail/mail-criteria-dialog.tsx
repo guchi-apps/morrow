@@ -54,7 +54,7 @@ export function MailCriteriaDialog({ learnedCount, custom, children }: { learned
               ✕
             </button>
           </div>
-          {children}
+          {open && children}
         </div>
       </dialog>
     </>
