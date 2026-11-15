@@ -23,14 +23,10 @@ function page(ids: string[], next: string | null): MailListPage {
 }
 
 describe("アカウント絞り込み（#829）", () => {
-  it("?acct が無い・読めない値は既定（サブを除く）", () => {
+  it("?acct が無い・読めない値は既定（全アカウント）", () => {
     assert.deepEqual(parseAccountFilter(undefined), { kind: "default" });
     assert.deepEqual(parseAccountFilter("!!,,"), { kind: "default" });
-    assert.deepEqual(selectedAccountKeys({ kind: "default" }, ALL), ["main", "formal"]);
-  });
-
-  it("サブしか無い構成では既定でも空にしない", () => {
-    assert.deepEqual(selectedAccountKeys({ kind: "default" }, ["sub"]), ["sub"]);
+    assert.deepEqual(selectedAccountKeys({ kind: "default" }, ALL), ALL);
   });
 
   it("カンマ区切りを読み、重複を除く", () => {
@@ -39,9 +35,9 @@ describe("アカウント絞り込み（#829）", () => {
     assert.equal(singleAccountKey(parseAccountFilter("main,sub")), null);
   });
 
-  it("行は既定ではサブを出さず、鍵の無い行は常に出す", () => {
+  it("行は既定ではサブも出し、鍵の無い行は常に出す", () => {
     const d = { kind: "default" } as const;
-    assert.equal(messageAllowed(d, msg("sub~1")), false);
+    assert.equal(messageAllowed(d, msg("sub~1")), true);
     assert.equal(messageAllowed(d, msg("main~1")), true);
     assert.equal(messageAllowed(d, msg("plain")), true);
     assert.equal(messageAllowed(parseAccountFilter("sub,main"), msg("sub~1")), true);
@@ -55,9 +51,9 @@ describe("アカウント絞り込み（#829）", () => {
   });
 
   it("既定と同じ選択はURLに載せない", () => {
-    assert.equal(accountParamOf(["main", "formal"], ALL), null);
-    assert.equal(accountParamOf(["formal", "main"], ALL), null);
-    assert.equal(accountParamOf(["main", "sub", "formal"], ALL), "main,sub,formal");
+    assert.equal(accountParamOf(["main", "sub", "formal"], ALL), null);
+    assert.equal(accountParamOf(["formal", "sub", "main"], ALL), null);
+    assert.equal(accountParamOf(["main", "formal"], ALL), "main,formal");
     assert.equal(accountParamOf(["main"], ALL), "main");
   });
 
@@ -74,20 +70,21 @@ describe("アカウント絞り込み（#829）", () => {
     );
     assert.ok(result.ok);
     assert.deepEqual(calls, [""]);
-    assert.deepEqual(result.value.messages.map((m) => m.id), ["main~1", "formal~1"]);
+    assert.deepEqual(result.value.messages.map((m) => m.id), ["sub~1", "sub~2", "main~1", "formal~1"]);
     assert.equal(result.value.nextPageToken, "p2");
-    // チップの元は絞る前の全行（サブも含む）
+    // チップの元は全行
     assert.deepEqual(result.value.accounts?.map((a) => a.key).sort(), ["formal", "main", "sub"]);
   });
 
   it("絞って0件でも次ページの鍵を返す", async () => {
+    const only = parseAccountFilter("main");
     let n = 0;
     const result = await fetchFilteredPage(
       async () => {
         n += 1;
         return { ok: true as const, value: page(["sub~1"], "p2") };
       },
-      { kind: "default" },
+      only,
       null,
       inferMailAccounts,
     );

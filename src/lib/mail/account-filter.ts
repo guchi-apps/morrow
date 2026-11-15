@@ -2,12 +2,9 @@ import { isMailAccountKey, mailAccountKeyOf, type MailAccount, type MailListPage
 
 /**
  * メール一覧のアカウント絞り込み（#829）。複数選択で、URLの `?acct=main,formal` に載せる。
- * `?acct` が無い間は既定（サブを除く）。DBにもCookieにも持たない。
+ * `?acct` が無い間は既定（全アカウント。#950でサブも含めた）。DBにもCookieにも持たない。
  * 純粋な関数だけ（Prismaに触れない）。
  */
-
-/** 既定で表示しないアカウントの鍵。 */
-export const DEFAULT_HIDDEN_ACCOUNT_KEY = "sub";
 
 /** AIDEが `accounts` を返さず、1アカウントだけ取った回の名前の補い（鍵は `contract.ts` の固定色の表と同じ）。 */
 export const KNOWN_ACCOUNT_NAMES: Record<string, string> = { main: "メイン", sub: "サブ", formal: "フォーマル" };
@@ -24,8 +21,7 @@ export function parseAccountFilter(raw: unknown): AccountFilter {
 /** 全アカウントの鍵のうち、いま選ばれているもの。 */
 export function selectedAccountKeys(filter: AccountFilter, allKeys: string[]): string[] {
   if (filter.kind === "keys") return filter.keys;
-  const visible = allKeys.filter((key) => key !== DEFAULT_HIDDEN_ACCOUNT_KEY);
-  return visible.length > 0 ? visible : allKeys;
+  return allKeys;
 }
 
 /** チップを1つ押した後の選択。最後の1つはオフにできない（変えない）。 */
@@ -46,7 +42,7 @@ export function accountParamOf(selected: string[], allKeys: string[]): string | 
 export function messageAllowed(filter: AccountFilter, message: Pick<MailSummary, "id">): boolean {
   const key = mailAccountKeyOf(message.id);
   if (key === null) return true;
-  return filter.kind === "keys" ? filter.keys.includes(key) : key !== DEFAULT_HIDDEN_ACCOUNT_KEY;
+  return filter.kind === "keys" ? filter.keys.includes(key) : true;
 }
 
 /** 1アカウントだけの選択なら、その鍵（AIDEの `acct` へそのまま渡せる）。 */
