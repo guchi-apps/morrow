@@ -57,6 +57,22 @@ describe("提案としての読み取り", () => {
     assert.deepEqual(result?.suggestions[0]?.fields, { carrier: "yamato", number: "335082908392" });
   });
 
+  it("有効な候補が4件以上でtrackingが4件目でも、追跡提案は上限内に残る（#983）", () => {
+    const reply = JSON.stringify({
+      recommended: "payment",
+      suggestions: [
+        { kind: "payment", confidence: 0.9, fields: { name: "通販", amount: 1000, date: "2026-11-05" } },
+        { kind: "subscription", confidence: 0.8, fields: { name: "会員", amount: 500 } },
+        { kind: "task", confidence: 0.7, fields: { title: "受け取る" } },
+        { kind: "tracking", confidence: 0.6, fields: { carrier: "yamato", number: "335082908392" } },
+      ],
+    });
+    const result = parseSuggestReply(reply);
+    assert.equal(result?.suggestions.length, 3);
+    assert.deepEqual(result?.suggestions.map((s) => s.kind), ["payment", "subscription", "tracking"]);
+    assert.equal(result?.recommended, "payment");
+  });
+
   it("会社が不正でも、番号から決められなければnullのまま残す。番号が無ければ捨てる", () => {
     assert.deepEqual(normalizeSuggestion("tracking", { carrier: "fedex", number: "335082908392" })?.fields, { carrier: null, number: "335082908392" });
     assert.equal(normalizeSuggestion("tracking", { carrier: "yamato", number: "" }), null);
