@@ -3,6 +3,8 @@
  * 会話の本文・idをMorrowのサーバーに残さないための置き場所。別の利用者のidは読まない。
  */
 
+import { endTurn, type ChatState } from "./stream-view.ts";
+
 export const SESSION_MEMORY_KEY = "morrow-chat-session";
 
 export interface StorageLike {
@@ -48,4 +50,29 @@ export function browserStorage(): StorageLike | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * 画面遷移で戻ったときの会話のメモリ上の控え（#976）。JSのモジュール変数にだけ持つので、保存はされず、ページの再読み込みで消える。
+ * 画面（`ChatView`）は別の画面へ移ると捨てられるため、戻るたびにHermesの履歴を取り直すと、通信の揺れで取れなかった回に会話が消える。
+ * 利用者idが違えば読まない。
+ */
+let chatSnapshot: { userId: string; state: ChatState } | null = null;
+
+/** 実行は画面を離れた時点で中断されている。実行中の印と、答えを待つ承認（もう答えられない）を落として持つ。 */
+export function saveChatSnapshot(userId: string, state: ChatState): void {
+  if (state.items.length === 0 || !state.sessionId) return;
+  const settled = endTurn(state);
+  chatSnapshot = {
+    userId,
+    state: { ...settled, items: settled.items.filter((item) => !(item.kind === "approval" && item.status === "waiting")) },
+  };
+}
+
+export function loadChatSnapshot(userId: string): ChatState | null {
+  return chatSnapshot && chatSnapshot.userId === userId ? chatSnapshot.state : null;
+}
+
+export function clearChatSnapshot(): void {
+  chatSnapshot = null;
 }

@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { clearSessionId, loadSessionId, saveSessionId, type StorageLike } from "@/lib/hermes/session-memory";
+import {
+  clearChatSnapshot,
+  clearSessionId,
+  loadChatSnapshot,
+  loadSessionId,
+  saveChatSnapshot,
+  saveSessionId,
+  type StorageLike,
+} from "@/lib/hermes/session-memory";
 import { buildPrompt, stripAttachments } from "@/lib/hermes/prompt-attachment";
-import { initialChatState, restoreFromHistory } from "@/lib/hermes/stream-view";
+import { addNotice, applyEvent, initialChatState, restoreFromHistory, startTurn } from "@/lib/hermes/stream-view";
 
 function fakeStorage(): StorageLike & { data: Map<string, string> } {
   const data = new Map<string, string>();
@@ -59,5 +67,30 @@ describe("チャットの前回の会話の記憶（#929）", () => {
     assert.equal(stripAttachments("前<!--morrow-context-->閉じていない"), "前");
     const restored = restoreFromHistory(initialChatState, "s", [{ role: "user", text: sent }]);
     assert.deepEqual(restored.items.map((i) => (i.kind === "user" ? i.text : null)), ["返信どうする？"]);
+  });
+
+  it("画面遷移の控えは同じ利用者だけが読め、実行中の印と答えを待つ承認は落とす（#976）", () => {
+    clearChatSnapshot();
+    let state = restoreFromHistory(initialChatState, "sess-1", [{ role: "user", text: "予定は？" }]);
+    state = startTurn(state, "続き");
+    state = applyEvent(state, { type: "approval", data: { requestId: "r1", command: "x", description: null } } as never);
+    state = addNotice(state, "info", "メモ");
+    saveChatSnapshot("u1", state);
+    const loaded = loadChatSnapshot("u1");
+    assert.ok(loaded);
+    assert.equal(loaded.running, false);
+    assert.equal(loaded.sessionId, "sess-1");
+    assert.equal(loaded.items.some((i) => i.kind === "approval"), false);
+    assert.equal(loaded.items.filter((i) => i.kind === "user").length, 2);
+    assert.equal(loadChatSnapshot("u2"), null);
+    clearChatSnapshot();
+    assert.equal(loadChatSnapshot("u1"), null);
+  });
+
+  it("会話が空・セッションidが無い状態は控えない", () => {
+    clearChatSnapshot();
+    saveChatSnapshot("u1", initialChatState);
+    saveChatSnapshot("u1", addNotice(initialChatState, "info", "x"));
+    assert.equal(loadChatSnapshot("u1"), null);
   });
 });
