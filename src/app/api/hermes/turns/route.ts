@@ -11,6 +11,7 @@ import { parseProposalEvent } from "@/lib/hermes/proposal-core";
 import { recordHermesTurnUsage } from "@/lib/hermes/record-usage";
 import type { RelayEvent } from "@/lib/hermes/stream-view";
 import { isAutoWriteTool, isProposeTool, knownToolKey, resultFailed } from "@/lib/hermes/tool-labels";
+import { claimHermesSession, ownsHermesSession } from "@/lib/hermes/session-owner";
 import { registerTurn, releaseTurn } from "@/lib/hermes/turn-owners";
 import { readJsonObject } from "@/lib/json-body";
 import { mailContextFor } from "@/lib/mail/chat-context";
@@ -59,7 +60,9 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  const continuing = typeof sessionId === "string" ? sessionId : undefined;
+  // 継続は、その利用者のセッションだけ（#937）。他人のもの・持ち主不明のidは新規会話として始める
+  const requested = typeof sessionId === "string" ? sessionId : undefined;
+  const continuing = requested && (await ownsHermesSession(user.id, requested).catch(() => false)) ? requested : undefined;
 
   // ターンの開始は利用者ごとに3秒に1回（#726）
   const now = Date.now();
@@ -119,6 +122,18 @@ export async function POST(request: Request) {
           if (event.type === "turn") {
             turnId = event.data.turnId;
             currentSessionId = event.data.sessionId;
+            // 始まったセッションを利用者へ結びつける（#937）。DBの失敗で結べない回は後の継続が新規会話になるだけで、ターンは止めない
+            const claimed = await claimHermesSession(user.id, currentSessionId).catch((error) => {
+              console.error("[aide-bot] Hermesセッションの持ち主を記録できなかった", error instanceof Error ? error.message : error);
+              return null;
+            });
+            if (claimed === false) {
+              // すでに別の利用者のセッション。idをブラウザへ渡さず、ターンも続けない
+              console.error("[aide-bot] 別の利用者のHermesセッションidが返った");
+              await (await hermesClient()).interrupt(event.data.turnId).catch(() => {});
+              write(sse({ type: "error", data: { reason: "hermes_down", message: "会話を始められませんでした。もう一度お試しください。" } }));
+              break;
+            }
             registerTurn(turnId, user.id);
             write(sse(event));
             continue;
