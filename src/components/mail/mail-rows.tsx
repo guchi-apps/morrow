@@ -41,7 +41,11 @@ type Props = {
   initialNextToken: string | null;
   /** 続きを取るときの条件（画面のURLと同じ）。 */
   listQuery: { view: string; acct: string | null; q: string };
+  /** AI検索（#998）の行ごとの印。関連度のバッジと、理由・見つかった条件の1行。 */
+  annotations?: Record<string, MailRowAnnotation>;
 };
+
+export type MailRowAnnotation = { badge?: { label: string; strong: boolean }; note?: string };
 
 
 const BULK: { action: MailAction; label: string }[] = [
@@ -52,7 +56,7 @@ const BULK: { action: MailAction; label: string }[] = [
 ];
 
 /** 一覧の行とまとめての操作（#683）。選んだメールに既読・アーカイブ・ラベル・ゴミ箱をまとめて当てる。 */
-export function MailRows({ messages: listed, labels, supportsLabels, inTrash, showAccount, nowMs, back, inboxView, initialNextToken, listQuery }: Props) {
+export function MailRows({ messages: listed, labels, supportsLabels, inTrash, showAccount, nowMs, back, inboxView, initialNextToken, listQuery, annotations }: Props) {
   // アーカイブに成功したメールは、取り直した一覧が古くても受信トレイへ戻さない（#795）。保存はブラウザなので描画後に読む
   const [archived, setArchived] = useState<ArchivedMap>({});
   useEffect(() => {
@@ -167,6 +171,7 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
           const rowAccountKey = mailAccountKeyOf(message.id);
           const tone = ACCOUNT_TONE_CLASS[rowAccountKey ? mailAccountTone(rowAccountKey) : "coral"];
           const href = `/mail/${encodeURIComponent(message.id)}?back=${encodeURIComponent(back)}`;
+          const annotation = annotations?.[message.id];
           return (
             <SwipeArchiveRow
               key={message.id}
@@ -200,7 +205,19 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
                 }}
                 className="grid min-w-0 flex-1 gap-0.5 md:grid-cols-[170px_1fr_auto] md:items-center md:gap-3">
                 <span className="flex min-w-0 items-baseline justify-between gap-2 md:contents">
-                  <span className={cn("truncate text-[0.8125rem]", message.unread && "font-bold")}>{senderName(message.from)}</span>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className={cn("truncate text-[0.8125rem]", message.unread && "font-bold")}>{senderName(message.from)}</span>
+                    {annotation?.badge && (
+                      <span
+                        className={cn(
+                          "shrink-0 rounded-md px-1.5 py-px text-[0.625rem] font-bold",
+                          annotation.badge.strong ? "bg-accent-surface text-accent" : "bg-rail text-muted",
+                        )}
+                      >
+                        {annotation.badge.label}
+                      </span>
+                    )}
+                  </span>
                   <span className="inline-flex shrink-0 items-center gap-1.5 text-[0.6875rem] text-muted md:order-last md:text-right">
                     {/* 丸印の色＝アカウント。未読は塗り、既読は同じ色の輪（#713・#760・#789）。大きさは常に同じで日時の位置はずれない */}
                     {message.notified && <Bell role="img" aria-label="お知らせ済み" className="size-3.5 shrink-0 text-accent" />}
@@ -226,6 +243,12 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
                   </span>
                   {message.snippet && <> — {message.snippet}</>}
                 </span>
+                {annotation?.note && (
+                  <span className="mt-0.5 line-clamp-2 text-[0.6875rem] leading-relaxed text-muted md:col-span-3">
+                    {annotation.badge ? <b className="mr-1.5 text-[0.65625rem] text-accent">AI</b> : null}
+                    {annotation.note}
+                  </span>
+                )}
                 {inboxView &&
                   (message.summary ? (
                     <span className="mt-0.5 line-clamp-2 rounded-lg bg-rail px-2.5 py-1 text-xs leading-relaxed text-foreground md:col-span-3">

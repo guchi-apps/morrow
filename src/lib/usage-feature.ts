@@ -26,6 +26,8 @@ export type UsageFeature =
   | "mail_chat_query"
   | "mail_learn"
   | "mail_list_summary"
+  | "mail_search_query"
+  | "mail_search_rank"
   | "hermes_chat";
 
 /** 使用量APIに出す機能名（ops-dashboardの画面にそのまま載る）。 */
@@ -45,6 +47,8 @@ export const USAGE_FEATURE_LABELS: Record<UsageFeature, string> = {
   mail_chat_query: "チャットのメール検索条件づくり",
   mail_learn: "メール通知の学習",
   mail_list_summary: "メール一覧の要約",
+  mail_search_query: "メール検索の条件づくり",
+  mail_search_rank: "メール検索の並べ替え",
   hermes_chat: "Hermesのチャット",
 };
 
@@ -98,6 +102,8 @@ export const USAGE_FEATURE_BUCKETS: Record<UsageFeature, UsageBucket> = {
   mail_chat_query: "mail",
   mail_learn: "mail",
   mail_list_summary: "mail",
+  mail_search_query: "mail",
+  mail_search_rank: "mail",
   hermes_chat: "other",
 };
 

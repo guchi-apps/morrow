@@ -1,4 +1,3 @@
-import { Search } from "lucide-react";
 import Link from "next/link";
 import { after } from "next/server";
 import { redirect } from "next/navigation";
@@ -10,6 +9,7 @@ import { MailCriteriaForm } from "@/components/mail/mail-criteria-form";
 import { MailLearnedRules } from "@/components/mail/mail-learned-rules";
 import { elapsedLabel } from "@/components/mail/mail-format";
 import { MailRows } from "@/components/mail/mail-rows";
+import { MailSearch } from "@/components/mail/mail-search";
 import { getCurrentUser } from "@/lib/auth-user";
 import { jstDayKey, jstTimeLabel } from "@/lib/day-key";
 import { listMailForPage } from "@/lib/mail/aide-client";
@@ -62,12 +62,14 @@ export default async function MailPage({ searchParams }: Props) {
   const filter = parseAccountFilter(query.acct);
   // URLへ載せる選択（既定のときは付けない）。表示切替・検索・ページ送りで引き継ぐ
   const account = filter.kind === "keys" ? filter.keys.join(",") : null;
+  // 検索語（#998）。検索は画面（`MailSearch`）が `/api/mail/search` から段階ごとに取り、この下の一覧だけを差し替える。
+  // サーバーが描くのは常に検索していない一覧（×で即座に戻すため。本文から戻ったときは画面が検索を取り直す）
   const q = (query.q ?? "").trim().slice(0, 200);
 
   const now = new Date();
-  const result = await listMailForPage(user, { view, labelId: null, filter, q, pageToken: null });
-  // 受信トレイでは、INBOXラベルの無い（アーカイブ済みの）メールを出さない（#795）。検索中は対象外
-  const inboxView = view === "inbox" && !q;
+  const result = await listMailForPage(user, { view, labelId: null, filter, q: "", pageToken: null });
+  // 受信トレイでは、INBOXラベルの無い（アーカイブ済みの）メールを出さない（#795）
+  const inboxView = view === "inbox";
   // INBOXの無いメール（アーカイブ・ゴミ箱）の要約は消す（#851。Gmail側の直接操作の取りこぼしを拾う）
   if (result.ok) {
     const outside = result.value.messages.filter((m) => !m.labelIds.includes("INBOX")).map((m) => m.id);
@@ -98,7 +100,6 @@ export default async function MailPage({ searchParams }: Props) {
     if (view !== "inbox") params.set("view", view);
     const acct = accountParamOf(toggleAccountKey(selected, allKeys, key), allKeys);
     if (acct) params.set("acct", acct);
-    if (q) params.set("q", q);
     return `/mail${params.size > 0 ? `?${params}` : ""}`;
   };
   const viewHref = (key: MailViewKey) => {
@@ -111,7 +112,6 @@ export default async function MailPage({ searchParams }: Props) {
   const self = new URLSearchParams();
   if (view !== "inbox") self.set("view", view);
   if (account) self.set("acct", account);
-  if (q) self.set("q", q);
   const back = `/mail${self.size > 0 ? `?${self}` : ""}`;
 
   const heading = MAIL_VIEWS.find((item) => item.key === view)!.label;
@@ -161,23 +161,17 @@ export default async function MailPage({ searchParams }: Props) {
           })}
         </nav>
 
-        <div className="flex items-center gap-2">
-          <form action="/mail" method="get" role="search" className="flex min-w-0 flex-1 items-center gap-1.5 rounded-[9px] border border-border bg-surface px-2.5">
-            <Search className="size-3.5 shrink-0 text-muted" aria-hidden="true" />
-            {view !== "inbox" && <input type="hidden" name="view" value={view} />}
-            {account && <input type="hidden" name="acct" value={account} />}
-            <input
-              type="search"
-              name="q"
-              defaultValue={q}
-              maxLength={200}
-              placeholder="メールを検索"
-              aria-label="メールを検索"
-              className="min-w-0 flex-1 bg-transparent py-1.5 text-xs outline-none"
-            />
-          </form>
-        </div>
-
+        <MailSearch
+          key={`${view}\u0000${account ?? ""}`}
+          initialQuery={q}
+          view={view}
+          account={account}
+          labels={result.ok ? result.value.labels : []}
+          supportsLabels={result.ok ? result.value.supportsLabels : false}
+          inTrash={view === "trash"}
+          showAccount={showAccounts && selected.length > 1}
+          nowMs={now.getTime()}
+        >
         {!result.ok ? (
           <p role="alert" className="rounded-[10px] border border-danger/30 bg-danger-surface px-3.5 py-2.5 text-xs leading-relaxed text-danger">
             {MAIL_FAILURE_MESSAGES[result.kind]}
@@ -194,18 +188,14 @@ export default async function MailPage({ searchParams }: Props) {
             )}
             {rows.length === 0 && !result.value.nextPageToken ? (
               <p className="rounded-xl border border-border bg-surface px-4 py-3 text-xs text-muted">
-                {result.value.partial
-                  ? "取得できたアカウントには、表示するメールがありません。"
-                  : q
-                    ? "検索に一致するメールはありません。"
-                    : "メールはありません。"}
+                {result.value.partial ? "取得できたアカウントには、表示するメールがありません。" : "メールはありません。"}
               </p>
             ) : (
               <MailRows
                 key={back}
                 messages={rows}
                 initialNextToken={result.value.nextPageToken}
-                listQuery={{ view, acct: account, q }}
+                listQuery={{ view, acct: account, q: "" }}
                 labels={result.value.labels}
                 supportsLabels={result.value.supportsLabels}
                 inTrash={view === "trash"}
@@ -218,6 +208,7 @@ export default async function MailPage({ searchParams }: Props) {
             {result.value.resultSizeEstimate > 0 && <p className="text-xs text-muted">約{result.value.resultSizeEstimate}通</p>}
           </>
         )}
+        </MailSearch>
       </div>
     </div>
   );
