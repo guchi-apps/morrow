@@ -6,6 +6,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatItemView } from "@/components/hermes/chat-items";
 import { ProposalCard } from "@/components/hermes/proposal-card";
 import { describeHermesError, type ChatConnection } from "@/lib/hermes/errors";
+import {
+  addPendingInterrupt,
+  flushInterrupts,
+  listPendingInterrupts,
+  sendInterrupt,
+  startInterruptFlush,
+  type InterruptStorage,
+} from "@/lib/hermes/interrupt-queue";
 import { readTurnIdHeader } from "@/lib/hermes/turn-header";
 import type { HermesErrorKind } from "@/lib/hermes/client-core";
 import type { ProposalView } from "@/lib/hermes/proposal-core";
@@ -123,6 +131,14 @@ function snapshotFor(userId: string): ChatState | null {
   const snapshot = loadChatSnapshot(userId);
   if (!snapshot) return null;
   return snapshot.sessionId && snapshot.sessionId === loadSessionId(browserStorage(), userId) ? snapshot : null;
+}
+
+function interruptStorage(): InterruptStorage | null {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
 }
 
 export function ChatView({ userId, initialPending }: Props) {
@@ -262,6 +278,21 @@ export function ChatView({ userId, initialPending }: Props) {
       restoreAbortRef.current = null;
     };
   }, [snapshot, startRestore]);
+
+  // 届いていないinterruptの再送。開いたとき・回線が戻ったとき・アプリへ戻ったときに試す（#1005）
+  useEffect(() => {
+    const storage = interruptStorage();
+    const again = () => {
+      if (document.visibilityState !== "hidden" && listPendingInterrupts(storage).length > 0) startInterruptFlush(storage);
+    };
+    again();
+    document.addEventListener("visibilitychange", again);
+    window.addEventListener("online", again);
+    return () => {
+      document.removeEventListener("visibilitychange", again);
+      window.removeEventListener("online", again);
+    };
+  }, []);
 
   // 取り直しが尽きたあと、アプリへ戻った・回線が戻ったときにもう一度試す（#976）
   useEffect(() => {
@@ -460,12 +491,17 @@ export function ChatView({ userId, initialPending }: Props) {
       controller?.abort();
       return;
     }
-    try {
-      await fetch(`/api/hermes/turns/${encodeURIComponent(turnId)}/interrupt`, { method: "POST" });
-    } catch {
-      // 届かなければ下の切断で止める
+    // interruptが届かなかった（回線の一時断など）ときは、接続も閉じずに控えて再送する。閉じるとサーバーのターンだけが続く（#1005）
+    const storage = interruptStorage();
+    addPendingInterrupt(storage, turnId);
+    const remaining = await flushInterrupts(storage, sendInterrupt);
+    if (remaining) {
+      setChat((s) => addNotice(s, "error", "止める操作が届いていません。通信が戻りしだい自動で再送します。"));
+      startInterruptFlush(storage);
+      return;
     }
-    // 中断の応答が来なくても止める（接続を閉じるとブリッジも中断する）
+    // 止まったあとは、応答が来なくても接続を閉じる（先の「届いていません」の通知は残さない）
+    setChat((s) => ({ ...s, items: s.items.filter((item) => !(item.kind === "notice" && item.text.startsWith("止める操作が届いていません"))) }));
     window.setTimeout(() => {
       if (abortRef.current === controller) controller?.abort();
     }, 8000);
@@ -475,7 +511,10 @@ export function ChatView({ userId, initialPending }: Props) {
     // 実行中のターンは、止める操作と同じく先にinterruptを送る（接続を閉じるだけではサーバーが続ける。#1005）
     const turnId = turnRef.current;
     if (turnId && !endedRef.current) {
-      void fetch(`/api/hermes/turns/${encodeURIComponent(turnId)}/interrupt`, { method: "POST" }).catch(() => {});
+      // 届くまで控えて再送する（画面を作り直しても続く）
+      const storage = interruptStorage();
+      addPendingInterrupt(storage, turnId);
+      startInterruptFlush(storage);
     }
     abortRef.current?.abort();
     // 復元中なら取り消す（中断された復元は結果を反映しないので、読み込み中の表示もここで閉じる）
