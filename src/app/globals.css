@@ -346,57 +346,6 @@ body {
   }
 }
 
-/*
- * メールの一覧⇔本文の切り替え（#699）。本文は右から、一覧へ戻るときは左から少しだけ滑り込む
- * （全幅のスワイプではない）。押した側の画面は反対へ少し退く（`mail-pane-leave-*`）。
- * 向きは `MailTransition` が前のパスから決める。
- */
-.mail-pane-enter-forward {
-  animation: mail-pane-in-forward 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-.mail-pane-enter-back {
-  animation: mail-pane-in-back 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-.mail-pane-leave-forward {
-  animation: mail-pane-out-forward 0.2s ease-in forwards;
-}
-.mail-pane-leave-back {
-  animation: mail-pane-out-back 0.2s ease-in forwards;
-}
-
-@keyframes mail-pane-in-forward {
-  0% {
-    opacity: 0;
-    transform: translateX(56px);
-  }
-  100% {
-    opacity: 1;
-    transform: none;
-  }
-}
-@keyframes mail-pane-in-back {
-  0% {
-    opacity: 0;
-    transform: translateX(-56px);
-  }
-  100% {
-    opacity: 1;
-    transform: none;
-  }
-}
-@keyframes mail-pane-out-forward {
-  100% {
-    opacity: 0.35;
-    transform: translateX(-32px);
-  }
-}
-@keyframes mail-pane-out-back {
-  100% {
-    opacity: 0.35;
-    transform: translateX(32px);
-  }
-}
-
 /* 読み込み中のスケルトン（#699）。帯の上を明るい筋がゆっくり流れる。 */
 .mail-skeleton {
   border-radius: 6px;
@@ -460,10 +409,6 @@ body {
   .ind-dots > span,
   .ind-bars > span,
   .topic-tab-fade,
-  .mail-pane-enter-forward,
-  .mail-pane-enter-back,
-  .mail-pane-leave-forward,
-  .mail-pane-leave-back,
   .mail-skeleton,
   .mail-loading-dots > span {
     animation: none !important;

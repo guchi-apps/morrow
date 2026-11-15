@@ -14,7 +14,6 @@ import { FLOW_KIND_META } from "@/lib/mail/flow-record-core";
 import { ACCOUNT_TONE_CLASS } from "./mail-account-chip";
 import { mailTimeLabel } from "./mail-format";
 import { MailNotice } from "./mail-notice";
-import { leaveMailPane } from "./mail-transition";
 import { SwipeArchiveRow } from "./swipe-archive-row";
 import { useMailAction } from "./use-mail-action";
 import { useMailPager } from "./use-mail-pager";
@@ -194,9 +193,7 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
               />
               <Link
                 href={href}
-                onClick={(event) => {
-                  if (leaveMailPane(event, "forward")) setOpening(message.id);
-                }}
+                onClick={() => setOpening(message.id)}
                 className="grid min-w-0 flex-1 gap-0.5 md:grid-cols-[170px_1fr_auto] md:items-center md:gap-3">
                 <span className="flex min-w-0 items-baseline justify-between gap-2 md:contents">
                   <span className={cn("truncate text-[0.8125rem]", message.unread && "font-bold")}>{senderName(message.from)}</span>
