@@ -198,6 +198,9 @@ export function UsageChart({ days }: { days: DayUsage[] | null }) {
           </li>
         ))}
       </ul>
+      <p className="text-[0.6875rem] leading-snug text-muted">
+        GPT-6系の単価は出典が未確認の仮の値です。金額は傾向を見るための目安として読んでください。
+      </p>
       {unpriced > 0 && (
         <p className="text-[0.6875rem] leading-snug text-muted">
           単価が未確認のモデルの呼び出し（{unpriced}回）は金額に含めていません。
