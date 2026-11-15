@@ -172,3 +172,17 @@ describe("学習と別タブの編集の競合（#847）", () => {
     assert.deepEqual(removeLearnedRule([a, b, c], { text: b.text, notify: false }), [a, b, c]);
   });
 });
+
+it("アーカイブの傾向は notify:false のときだけ持ち、知らせないとは別の傾向として扱う（#942）", async () => {
+  const { normalizeLearnedRules, ruleKey } = await import("../src/lib/mail/learn-core.ts");
+  const rules = normalizeLearnedRules(
+    [
+      { text: "広告A", notify: false, archive: true },
+      { text: "通知B", notify: true, archive: true },
+    ],
+    "2026-11-15",
+  );
+  assert.equal(rules[0]!.archive, true);
+  assert.equal(rules[1]!.archive, undefined);
+  assert.notEqual(ruleKey({ text: "広告A", notify: false, archive: true }), ruleKey({ text: "広告A", notify: false }));
+});

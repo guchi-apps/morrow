@@ -462,6 +462,8 @@ model MailFeedback {
   messageId String  @db.VarChar(320)
   /// true＝知らせる、false＝知らせない。
   notify    Boolean
+  /// 「知らせない」のうち、受信トレイからアーカイブしてほしい印（#942）。
+  archive   Boolean  @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

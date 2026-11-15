@@ -10,7 +10,7 @@ import { normalizeLearnedRules, revertLearnResult } from "@/lib/mail/learn-core"
 /**
  * メールに付ける印（#833）。
  *
- * - `POST { "id": "<メールID>", "notify": true|false }`: 印を付け、AIがそこから傾向を読み取って一覧を更新する。
+ * - `POST { "id": "<メールID>", "notify": true|false, "archive"?: true }`（`archive` は `notify: false` のときだけ。受信トレイからアーカイブしてほしい印。#942）: 印を付け、AIがそこから傾向を読み取って一覧を更新する。
  *   Codexが終わるまで待つ（数十秒）。持ち主の照合は `learnFromMail()` の中（`getMail()`）
  * - `DELETE { "id": "<メールID>", "revert"?: { "removed": [傾向…], "added": [傾向…] } }`: 印を外す（「取り消す」）。
  *   `revert` があれば、学習が当てた差分（画面が `POST` の応答で受け取った `change`）を**いまの一覧から**逆に当てる。
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
   if (!isMailMessageId(body?.id)) return NextResponse.json({ error: "メールの指定が不正です。" }, { status: 400 });
   if (typeof body.notify !== "boolean") return NextResponse.json({ error: "知らせるかどうかを指定してください。" }, { status: 400 });
 
-  const result = await learnFromMail(user, body.id, body.notify);
+  const result = await learnFromMail(user, body.id, body.notify, body.archive === true);
   if (!result.ok) {
     const status = result.kind === "busy" ? 429 : result.kind === "conflict" ? 409 : result.kind === "not_owner" ? 403 : result.kind === "not_found" ? 404 : 502;
     const error = result.message ?? (result.kind === "busy" || result.kind === "failed" || result.kind === "conflict" ? "学習できませんでした。" : MAIL_FAILURE_MESSAGES[result.kind]);

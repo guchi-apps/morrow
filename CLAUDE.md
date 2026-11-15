@@ -861,6 +861,13 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
   - 傾向の同一性は `notify`＋`text`（`ruleKey()`）。テストは `test/mail-learn.test.ts`
 - 帯は判定していない・不要と判定したメールにも出す（`mailTriageFor()`）
 
+### メールの自動アーカイブと購読解除の導線（#942）
+
+学習（#833）の第3の印「アーカイブする」。傾向は `notify: false` に `archive: true` を足した形（`LearnedRule.archive`。`ruleKey()` は `archive:<text>` で「知らせない」と別の傾向）、押した印は `MailFeedback.archive`。
+
+- **新着確認（`triage.ts`）は、判定が `needed: false` かつ `archive: true`（傾向に合う）で、傾向にアーカイブがあり、受信トレイにあるメールだけをアーカイブする**（`archiveJudged()`。AIDEは複数アカウントにまたがる操作を断るのでアカウントごと）。カード利用（#898）は対象外。失敗しても判定・通知は止めず再試行もしない。成功分は手動アーカイブと同じく要約・分析を消す
+- **「今後届かないように」は購読解除の意味**（Gmailのフィルタは作らない。AIDEに道具が無い）。`unsubscribe-core.ts` が本文HTML・テキストから `https` の配信停止リンクだけを探し、帯に「購読解除ページを開く」を出す。**Morrowは開くだけで自動では押さない**。AIDEのcontractにList-Unsubscribeヘッダーは無い
+
 ### メール一覧の要約（#851。#732の例外）
 
 受信トレイ表示の各行の下に、本文から作ったAI要約（最大2行）を出す。**メール由来の文面（要約1〜2文）を `MailListSummary` に持つ——「メール由来の文面をDBに残さない」（#732）の例外**。持つのは要約だけで、件名・差出人・本文は持たない（`list-summary.ts`・`list-summary-core.ts`・`test/mail-list-summary.test.ts`）。
