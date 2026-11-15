@@ -26,5 +26,5 @@ export async function POST(request: Request) {
     const error = result.message ?? (result.kind === "no_analysis" ? "分析の結果が残っていません。" : MAIL_FAILURE_MESSAGES[result.kind]);
     return NextResponse.json({ error, kind: result.kind }, { status });
   }
-  return NextResponse.json({ balance: result.check });
+  return NextResponse.json({ balance: result.check, card: result.card });
 }

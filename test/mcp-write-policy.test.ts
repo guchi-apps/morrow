@@ -27,6 +27,12 @@ test("#366で漏れていた状態変更の道具が書き込みに入ってい�
   }
 });
 
+test("カード引き落とし見込み（#910）は読み取りと書き込みに分かれて入っている", () => {
+  assert.ok((aide.readTools ?? []).includes("asset_manager_card_withdrawals"));
+  assert.ok(aide.writeTools.includes("asset_manager_confirm_card_withdrawal"));
+  assert.equal((aide.readTools ?? []).includes("asset_manager_confirm_card_withdrawal"), false);
+});
+
 test("未分類の新しい道具は許可リストに入らない", () => {
   assert.equal((aide.readTools ?? []).includes("aide_new_mutating_tool"), false);
 });

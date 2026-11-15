@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/auth-user";
 import { readJsonObject } from "@/lib/json-body";
 import { analyzeMail } from "@/lib/mail/analyze";
 import { MAIL_FAILURE_MESSAGES, isMailMessageId } from "@/lib/mail/contract";
-import { checkWithdrawal } from "@/lib/mail/withdrawal";
+import { checkCardWithdrawal, checkWithdrawal } from "@/lib/mail/withdrawal";
 
 /**
  * メールのAI分析（#766）。`{ "id": "<メールID>", "refresh"?: true }` の本文をCodexに読ませ、要約と提案を返す。
@@ -29,6 +29,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error, kind: result.kind }, { status });
   }
   // 引き落としのお知らせなら、残高は記憶のヒット時も毎回引いて判定する（#842。分析の記憶には残高を入れない）
-  const balance = result.result.withdrawal ? await checkWithdrawal(user.id, result.result.withdrawal) : null;
-  return NextResponse.json({ ...result.result, balance, cached: result.cached });
+  const withdrawal = result.result.withdrawal;
+  const [balance, card] = withdrawal
+    ? await Promise.all([checkWithdrawal(user.id, withdrawal), checkCardWithdrawal(user.id, withdrawal, body.id)])
+    : [null, null];
+  return NextResponse.json({ ...result.result, balance, card, cached: result.cached });
 }
