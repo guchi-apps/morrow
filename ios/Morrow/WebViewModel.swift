@@ -152,6 +152,11 @@ final class WebViewModel: NSObject, ObservableObject {
     /// 保存済みの画面内のリンク。アプリの画面なら通常どおり読み込む（繋がらなければ、その画面の保存済みへ移る）
     func openFromCache(_ url: URL) {
         if AppConfig.isAppURL(url) {
+            // 本物が着くまで元の画面のまま動かないと、押しても反応が無いように見える（#959）。
+            // 行き先の保存があれば先にそちらへ切り替える（帯の状態は今のまま。本読み込みは続けて、着いたら入れ替わる）
+            if let mode = cachedPage?.mode {
+                showCachedPage(for: url, mode: mode)
+            }
             load(url)
         } else {
             openExternally(url)
