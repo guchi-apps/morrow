@@ -215,12 +215,12 @@ describe("書き込みの呼び出し（toolCallFor が作る引数は入力の�
     assert.equal(call.tool, "aide_create_task");
     assertValid(call.tool, call.args);
   });
-  it("タスク（時刻・予定日つき。時刻はメモへ書き、引数は日付のみ。#907）", () => {
+  it("タスク（時刻・予定日つき。時刻はタイムゾーン付きの日時で送る。#927）", () => {
     const call = build("task", { title: "受け取る", due: "2026-11-15", dueTime: "18:00", planned: "2026-11-14", plannedTime: "09:30", memo: "要点" });
     assertValid(call.tool, call.args);
-    assert.equal(call.args.due, "2026-11-15");
-    assert.equal(call.args.planned, "2026-11-14");
-    assert.match(String(call.args.memo), /^期限 11\/15 18:00\n予定日 11\/14 09:30\n要点/);
+    assert.equal(call.args.due, "2026-11-15T18:00:00+09:00");
+    assert.equal(call.args.planned, "2026-11-14T09:30:00+09:00");
+    assert.match(String(call.args.memo), /^要点/);
   });
   it("予定（時刻あり・終日）", () => {
     for (const fields of [
