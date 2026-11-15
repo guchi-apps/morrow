@@ -52,7 +52,7 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
         <TopicRefreshButton />
 
         <HeaderDialog
-          icon={Clock}
+          icon={<Clock className="size-4" aria-hidden="true" />}
           label="通知する時間"
           badge={schedules.length}
           summary={
@@ -77,7 +77,7 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
         )}
 
         <HeaderDialog
-          icon={Newspaper}
+          icon={<Newspaper className="size-4" aria-hidden="true" />}
           label="通知する内容"
           badge={enabledCategories.length}
           summary={enabledCategories.length > 0 ? `ニュースを仕入れる種類・${enabledCategories.length}種類を仕入れ中` : "ニュースを仕入れる種類・仕入れを止めています"}
