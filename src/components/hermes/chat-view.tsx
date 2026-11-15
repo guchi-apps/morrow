@@ -8,7 +8,16 @@ import { ProposalCard } from "@/components/hermes/proposal-card";
 import { describeHermesError, type ChatConnection } from "@/lib/hermes/errors";
 import type { HermesErrorKind } from "@/lib/hermes/client-core";
 import type { ProposalView } from "@/lib/hermes/proposal-core";
-import { browserStorage, clearSessionId, loadSessionId, saveSessionId } from "@/lib/hermes/session-memory";
+import { nextRestoreDelay, shouldRetryRestore } from "@/lib/hermes/restore-retry";
+import {
+  browserStorage,
+  clearChatSnapshot,
+  clearSessionId,
+  loadChatSnapshot,
+  loadSessionId,
+  saveChatSnapshot,
+  saveSessionId,
+} from "@/lib/hermes/session-memory";
 import { readSseEvents } from "@/lib/hermes/sse";
 import { mentionsWeather } from "@/lib/weather/chat-context-core";
 import {
@@ -70,14 +79,40 @@ function currentLocation(): Promise<{ latitude: number; longitude: number } | nu
   });
 }
 
+/** 待つ。中断されたら待ちを打ち切る。 */
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        window.clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
+
+/** 画面遷移で戻ったときの控え（#976）。端末に覚えたセッションと同じ会話のときだけ使う。 */
+function snapshotFor(userId: string): ChatState | null {
+  const snapshot = loadChatSnapshot(userId);
+  if (!snapshot) return null;
+  return snapshot.sessionId && snapshot.sessionId === loadSessionId(browserStorage(), userId) ? snapshot : null;
+}
+
 export function ChatView({ userId, initialPending }: Props) {
-  const [chat, setChat] = useState<ChatState>(initialChatState);
+  // 控えがあれば取り直さず即表示する。画面を離れるとこのコンポーネントは捨てられるため、戻るたびの履歴取得を避ける
+  const [snapshot] = useState(() => snapshotFor(userId));
+  const [chat, setChat] = useState<ChatState>(snapshot ?? initialChatState);
+  const chatRef = useRef(chat);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [connection, setConnection] = useState<ChatConnection>("unknown");
   const [pending, setPending] = useState(initialPending);
-  const [restoring, setRestoring] = useState(true);
-  const [resumed, setResumed] = useState(false);
+  const [restoring, setRestoring] = useState(() => snapshot === null && loadSessionId(browserStorage(), userId) !== null);
+  const [restoreFailed, setRestoreFailed] = useState(false);
+  const [resumed, setResumed] = useState(snapshot !== null);
   const abortRef = useRef<AbortController | null>(null);
   const turnRef = useRef<string | null>(null);
   // 前回の会話の復元の中断口。復元中に「新しい会話」を選んだとき、遅れて届いた旧履歴で画面を上書きさせない（#936）
@@ -90,6 +125,10 @@ export function ChatView({ userId, initialPending }: Props) {
   useEffect(() => {
     turnRef.current = chat.turnId;
   }, [chat.turnId]);
+
+  useEffect(() => {
+    chatRef.current = chat;
+  }, [chat]);
 
   const retryStatus = useCallback(() => {
     setConnection("unknown");
@@ -119,46 +158,96 @@ export function ChatView({ userId, initialPending }: Props) {
     };
   }, []);
 
-  // 前回の会話を取り直す（#929）。取れなければ空の画面から続ける
-  useEffect(() => {
-    const storage = browserStorage();
-    const remembered = loadSessionId(storage, userId);
-    const controller = new AbortController();
-    restoreAbortRef.current = controller;
-    void (async () => {
-      if (!remembered) {
-        setRestoring(false);
-        return;
-      }
+  // 前回の会話を取り直す（#929）。通信の揺れで落ちた回はやり直し（#976）、尽きたら読み直しボタンを出す
+  const restore = useCallback(
+    async (remembered: string, controller: AbortController) => {
+      const storage = browserStorage();
       try {
-        const response = await fetch(`/api/hermes/sessions/${encodeURIComponent(remembered)}/messages`, {
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        const data = (await response.json().catch(() => null)) as {
-          messages?: { role: "user" | "assistant"; text: string }[];
-          kind?: string;
-        } | null;
-        if (controller.signal.aborted) return;
-        if (response.ok && Array.isArray(data?.messages)) {
-          const messages = data.messages;
-          setChat((s) => (s.items.length === 0 && s.sessionId === null ? restoreFromHistory(s, remembered, messages) : s));
-          setResumed(messages.some((m) => m.text.trim() !== ""));
-        } else if (data?.kind === "no_session") {
-          clearSessionId(storage);
-        } else {
-          setChat((s) => addNotice(s, "info", "前回の会話を読み込めませんでした。新しい会話として続けられます。"));
+        for (let attempt = 0; ; attempt += 1) {
+          let kind: string | null = null;
+          try {
+            const response = await fetch(`/api/hermes/sessions/${encodeURIComponent(remembered)}/messages`, {
+              cache: "no-store",
+              signal: controller.signal,
+            });
+            const data = (await response.json().catch(() => null)) as {
+              messages?: { role: "user" | "assistant"; text: string }[];
+              kind?: string;
+            } | null;
+            if (controller.signal.aborted) return;
+            if (response.ok && Array.isArray(data?.messages)) {
+              const messages = data.messages;
+              setChat((s) => (s.items.length === 0 && s.sessionId === null ? restoreFromHistory(s, remembered, messages) : s));
+              setResumed(messages.some((m) => m.text.trim() !== ""));
+              return;
+            }
+            kind = data?.kind ?? (response.status >= 500 ? "server_error" : "failed");
+            if (kind === "no_session") {
+              clearSessionId(storage);
+              return;
+            }
+          } catch {
+            if (controller.signal.aborted) return;
+          }
+          const delay = shouldRetryRestore(kind) ? nextRestoreDelay(attempt) : null;
+          if (delay === null) {
+            setRestoreFailed(true);
+            return;
+          }
+          // 再試行を待つあいだは送信を止めない。新しい会話を始めたら、遅れて届いた履歴は上書きガードで捨てられる
+          setRestoring(false);
+          await sleep(delay, controller.signal);
+          if (controller.signal.aborted) return;
         }
-      } catch {
-        if (!controller.signal.aborted) setChat((s) => addNotice(s, "info", "前回の会話を読み込めませんでした。新しい会話として続けられます。"));
       } finally {
         if (!controller.signal.aborted) setRestoring(false);
       }
-    })();
+    },
+    [],
+  );
+
+  const startRestore = useCallback(() => {
+    const remembered = loadSessionId(browserStorage(), userId);
+    restoreAbortRef.current?.abort();
+    // 覚えたidが無いときは、読み込み中の表示を初期値の時点で出していない
+    if (!remembered) return;
+    const controller = new AbortController();
+    restoreAbortRef.current = controller;
+    void restore(remembered, controller);
+  }, [restore, userId]);
+
+  const retryRestore = useCallback(() => {
+    setRestoreFailed(false);
+    setRestoring(true);
+    startRestore();
+  }, [startRestore]);
+
+  useEffect(() => {
+    // 開いた直後の取り直し。画面の初期表示（読み込み中か）はuseStateの初期値で決めてある
+    if (snapshot === null) startRestore();
     return () => {
-      controller.abort();
-      if (restoreAbortRef.current === controller) restoreAbortRef.current = null;
+      restoreAbortRef.current?.abort();
+      restoreAbortRef.current = null;
     };
+  }, [snapshot, startRestore]);
+
+  // 取り直しが尽きたあと、アプリへ戻った・回線が戻ったときにもう一度試す（#976）
+  useEffect(() => {
+    if (!restoreFailed) return;
+    const again = () => {
+      if (document.visibilityState !== "hidden") retryRestore();
+    };
+    document.addEventListener("visibilitychange", again);
+    window.addEventListener("online", again);
+    return () => {
+      document.removeEventListener("visibilitychange", again);
+      window.removeEventListener("online", again);
+    };
+  }, [restoreFailed, retryRestore]);
+
+  // 画面を離れるとき、会話をメモリへ控える（#976。保存はしない）
+  useEffect(() => {
+    return () => saveChatSnapshot(userId, chatRef.current);
   }, [userId]);
 
   useEffect(() => {
@@ -195,6 +284,7 @@ export function ChatView({ userId, initialPending }: Props) {
         if (failure?.connection) setConnection(failure.connection);
         if (kind === "no_session") {
           clearSessionId(browserStorage());
+          clearChatSnapshot();
           setChat((s) => ({ ...s, sessionId: null }));
         }
         setChat((s) => addNotice(s, "error", data?.error ?? "送れませんでした。もう一度試してください。"));
@@ -257,7 +347,9 @@ export function ChatView({ userId, initialPending }: Props) {
     restoreAbortRef.current?.abort();
     restoreAbortRef.current = null;
     setRestoring(false);
+    setRestoreFailed(false);
     clearSessionId(browserStorage());
+    clearChatSnapshot();
     setResumed(false);
     setChat(initialChatState);
   }, []);
@@ -321,6 +413,14 @@ export function ChatView({ userId, initialPending }: Props) {
           )}
 
           {restoring && <p className="py-2 text-center text-xs text-muted">前回の会話を読み込んでいます…</p>}
+          {restoreFailed && (
+            <p role="status" className="flex items-center justify-center gap-2 py-2 text-center text-xs text-muted">
+              前回の会話を読み込めませんでした。
+              <button type="button" onClick={retryRestore} className="rounded-md border border-border bg-background px-2 py-0.5 text-foreground">
+                読み込み直す
+              </button>
+            </p>
+          )}
           {resumed && (
             <p className="self-center rounded-full bg-rail-active px-3 py-0.5 text-[11px] text-muted">前回の会話を再開しました</p>
           )}
