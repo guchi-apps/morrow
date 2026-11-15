@@ -72,3 +72,35 @@ export function usageFeatureRank(label: string): number {
   );
   return index === -1 ? FEATURE_ORDER.length : index;
 }
+
+/**
+ * 使用量グラフ（モデル画面。#945）の系列。モデルを選ぶ用途（`ModelUse`）と、それ以外（`other`）。
+ *
+ * 記録の機能名（`feature`）と選択カードの用途は一対一ではない（学習・一覧要約は「メールの判定」のモデルで
+ * 動くなど）。**機能を足したらここも足す**（`Record<UsageFeature, …>` なので漏れは型で落ちる）。
+ * 表に無い値（機能を消した後の行・空文字）は `usageBucketOf()` が `other` に入れる。
+ */
+export type UsageBucket = "topic" | "mail" | "mail_suggest" | "other";
+
+export const USAGE_FEATURE_BUCKETS: Record<UsageFeature, UsageBucket> = {
+  chat: "other",
+  compact: "other",
+  briefing: "other",
+  notice: "other",
+  topic: "topic",
+  home_profile: "other",
+  memory: "other",
+  proactive: "other",
+  mail: "mail",
+  mail_suggest: "mail_suggest",
+  mail_summary: "mail_suggest",
+  mail_chat: "mail_suggest",
+  mail_chat_query: "mail",
+  mail_learn: "mail",
+  mail_list_summary: "mail",
+  hermes_chat: "other",
+};
+
+export function usageBucketOf(feature: string): UsageBucket {
+  return Object.hasOwn(USAGE_FEATURE_BUCKETS, feature) ? USAGE_FEATURE_BUCKETS[feature as UsageFeature] : "other";
+}

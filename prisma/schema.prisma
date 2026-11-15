@@ -67,6 +67,7 @@ model User {
   mailListSummaries MailListSummary[]
   mailAnalyses      MailAnalysisResult[]
   hermesProposals   HermesProposal[]
+  hermesSessions    HermesSession[]
   hermesActionLogs  HermesActionLog[]
 }
 
@@ -461,6 +462,8 @@ model MailFeedback {
   messageId String  @db.VarChar(320)
   /// true＝知らせる、false＝知らせない。
   notify    Boolean
+  /// 「知らせない」のうち、受信トレイからアーカイブしてほしい印（#942）。
+  archive   Boolean  @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -531,6 +534,17 @@ model MailLink {
 // 取り消せない書き込みは、Hermesが提案だけを出し、利用者が確認カードで承認したらMorrowのサーバーが実行する。
 // **提案の引数（値）は `args` に、承認待ち・実行中・結果不明の間だけ持つ。** 成功・取り下げ・期限切れ・確定した失敗で消す
 // （金額・相手先・予定の内容をMorrowに残さない）。残すのは誰が・いつ・どの道具・結果の種類・対象idだけ。
+
+/// Hermesのセッションidと、それを始めたMorrowの利用者の対応（#937）。履歴取得・継続ターンの所有者照合に使う。
+/// 持つのはidと持ち主だけ（会話の本文は持たない）。この表に無いセッションは持ち主不明として新規会話扱いにする。
+model HermesSession {
+  sessionId String   @id @db.VarChar(128)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
 
 model HermesProposal {
   id     String @id @default(cuid())

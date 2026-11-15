@@ -2,8 +2,10 @@
 
 import { RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
+import { createPortal } from "react-dom";
 
+import { HEADER_ICON_BUTTON, useHeaderSlot } from "@/components/chat/header-actions";
 import { cn } from "@/lib/utils";
 
 type CheckResult = {
@@ -40,9 +42,13 @@ function describe(result: CheckResult): { text: string; error: boolean } {
   }
 }
 
-/** 「いま確認」（#683）。15分ごとの確認と同じ処理（新着の判定 → 必要なら通知）をその場で走らせる。 */
-export function MailCheckButton({ className, status }: { className?: string; status?: ReactNode }) {
+/**
+ * 「いま確認」（#683）。15分ごとの確認と同じ処理（新着の判定 → 必要なら通知）をその場で走らせる。
+ * ボタンはヘッダー右上のアイコン（#951。置き場が無い画面ではその場に出す）。結果のメッセージは本文の先頭に出す。
+ */
+export function MailCheckButton({ className }: { className?: string }) {
   const router = useRouter();
+  const slot = useHeaderSlot();
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
 
@@ -61,31 +67,35 @@ export function MailCheckButton({ className, status }: { className?: string; sta
     }
   }
 
+  const label = running ? "確認しています…" : "いま確認";
+  const button = (
+    <button
+      type="button"
+      onClick={run}
+      disabled={running}
+      aria-label={label}
+      title={label}
+      className={cn(HEADER_ICON_BUTTON, "border-accent bg-accent text-accent-foreground hover:bg-accent hover:opacity-90 disabled:opacity-60")}
+    >
+      <RefreshCw className={cn("size-4", running && "animate-spin motion-reduce:animate-none")} aria-hidden="true" />
+    </button>
+  );
+
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-        {status && <span className="text-[0.6875rem] text-muted">{status}</span>}
-        <button
-          type="button"
-          onClick={run}
-          disabled={running}
-          className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-[9px] bg-accent px-3.5 py-2 text-xs font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
-        >
-          <RefreshCw className={cn("size-3.5", running && "animate-spin motion-reduce:animate-none")} aria-hidden="true" />
-          {running ? "確認しています…" : "いま確認"}
-        </button>
-      </div>
+    <>
+      {slot ? createPortal(button, slot) : button}
       {message && (
         <p
           role={message.error ? "alert" : "status"}
           className={cn(
             "rounded-lg px-3 py-2 text-xs leading-relaxed",
             message.error ? "border border-danger/30 bg-danger-surface text-danger" : "bg-surface text-muted",
+            className,
           )}
         >
           {message.text}
         </p>
       )}
-    </div>
+    </>
   );
 }

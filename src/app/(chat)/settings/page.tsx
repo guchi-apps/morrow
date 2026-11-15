@@ -33,7 +33,7 @@ export default async function SettingsPage({ searchParams }: Props) {
   ]);
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <div className="mobile-tab-pad min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-6 md:px-7">
         <header>
           <h2 className="text-lg font-medium">設定</h2>

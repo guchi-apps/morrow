@@ -122,7 +122,7 @@ export function ChatShell({
   }, [drawerOpen]);
 
   return (
-    <div className="flex h-[calc(var(--app-height)_-_var(--app-bottom-inset))] w-full overflow-hidden">
+    <div className="flex h-[var(--app-height)] w-full overflow-hidden">
       {/* iPadは横向き（1024px以上）で初めて一覧を常設する。縦向きまで2カラムにすると、本文がスマホより狭くなる。 */}
       <aside className="hidden w-[276px] shrink-0 border-r border-border lg:block" inert={drawerOpen}>
         <ConversationRail
@@ -195,24 +195,25 @@ export function ChatShell({
           </div>
       </div>
 
-      <div className="mobile-tab-pad flex min-w-0 flex-1 flex-col" inert={drawerOpen}>
-        <header className="flex items-center gap-2.5 border-b border-border bg-surface px-3 pb-2.5 pt-[calc(env(safe-area-inset-top)+0.625rem)] lg:bg-transparent lg:px-7 lg:py-3.5">
+      <div className="flex min-w-0 flex-1 flex-col" inert={drawerOpen}>
+        {/* スマホは左・中央・右を 1fr/auto/1fr にして、右の操作欄が空でも見出しを画面中央に置く（#944）。 */}
+        <header className="grid grid-cols-[1fr_auto_1fr] items-center gap-2.5 border-b border-border bg-surface px-3 pb-2.5 pt-[calc(env(safe-area-inset-top)+0.625rem)] lg:flex lg:bg-transparent lg:px-7 lg:py-3.5">
           <button
             ref={openerRef}
             type="button"
             onClick={() => setDrawerOpen(true)}
-            className="grid size-[34px] shrink-0 place-items-center rounded-[10px] border border-border bg-background transition-colors hover:bg-rail-active lg:hidden"
+            className="grid size-[34px] shrink-0 justify-self-start place-items-center rounded-[10px] border border-border bg-background transition-colors hover:bg-rail-active lg:hidden"
           >
             <Menu className="size-4" aria-hidden="true" />
             <span className="sr-only">メニューを開く</span>
           </button>
 
-          <h1 className="min-w-0 flex-1 truncate text-center text-sm font-medium lg:text-left lg:text-[0.9375rem]">
+          <h1 className="min-w-0 max-w-full flex-1 truncate text-center text-sm font-medium lg:text-left lg:text-[0.9375rem]">
             {heading}
           </h1>
 
           {/* 画面ごとの操作アイコンの置き場（メール本文の既読/アーカイブなど。#883）。中身はポータルで入る */}
-          <div id={HEADER_ACTIONS_ID} className="flex shrink-0 items-center gap-1.5 empty:hidden" />
+          <div id={HEADER_ACTIONS_ID} className="flex shrink-0 items-center justify-self-end gap-1.5 empty:hidden" />
         </header>
 
         {children}

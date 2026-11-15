@@ -111,7 +111,7 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
   const todayDaily = detail?.byDate.get(today)?.daily ?? null;
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <div className="mobile-tab-pad min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[1000px] flex-col gap-3.5 px-3.5 py-4 md:px-7 md:py-6">
         <div className="flex items-baseline justify-between gap-3">
           <h2 className="text-base font-bold tracking-tight">天気</h2>

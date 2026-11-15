@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { MailAccountChip } from "@/components/mail/mail-account-chip";
 import { MailFeedback } from "@/components/mail/mail-feedback";
+import { findUnsubscribeLink } from "@/lib/mail/unsubscribe-core";
 import { MailBackLink } from "@/components/mail/mail-back-link";
 import { MailAnalysis } from "@/components/mail/mail-analysis";
 import { MailBody } from "@/components/mail/mail-body";
@@ -57,14 +58,14 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
     isMailMessageId(id) ? getMail(user, id) : Promise.resolve({ ok: false, kind: "not_found", message: null } as const),
     mailTriageFor(user.id, id),
     // 押した印（#833）。メッセージIDと向きだけ
-    db.mailFeedback.findUnique({ where: { userId_messageId: { userId: user.id, messageId: id } }, select: { notify: true } }),
+    db.mailFeedback.findUnique({ where: { userId_messageId: { userId: user.id, messageId: id } }, select: { notify: true, archive: true } }),
     flowRecordsFor(user.id, id),
     linksForMessage(user.id, id),
   ]);
   const flowStates = flowRowStates(flowRecords);
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <div className="mobile-tab-pad min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[900px] flex-col gap-3.5 px-3.5 py-4 md:px-7 md:py-6">
         <MailBackLink href={back} />
 
@@ -119,7 +120,12 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
                       <span className="text-muted">{triage ? "（不要と判定）" : "（新着の判定の対象外）"}</span>
                     </p>
                   )}
-                  <MailFeedback key={message.id} id={message.id} initial={feedback?.notify ?? null} />
+                  <MailFeedback
+                    key={message.id}
+                    id={message.id}
+                    initial={feedback ? (feedback.notify ? "notify" : feedback.archive ? "archive" : "silent") : null}
+                    unsubscribeUrl={findUnsubscribeLink(message.html, message.text)}
+                  />
                 </div>
 
                 <article className="overflow-hidden rounded-xl border border-border bg-surface">

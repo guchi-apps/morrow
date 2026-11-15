@@ -6,15 +6,19 @@ import { HermesError } from "@/lib/hermes/client-core";
 import { SESSION_ID_PATTERN, type BridgeEvent } from "@/lib/hermes/contract";
 import { describeHermesError, RATE_LIMITED } from "@/lib/hermes/errors";
 import { markNotesReported, pendingHermesNotes, recordAutoAction, ingestStreamToolStart } from "@/lib/hermes/proposals";
+import { buildPrompt } from "@/lib/hermes/prompt-attachment";
 import { parseProposalEvent } from "@/lib/hermes/proposal-core";
 import { recordHermesTurnUsage } from "@/lib/hermes/record-usage";
 import type { RelayEvent } from "@/lib/hermes/stream-view";
 import { isAutoWriteTool, isProposeTool, knownToolKey, resultFailed } from "@/lib/hermes/tool-labels";
+import { claimHermesSession, ownsHermesSession } from "@/lib/hermes/session-owner";
 import { registerTurn, releaseTurn } from "@/lib/hermes/turn-owners";
 import { readJsonObject } from "@/lib/json-body";
 import { mailContextFor } from "@/lib/mail/chat-context";
 import { isPushKindEnabled } from "@/lib/push/kinds-server";
 import { sendPushToUser } from "@/lib/push/subscriptions";
+import { parseChatLocation } from "@/lib/weather/chat-context-core";
+import { weatherContextFor } from "@/lib/weather/chat-context";
 
 /**
  * チャットの1ターン（#794）。ブラウザ → ここ → ブリッジ（`hermesClient().startTurn()`）のSSE中継。設計は `docs/hermes-route.md`・`docs/hermes-actions.md`。
@@ -56,7 +60,9 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  const continuing = typeof sessionId === "string" ? sessionId : undefined;
+  // 継続は、その利用者のセッションだけ（#937）。他人のもの・持ち主不明のidは新規会話として始める
+  const requested = typeof sessionId === "string" ? sessionId : undefined;
+  const continuing = requested && (await ownsHermesSession(user.id, requested).catch(() => false)) ? requested : undefined;
 
   // ターンの開始は利用者ごとに3秒に1回（#726）
   const now = Date.now();
@@ -70,7 +76,9 @@ export async function POST(request: Request) {
   const notes = continuing ? await pendingHermesNotes(user.id, continuing) : { text: "", ids: [] };
   // メールに触れる指示なら、検索して該当メールを先頭へ添える（#813。失敗してもターンは止めない）
   const mailContext = await mailContextFor(user, text).catch(() => null);
-  const prompt = [notes.text, mailContext?.prompt, text].filter((part) => part).join("\n\n");
+  // 天気について聞く指示なら、現在地（無ければ自宅）の予報を添える（#930。失敗してもターンは止めない）
+  const weatherContext = await weatherContextFor(user.id, text, parseChatLocation(body?.location));
+  const prompt = buildPrompt([notes.text, mailContext?.prompt, weatherContext?.prompt], text);
 
   let events: AsyncGenerator<BridgeEvent>;
   try {
@@ -102,6 +110,7 @@ export async function POST(request: Request) {
       const heartbeat = setInterval(() => write(": ping\n\n"), HEARTBEAT_MS);
 
       if (mailContext) write(sse({ type: "notice", data: { text: mailContext.label } }));
+      if (weatherContext) write(sse({ type: "notice", data: { text: weatherContext.label } }));
 
       let turnId: string | null = null;
       let currentSessionId = continuing ?? "";
@@ -113,6 +122,18 @@ export async function POST(request: Request) {
           if (event.type === "turn") {
             turnId = event.data.turnId;
             currentSessionId = event.data.sessionId;
+            // 始まったセッションを利用者へ結びつける（#937）。DBの失敗で結べない回は後の継続が新規会話になるだけで、ターンは止めない
+            const claimed = await claimHermesSession(user.id, currentSessionId).catch((error) => {
+              console.error("[aide-bot] Hermesセッションの持ち主を記録できなかった", error instanceof Error ? error.message : error);
+              return null;
+            });
+            if (claimed === false) {
+              // すでに別の利用者のセッション。idをブラウザへ渡さず、ターンも続けない
+              console.error("[aide-bot] 別の利用者のHermesセッションidが返った");
+              await (await hermesClient()).interrupt(event.data.turnId).catch(() => {});
+              write(sse({ type: "error", data: { reason: "hermes_down", message: "会話を始められませんでした。もう一度お試しください。" } }));
+              break;
+            }
             registerTurn(turnId, user.id);
             write(sse(event));
             continue;

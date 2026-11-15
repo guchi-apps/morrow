@@ -72,8 +72,10 @@ export const MCP_PRESETS: McpPreset[] = [
     id: "aide",
     label: "AIDE",
     url: "https://aide.gucchii.com/mcp",
-    // メールの提案の「タスクを作る」（`aide_create_task`。#689・#788）。予定・家計簿・天気などはscope不要。
-    scopes: ["tasks:write"],
+    // メールの提案の「タスクを作る」（`aide_create_task`。#689・#788）と、メールの紐づけの候補の
+    // 「未完了のタスク」（`aide_tasks`。#834・#922）。AIDEは読み取りにも `tasks:read` を求め、`tasks:write` では読めない。
+    // 予定・家計簿・天気などはscope不要。
+    scopes: ["tasks:read", "tasks:write"],
     description: "資産と固定費・部屋の状態・VPSとサブPCの稼働・今日の見通し・開発状況",
     provides: [
       "いまの室温・湿度・CO2（aide_room_sensors）とエアコンの運転状態（aide_aircon_status）",
@@ -125,6 +127,8 @@ export const MCP_PRESETS: McpPreset[] = [
       // #748。Hermesの提案を承認したあとだけMorrowのサーバーが呼ぶ（`HERMES_WRITE_TOOLS`）。台帳の更新。
       "asset_manager_update_subscription",
       "asset_manager_record_subscription_cancellation",
+      // #910。メールの確定額でカード引き落とし見込みを上書きする（`CARD_WITHDRAWAL_WRITE_TOOLS`）。
+      "asset_manager_confirm_card_withdrawal",
       "aide_research_desk_import_weekly_report",
     ],
     // #366。読み取り・疎通確認だけの道具。AIDEが道具を足しても、ここへ足すまでは
@@ -143,6 +147,8 @@ export const MCP_PRESETS: McpPreset[] = [
       "aide_utility_bills",
       "aide_zaim_master",
       "asset_manager_subscriptions",
+      // #910。カード引き落とし見込みの読み取りだけ
+      "asset_manager_card_withdrawals",
       "aide_host_status",
       "aide_uptime_monitors",
       "aide_service_quotas",

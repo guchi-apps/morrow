@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { normalizeSuggestion, toolCallFor } from "@/lib/mail/suggest-core";
+import { cardConfirmArgs } from "@/lib/mail/withdrawal-core";
 
 /**
  * 外部ツール（AIDE MCP）の入力契約（#854）。正は `docs/external-tool-contracts.md`。
@@ -36,6 +37,19 @@ const SCHEMAS: Record<string, Schema> = {
   aide_balances: { props: {} },
   asset_manager_subscriptions: {
     props: { includeEnded: { type: "boolean" }, includeHistory: { type: "boolean" }, name: { type: "string" } },
+  },
+  // #910。2026-11-15に guchi-apps/aide#856 の実装（src/mcp/tools/asset-manager.ts）から写した（コネクタは未更新のためtools/listではなくソース）
+  asset_manager_card_withdrawals: { props: { days: { type: "integer", min: 1, max: 62 } } },
+  asset_manager_confirm_card_withdrawal: {
+    props: {
+      cardId: { type: "integer", min: 1 },
+      cardName: { type: "string", maxLength: 191 },
+      paymentDate: { type: "string", pattern: /^\d{4}-\d{2}-\d{2}$/ },
+      amount: { type: "integer", min: 0, max: 100_000_000 },
+      sourceKey: { type: "string", maxLength: 191 },
+      note: { type: "string", maxLength: 191 },
+    },
+    required: ["paymentDate", "amount", "sourceKey"],
   },
   aide_tasks: {
     props: {
@@ -200,6 +214,17 @@ describe("読み取りの呼び出し（引数は入力の範囲内）", () => {
   });
 });
 
+describe("カード引き落とし見込みの呼び出し（#910）", () => {
+  it("読み取りは days 1〜62", () => {
+    assertValid("asset_manager_card_withdrawals", { days: 62 });
+  });
+  it("上書きの引数は入力の範囲内（長いメールIDでも冪等キーは191字以内）", () => {
+    const check = { status: "mismatch" as const, cardId: 3, cardName: "三井住友ゴールドVISA", paymentDate: "2026-11-26", displayedAmount: 193731, mailAmount: 184591, source: "estimate" as const };
+    assertValid("asset_manager_confirm_card_withdrawal", cardConfirmArgs(check, "18c3f0a1b2d4e5f6"));
+    assertValid("asset_manager_confirm_card_withdrawal", cardConfirmArgs(check, "x".repeat(400)));
+  });
+});
+
 describe("書き込みの呼び出し（toolCallFor が作る引数は入力の範囲内）", () => {
   const mail = { messageId: "m-1", subject: "【請求】10月分", from: "billing@example.com", receivedAt: 0 };
   const build = (kind: string, fields: Record<string, unknown>) => {
@@ -215,12 +240,12 @@ describe("書き込みの呼び出し（toolCallFor が作る引数は入力の�
     assert.equal(call.tool, "aide_create_task");
     assertValid(call.tool, call.args);
   });
-  it("タスク（時刻・予定日つき。時刻はメモへ書き、引数は日付のみ。#907）", () => {
+  it("タスク（時刻・予定日つき。時刻はタイムゾーン付きの日時で送る。#927）", () => {
     const call = build("task", { title: "受け取る", due: "2026-11-15", dueTime: "18:00", planned: "2026-11-14", plannedTime: "09:30", memo: "要点" });
     assertValid(call.tool, call.args);
-    assert.equal(call.args.due, "2026-11-15");
-    assert.equal(call.args.planned, "2026-11-14");
-    assert.match(String(call.args.memo), /^期限 11\/15 18:00\n予定日 11\/14 09:30\n要点/);
+    assert.equal(call.args.due, "2026-11-15T18:00:00+09:00");
+    assert.equal(call.args.planned, "2026-11-14T09:30:00+09:00");
+    assert.match(String(call.args.memo), /^要点/);
   });
   it("予定（時刻あり・終日）", () => {
     for (const fields of [

@@ -8,7 +8,9 @@ import { ProposalCard } from "@/components/hermes/proposal-card";
 import { describeHermesError, type ChatConnection } from "@/lib/hermes/errors";
 import type { HermesErrorKind } from "@/lib/hermes/client-core";
 import type { ProposalView } from "@/lib/hermes/proposal-core";
+import { browserStorage, clearSessionId, loadSessionId, saveSessionId } from "@/lib/hermes/session-memory";
 import { readSseEvents } from "@/lib/hermes/sse";
+import { mentionsWeather } from "@/lib/weather/chat-context-core";
 import {
   addNotice,
   answerApproval,
@@ -16,6 +18,7 @@ import {
   endTurn,
   initialChatState,
   RELAY_EVENT_TYPES,
+  restoreFromHistory,
   startTurn,
   updateProposal,
   type ChatState,
@@ -25,11 +28,14 @@ import {
 /**
  * チャット画面（#794）。Hermes Agentへ指示し、返答・道具の実行・確認カードを見る。
  *
- * 会話の本文はこの画面のstateにだけ持つ（Morrowのサーバーには残さない。リロードで新しい会話。過去の表示は #752）。
+ * 会話の本文はMorrowのサーバーに残さない。端末にはセッションidだけを覚え（#929。`session-memory.ts`）、開いたときに
+ * Hermesの履歴（#752）から前回の発言を取り直す。「新しい会話」で記憶を消す。
  * **画面を閉じるとMorrowとの接続が切れて実行は中断される**（#726）。確認待ちは保存されているので、開き直せば承認できる。
  */
 
 type Props = {
+  /** 記憶したセッションidを利用者と結ぶ鍵（別の利用者のidを読まない）。 */
+  userId: string;
   /** 前の会話から残っている確認待ち（開いた時点でDBにあるもの）。 */
   initialPending: ProposalView[];
 };
@@ -52,17 +58,34 @@ async function fetchStatus(): Promise<ChatConnection> {
   }
 }
 
-export function ChatView({ initialPending }: Props) {
+/** 現在地を1回だけ取る（追跡しない。8秒で諦める）。拒否・失敗・非対応はnull（サーバーが自宅の天気で代える）。 */
+function currentLocation(): Promise<{ latitude: number; longitude: number } | null> {
+  if (typeof navigator === "undefined" || !("geolocation" in navigator)) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => resolve({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 5 * 60_000 },
+    );
+  });
+}
+
+export function ChatView({ userId, initialPending }: Props) {
   const [chat, setChat] = useState<ChatState>(initialChatState);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [connection, setConnection] = useState<ChatConnection>("unknown");
   const [pending, setPending] = useState(initialPending);
+  const [restoring, setRestoring] = useState(true);
+  const [resumed, setResumed] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const turnRef = useRef<string | null>(null);
+  // 前回の会話の復元の中断口。復元中に「新しい会話」を選んだとき、遅れて届いた旧履歴で画面を上書きさせない（#936）
+  const restoreAbortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const busy = sending || chat.running;
+  const sendBlocked = busy || restoring;
 
   useEffect(() => {
     turnRef.current = chat.turnId;
@@ -78,12 +101,69 @@ export function ChatView({ initialPending }: Props) {
     void fetchStatus().then((state) => {
       if (active) setConnection(state);
     });
+    // 別アプリから戻った・回線が戻ったときは、接続状態を取り直す（#930。裏にいる間に通信が切られて「届きません」のまま残るため）
+    const recheck = () => {
+      if (document.visibilityState === "hidden") return;
+      void fetchStatus().then((state) => {
+        if (active) setConnection(state);
+      });
+    };
+    document.addEventListener("visibilitychange", recheck);
+    window.addEventListener("online", recheck);
     // 画面を離れたらターンの接続を閉じる（ブリッジは切断で中断する）
     return () => {
       active = false;
+      document.removeEventListener("visibilitychange", recheck);
+      window.removeEventListener("online", recheck);
       abortRef.current?.abort();
     };
   }, []);
+
+  // 前回の会話を取り直す（#929）。取れなければ空の画面から続ける
+  useEffect(() => {
+    const storage = browserStorage();
+    const remembered = loadSessionId(storage, userId);
+    const controller = new AbortController();
+    restoreAbortRef.current = controller;
+    void (async () => {
+      if (!remembered) {
+        setRestoring(false);
+        return;
+      }
+      try {
+        const response = await fetch(`/api/hermes/sessions/${encodeURIComponent(remembered)}/messages`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const data = (await response.json().catch(() => null)) as {
+          messages?: { role: "user" | "assistant"; text: string }[];
+          kind?: string;
+        } | null;
+        if (controller.signal.aborted) return;
+        if (response.ok && Array.isArray(data?.messages)) {
+          const messages = data.messages;
+          setChat((s) => (s.items.length === 0 && s.sessionId === null ? restoreFromHistory(s, remembered, messages) : s));
+          setResumed(messages.some((m) => m.text.trim() !== ""));
+        } else if (data?.kind === "no_session") {
+          clearSessionId(storage);
+        } else {
+          setChat((s) => addNotice(s, "info", "前回の会話を読み込めませんでした。新しい会話として続けられます。"));
+        }
+      } catch {
+        if (!controller.signal.aborted) setChat((s) => addNotice(s, "info", "前回の会話を読み込めませんでした。新しい会話として続けられます。"));
+      } finally {
+        if (!controller.signal.aborted) setRestoring(false);
+      }
+    })();
+    return () => {
+      controller.abort();
+      if (restoreAbortRef.current === controller) restoreAbortRef.current = null;
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    if (chat.sessionId) saveSessionId(browserStorage(), userId, chat.sessionId);
+  }, [chat.sessionId, userId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
@@ -91,17 +171,19 @@ export function ChatView({ initialPending }: Props) {
 
   const send = useCallback(async () => {
     const text = input.trim();
-    if (text === "" || busy) return;
+    if (text === "" || sendBlocked) return;
     setSending(true);
     setInput("");
     const controller = new AbortController();
     abortRef.current = controller;
     let started = false;
+    // 天気について聞くときは現在地を添える（#930。取れなければ送らず、サーバーが自宅の天気で答える）
+    const location = mentionsWeather(text) ? await currentLocation() : null;
     try {
       const response = await fetch("/api/hermes/turns", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, ...(chat.sessionId ? { sessionId: chat.sessionId } : {}) }),
+        body: JSON.stringify({ text, ...(chat.sessionId ? { sessionId: chat.sessionId } : {}), ...(location ? { location } : {}) }),
         signal: controller.signal,
       });
       if (!response.ok || !response.body) {
@@ -111,7 +193,10 @@ export function ChatView({ initialPending }: Props) {
         const kind = data?.kind;
         const failure = kind && kind !== "invalid" && kind !== "rate_limited" ? describeHermesError(kind as HermesErrorKind) : null;
         if (failure?.connection) setConnection(failure.connection);
-        if (kind === "no_session") setChat((s) => ({ ...s, sessionId: null }));
+        if (kind === "no_session") {
+          clearSessionId(browserStorage());
+          setChat((s) => ({ ...s, sessionId: null }));
+        }
         setChat((s) => addNotice(s, "error", data?.error ?? "送れませんでした。もう一度試してください。"));
         return;
       }
@@ -123,8 +208,18 @@ export function ChatView({ initialPending }: Props) {
       }
     } catch {
       if (!controller.signal.aborted) {
-        if (started) setChat((s) => addNotice(s, "error", "Hermesとの接続が切れました。実行の途中までで止まっています。"));
-        else {
+        if (started) {
+          // iOSで別アプリへ移ると通信が切られ、実行は途中で止まる（#930）。指示はHermesへ届いて書き込みが済んでいる場合があるので、
+          // 入力は戻さない（再送すると二重に実行しうる）。結果を確かめてから送り直してもらう
+          setChat((s) =>
+            addNotice(
+              s,
+              "error",
+              "アプリを離れるなどで接続が切れ、実行が途中で止まりました。途中まで実行された可能性があるので、結果を確認してから送り直してください。",
+            ),
+          );
+          void fetchStatus().then(setConnection);
+        } else {
           setInput(text);
           setConnection("unreachable");
           setChat((s) => addNotice(s, "error", "Morrowに接続できませんでした。もう一度試してください。"));
@@ -135,7 +230,7 @@ export function ChatView({ initialPending }: Props) {
       setSending(false);
       if (abortRef.current === controller) abortRef.current = null;
     }
-  }, [input, busy, chat.sessionId]);
+  }, [input, sendBlocked, chat.sessionId]);
 
   const stop = useCallback(async () => {
     const controller = abortRef.current;
@@ -158,6 +253,12 @@ export function ChatView({ initialPending }: Props) {
 
   const newConversation = useCallback(() => {
     abortRef.current?.abort();
+    // 復元中なら取り消す（中断された復元は結果を反映しないので、読み込み中の表示もここで閉じる）
+    restoreAbortRef.current?.abort();
+    restoreAbortRef.current = null;
+    setRestoring(false);
+    clearSessionId(browserStorage());
+    setResumed(false);
     setChat(initialChatState);
   }, []);
 
@@ -165,7 +266,7 @@ export function ChatView({ initialPending }: Props) {
   const onApproval = useCallback((requestId: string, choice: "once" | "deny") => setChat((s) => answerApproval(s, requestId, choice)), []);
 
   const unreachable = connection === "unreachable" || connection === "hermes_down";
-  const empty = chat.items.length === 0 && pending.length === 0;
+  const empty = chat.items.length === 0 && pending.length === 0 && !restoring;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -219,6 +320,11 @@ export function ChatView({ initialPending }: Props) {
             </p>
           )}
 
+          {restoring && <p className="py-2 text-center text-xs text-muted">前回の会話を読み込んでいます…</p>}
+          {resumed && (
+            <p className="self-center rounded-full bg-rail-active px-3 py-0.5 text-[11px] text-muted">前回の会話を再開しました</p>
+          )}
+
           {chat.items.map((item) => (
             <ChatItemView key={item.id} item={item} turnId={chat.turnId} onApproval={onApproval} onProposalChange={onProposalChange} />
           ))}
@@ -227,7 +333,7 @@ export function ChatView({ initialPending }: Props) {
       </div>
 
       <form
-        className="border-t border-border bg-surface px-3 py-2.5 lg:px-7"
+        className="mobile-tab-pad-form border-t border-border bg-surface px-3 pt-2.5 lg:px-7"
         onSubmit={(event) => {
           event.preventDefault();
           if (busy) void stop();
@@ -245,14 +351,14 @@ export function ChatView({ initialPending }: Props) {
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();
-                if (!busy) void send();
+                if (!sendBlocked) void send();
               }
             }}
             className="max-h-40 min-h-[40px] flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 text-base"
           />
           <button
             type="submit"
-            disabled={!busy && input.trim() === ""}
+            disabled={!busy && (restoring || input.trim() === "")}
             className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl px-4 text-sm text-white disabled:opacity-45 ${busy ? "bg-red-600" : "bg-accent"}`}
           >
             {busy ? <Square className="size-3.5" aria-hidden="true" /> : <SendHorizontal className="size-3.5" aria-hidden="true" />}

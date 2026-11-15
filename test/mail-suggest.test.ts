@@ -52,8 +52,24 @@ describe("parseSuggestReply", () => {
     assert.equal(s.fields.date, null);
     const e = normalizeSuggestion("event", { title: "t", date: "2026-11-20", startTime: "10:00", endTime: "25:00" });
     assert.ok(e && e.kind === "event");
-    assert.equal(e.fields.startTime, null);
-    assert.equal(e.fields.endTime, null);
+    assert.equal(e.fields.startTime, "10:00");
+    assert.equal(e.fields.endTime, "11:00"); // 終了が読めなければ開始の1時間後（#927）
+    const none = normalizeSuggestion("event", { title: "t", date: "2026-11-20", startTime: "25:00", endTime: "26:00" });
+    assert.ok(none && none.kind === "event" && none.fields.startTime === null && none.fields.endTime === null);
+  });
+
+  it("開始だけの予定は終了を1時間後で補い、日をまたぐなら終了日を翌日にする（#927）", () => {
+    const a = normalizeSuggestion("event", { title: "t", date: "2026-11-20", startTime: "10:30" });
+    assert.ok(a && a.kind === "event");
+    assert.equal(a.fields.endTime, "11:30");
+    assert.equal(a.fields.endDate, null);
+    const b = normalizeSuggestion("event", { title: "t", date: "2026-11-30", startTime: "23:30" });
+    assert.ok(b && b.kind === "event");
+    assert.equal(b.fields.endTime, "00:30");
+    assert.equal(b.fields.endDate, "2026-12-01");
+    const call = toolCallFor(b, mail, "u1");
+    assert.ok(call.ok);
+    assert.equal(call.args.endDate, "2026-12-01");
   });
 
   it("名称・題名が空なら候補にしない", () => {
@@ -177,6 +193,16 @@ describe("toolCallFor", () => {
     assert.equal(fx.args.originalCurrency, "USD");
     assert.equal("amount" in fx.args, false);
     assert.equal(toolCallFor(normalizeSuggestion("event", { title: "t" })!, mail, "u1").ok, false);
+  });
+
+  it("予定の場所は正規化されて aide_create_event の location に載り、空なら載せない（#949）", () => {
+    const withPlace = toolCallFor(normalizeSuggestion("event", { title: "オイル交換", date: "2026-11-15", startTime: "17:45", location: "オートバックス高槻店" })!, mail, "u1");
+    assert.ok(withPlace.ok);
+    assert.equal(withPlace.args.location, "オートバックス高槻店");
+    assert.equal(withPlace.args.startTime, "17:45");
+    const without = toolCallFor(normalizeSuggestion("event", { title: "オイル交換", date: "2026-11-15", location: "  " })!, mail, "u1");
+    assert.ok(without.ok);
+    assert.equal("location" in without.args, false);
   });
 
   it("品名も品目も無ければ支払先を品名にする（Asset Managerは品目が無いと name 必須）", () => {

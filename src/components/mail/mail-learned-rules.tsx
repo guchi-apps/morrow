@@ -18,7 +18,7 @@ export function MailLearnedRules({ initial }: { initial: LearnedRule[] }) {
         method: "DELETE",
         headers: { "content-type": "application/json" },
         // 名指しで1件だけ消す。見えている一覧を送って置き換えると、別のタブの学習・取り消しを消す（#847）
-        body: JSON.stringify({ rule: { text: target.text, notify: target.notify } }),
+        body: JSON.stringify({ rule: { text: target.text, notify: target.notify, ...(target.archive ? { archive: true } : {}) } }),
       });
       const data = (await response.json().catch(() => null)) as { rules?: LearnedRule[]; error?: string } | null;
       if (!response.ok || !Array.isArray(data?.rules)) {
@@ -42,19 +42,19 @@ export function MailLearnedRules({ initial }: { initial: LearnedRule[] }) {
       </div>
       {rules.length === 0 ? (
         <p className="rounded-[9px] border border-dashed border-border px-3 py-2.5 text-[0.6875rem] leading-relaxed text-muted">
-          まだありません。メールを開いて「今後このようなメールを 知らせる／知らせない」を押すと、ここに増えます。
+          まだありません。メールを開いて「今後このようなメールを 知らせる／知らせない／アーカイブする」を押すと、ここに増えます。
         </p>
       ) : (
         <ul className="flex flex-col overflow-hidden rounded-[9px] border border-border">
           {rules.map((rule) => (
-            <li key={`${rule.notify}:${rule.text}`} className="flex items-center gap-2 border-t border-border px-2.5 py-2 text-xs first:border-t-0">
+            <li key={`${rule.archive ? "archive" : rule.notify}:${rule.text}`} className="flex items-center gap-2 border-t border-border px-2.5 py-2 text-xs first:border-t-0">
               <span
                 className={
                   "shrink-0 rounded-full px-2 py-0.5 text-[0.625rem] font-bold " +
                   (rule.notify ? "bg-accent-surface text-accent" : "bg-border/60 text-muted")
                 }
               >
-                {rule.notify ? "知らせる" : "知らせない"}
+                {rule.notify ? "知らせる" : rule.archive ? "アーカイブ" : "知らせない"}
               </span>
               <span className="min-w-0 flex-1 leading-snug">{rule.text}</span>
               <span className="hidden shrink-0 text-[0.6875rem] text-muted sm:inline">{rule.at.slice(5).replace("-", "/").replace(/^0/, "")}</span>

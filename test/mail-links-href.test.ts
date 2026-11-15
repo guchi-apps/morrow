@@ -11,7 +11,11 @@ describe("linkAppUrl（#914）", () => {
     assert.equal(linkAppUrl("event", null), "https://dayspan.gucchii.com/calendar");
     assert.equal(linkAppUrl("event", "11/9&x=1"), "https://dayspan.gucchii.com/calendar");
   });
-  it("タスクは日付を付けない", () => {
-    assert.equal(linkAppUrl("task", "2026-05-31"), "https://dayspan.gucchii.com/tasks");
+  it("日付のあるタスクはアプリで開けるカレンダーへ渡す（#940）", () => {
+    assert.equal(linkAppUrl("task", "2026-05-31"), "https://dayspan.gucchii.com/calendar?date=2026-05-31");
+  });
+  it("日付の無い・形が違うタスクは/tasks", () => {
+    assert.equal(linkAppUrl("task", null), "https://dayspan.gucchii.com/tasks");
+    assert.equal(linkAppUrl("task", "5/31"), "https://dayspan.gucchii.com/tasks");
   });
 });

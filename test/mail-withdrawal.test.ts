@@ -3,10 +3,13 @@ import { describe, it } from "node:test";
 
 import { buildAnalyzePrompt, parseAnalyzeReply } from "@/lib/mail/analyze-core";
 import {
+  cardConfirmSourceKey,
+  evaluateCardWithdrawal,
   evaluateWithdrawal,
   matchAccount,
   normalizeWithdrawal,
   parseBalances,
+  parseCardWithdrawals,
   parseWithdrawalReply,
   shortageTask,
   withPickedAccount,
@@ -134,5 +137,55 @@ describe("shortageTask", () => {
     assert.equal(task.due, "2026-11-26");
     assert.match(task.title, /¥71,514/);
     assert.equal(shortageTask({ ...ng, date: null }).due, null);
+  });
+});
+
+describe("カード引き落とし見込みとの突き合わせ（#910）", () => {
+  // asset-manager#1446 の応答（loadCardWithdrawalReport）の形。2026-11-15に guchi-apps/asset-manager の route.ts・service から写した
+  const report = {
+    status: "ok",
+    asOf: "2026-11-15",
+    horizonDays: 30,
+    cards: [],
+    withdrawals: [
+      { cardId: 3, cardName: "三井住友ゴールドVISA", bankId: 1, bankName: "三井住友銀行", closingDate: "2026-10-31", paymentDate: "2026-11-26", amountJpy: 193731, estimatedAmountJpy: 193731, source: "estimate", confirmation: null },
+      { cardId: 4, cardName: "楽天カード", bankId: 2, bankName: "楽天銀行", closingDate: "2026-10-31", paymentDate: "2026-11-27", amountJpy: 5000, estimatedAmountJpy: 5000, source: "estimate", confirmation: null },
+    ],
+    unmatchedConfirmations: [],
+  };
+  const items = parseCardWithdrawals(report)!;
+  const mail = (over: Record<string, unknown> = {}) => w({ amount: 184591, date: "2026-11-26", account: "三井住友銀行", payee: "三井住友カード", ...over });
+
+  it("応答を読む。status が ok でない・形が違えばnull", () => {
+    assert.equal(items.length, 2);
+    assert.equal(items[0].source, "estimate");
+    assert.equal(parseCardWithdrawals({ status: "error" }), null);
+    assert.equal(parseCardWithdrawals({ status: "ok" }), null);
+  });
+  it("同じ日・同じカードで額が違えば食い違い", () => {
+    assert.deepEqual(evaluateCardWithdrawal(mail(), items, "m1"), {
+      status: "mismatch", cardId: 3, cardName: "三井住友ゴールドVISA", paymentDate: "2026-11-26", displayedAmount: 193731, mailAmount: 184591, source: "estimate",
+    });
+  });
+  it("額が同じなら一致、日が違えば当てない、日付が無ければnull", () => {
+    assert.equal(evaluateCardWithdrawal(mail({ amount: 193731 }), items, "m1")?.status, "match");
+    assert.equal(evaluateCardWithdrawal(mail({ date: "2026-12-26" }), items, "m1"), null);
+    assert.equal(evaluateCardWithdrawal(mail({ date: null }), items, "m1"), null);
+  });
+  it("請求元・口座のどちらにも合わなければ別のカードとして当てない", () => {
+    assert.equal(evaluateCardWithdrawal(mail({ payee: "◯◯ペイ", account: "ゆうちょ銀行" }), items, "m1"), null);
+  });
+  it("同じ日に複数あっても、名前で1件に絞れなければ選ばない", () => {
+    const two = [...items, { ...items[0], cardId: 9, cardName: "三井住友プラチナ" }];
+    assert.equal(evaluateCardWithdrawal(mail(), two, "m1"), null);
+  });
+  it("このメールの確定額が登録済みなら confirmed（二重に提案しない）", () => {
+    const done = items.map((i) => (i.cardId === 3 ? { ...i, amountJpy: 184591, source: "confirmed" as const, confirmationSourceKey: cardConfirmSourceKey("m1") } : i));
+    assert.equal(evaluateCardWithdrawal(mail(), done, "m1")?.status, "confirmed");
+    assert.equal(evaluateCardWithdrawal(mail(), done, "m2")?.status, "match");
+  });
+  it("取得できなかった回は unknown（一致と混ぜない）。引き落とし日が無ければ何も出さない", () => {
+    assert.equal(evaluateCardWithdrawal(mail(), null, "m1")?.status, "unknown");
+    assert.equal(evaluateCardWithdrawal(mail({ date: null }), null, "m1"), null);
   });
 });
