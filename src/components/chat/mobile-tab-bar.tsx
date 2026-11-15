@@ -70,7 +70,7 @@ export function MobileTabBar({
       Icon: Newspaper,
       active: isTopicsActive,
       badge: (
-        <MenuBadge count={topicCount} label={`ニュース${topicCount}件`} className={BADGE_POSITION} />
+        <MenuBadge count={topicCount} label={`未読のニュース${topicCount}件`} className={BADGE_POSITION} />
       ),
     },
   ];
