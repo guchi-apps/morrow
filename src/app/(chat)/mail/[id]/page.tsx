@@ -64,7 +64,7 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
   const flowStates = flowRowStates(flowRecords);
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <div className="mobile-tab-pad min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[900px] flex-col gap-3.5 px-3.5 py-4 md:px-7 md:py-6">
         <MailBackLink href={back} />
 

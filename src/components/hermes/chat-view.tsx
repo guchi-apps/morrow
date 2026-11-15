@@ -227,7 +227,7 @@ export function ChatView({ initialPending }: Props) {
       </div>
 
       <form
-        className="border-t border-border bg-surface px-3 py-2.5 lg:px-7"
+        className="mobile-tab-pad-form border-t border-border bg-surface px-3 pt-2.5 lg:px-7"
         onSubmit={(event) => {
           event.preventDefault();
           if (busy) void stop();
