@@ -1,6 +1,6 @@
 "use client";
 
-import { Star } from "lucide-react";
+import { Bell, Star } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 
 import { FLOW_KIND_META } from "@/lib/mail/flow-record-core";
 
-import { ACCOUNT_TONE_CLASS, MailAccountChip } from "./mail-account-chip";
+import { ACCOUNT_TONE_CLASS } from "./mail-account-chip";
 import { mailTimeLabel } from "./mail-format";
 import { MailNotice } from "./mail-notice";
 import { leaveMailPane } from "./mail-transition";
@@ -166,7 +166,6 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
         {messages.map((message) => {
           const locked = lockedOut(message.id);
           const rowAccountKey = mailAccountKeyOf(message.id);
-          const accountKey = showAccount ? rowAccountKey : null;
           const tone = ACCOUNT_TONE_CLASS[rowAccountKey ? mailAccountTone(rowAccountKey) : "coral"];
           const href = `/mail/${encodeURIComponent(message.id)}?back=${encodeURIComponent(back)}`;
           return (
@@ -203,6 +202,7 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
                   <span className={cn("truncate text-[0.8125rem]", message.unread && "font-bold")}>{senderName(message.from)}</span>
                   <span className="inline-flex shrink-0 items-center gap-1.5 text-[0.6875rem] text-muted md:order-last md:text-right">
                     {/* 丸印の色＝アカウント。未読は塗り、既読は同じ色の輪（#713・#760・#789）。大きさは常に同じで日時の位置はずれない */}
+                    {message.notified && <Bell role="img" aria-label="お知らせ済み" className="size-3.5 shrink-0 text-accent" />}
                     <span
                       role="img"
                       aria-label={message.unread ? "未読" : "既読"}
@@ -212,7 +212,6 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
                   </span>
                 </span>
                 <span className="line-clamp-2 min-w-0 text-xs text-muted md:line-clamp-1 md:text-[0.8125rem]">
-                  {message.notified && <Chip className="bg-accent-surface text-accent">お知らせ済み</Chip>}
                   {message.flowKinds.map((kind) => {
                     const meta = FLOW_KIND_META[kind as keyof typeof FLOW_KIND_META];
                     return meta ? (
@@ -221,7 +220,6 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
                       </Chip>
                     ) : null;
                   })}
-                  {accountKey && <MailAccountChip accountKey={accountKey} name={message.account ?? accountKey} className="mr-1.5" />}
                   <span className={cn("text-foreground", message.unread ? "font-bold" : "font-medium")}>
                     {message.subject || "（件名なし）"}
                   </span>
