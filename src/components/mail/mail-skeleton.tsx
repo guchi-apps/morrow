@@ -38,10 +38,14 @@ const ROW_WIDTHS = ["w-[72%]", "w-[58%]", "w-[80%]", "w-[64%]", "w-[76%]", "w-[5
 export function MailListSkeleton() {
   return (
     <div className="mobile-tab-pad min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-[900px] flex-col gap-3.5 px-3.5 py-4 md:px-7 md:py-6">
-        <div className="flex items-baseline justify-between gap-3">
-          <Bar className="h-5 w-24" />
-          <LoadingLabel>メールを読み込んでいます</LoadingLabel>
+      <div className="mx-auto flex w-full max-w-[900px] flex-col gap-3.5 px-3.5 pb-4 md:px-7 md:pb-6">
+        {/* 一覧の画面の固定部分（表示切替＋検索。#997）と同じ高さ・並び */}
+        <div className="-mx-3.5 flex flex-col gap-2 border-b border-border px-3.5 pb-2.5 pt-3 md:-mx-7 md:px-7 md:pt-5">
+          <div className="flex items-center justify-between gap-3">
+            <Bar className="h-7 w-[230px] rounded-full" />
+            <LoadingLabel>メールを読み込んでいます</LoadingLabel>
+          </div>
+          <Bar className="h-[30px] w-full rounded-[9px]" />
         </div>
         <ul className="overflow-hidden rounded-xl border border-border bg-surface" aria-hidden="true">
           {ROW_WIDTHS.map((width, index) => (
