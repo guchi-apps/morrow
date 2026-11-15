@@ -182,5 +182,12 @@ AIDEの道具を1本も読み込まず、チャットは「接続中」のまま
   `MCP OAuth setup failed for 'aide': ... no cached tokens found.`（続けて `hermes mcp login aide` を促す文）が5分ごとに出る。
   チャット画面では道具が「使える道具の検索」「ウェブ検索」だけになり、「予定の確認」が出ない
 - **直し方（人の作業）**: subpcで `hermes -p morrow mcp login aide` を対話的に通し（AIDEの認可画面）、Hermesのuser unitを再起動する
+  - **#809で直し方を書いたまま実施されず、#988（明日の予定を参照できない）で同じ症状が再発した。** 2026-11-15に実施し、`~/.hermes/profiles/morrow/mcp-tokens/aide.json` ができた
+  - AIDEはデバイスフロー非対応（`grant_types_supported` が `authorization_code`・`refresh_token` だけ）で、ブラウザでのログインが要る。
+    subpcにブラウザが無くても、Hermesは「戻り先のURLを貼り付ける」形に対応している——表示された認可URLを手元の端末で開いてログインし、
+    移った先の `http://127.0.0.1:<ポート>/callback?code=…&state=…`（ページは開けなくてよい）を `hermes` の入力へ貼ってEnter
+  - **待ち時間は既定で5分**（`oauth.timeout`。`tools/mcp_oauth.py`）。エージェント経由でURLをやり取りすると間に合わない（#988で2回切れた）。
+    その場合はprofileの `mcp_servers.aide` に `oauth: { timeout: 3600 }` を一時的に足してから始め、済んだら外す。切れた後のcodeは使えない（PKCEの検証値がプロセスと一緒に消える）
+  - 再起動後、AIDEへの接続は5分ごとの確認で張り直される（ログに `MCP OAuth 'aide': tokens file changed ... forcing reload` と `aide.gucchii.com/mcp` への200）
 - **既定profileのトークンファイルを写さない。** リフレッシュトークンを2つのprofileで使い回すと、片方が更新した時点でもう片方が失効しうる
 - 接続状態（`/api/hermes/status`）はHermesに届くかだけを見ており、AIDEに繋がっているかは出ない
