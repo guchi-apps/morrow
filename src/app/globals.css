@@ -117,6 +117,46 @@
   --app-bottom-inset: 0px;
 }
 
+/*
+ * スマホの下部固定ナビ（#916。`MobileTabBar`）のリキッドグラス。背面をぼかして透かし、
+ * 上縁にハイライトを入れる。backdrop-filter非対応なら不透明寄りの地へ落とす。
+ * 画面キーボードが出ている間は隠す。
+ */
+.mobile-tab-bar {
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+  box-shadow:
+    0 10px 30px color-mix(in srgb, var(--foreground) 18%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .mobile-tab-bar {
+    background: color-mix(in srgb, var(--surface) 55%, transparent);
+    -webkit-backdrop-filter: blur(22px) saturate(1.8);
+    backdrop-filter: blur(22px) saturate(1.8);
+  }
+}
+
+:root[data-keyboard="open"] .mobile-tab-bar {
+  display: none;
+}
+
+/* 下部ナビのぶん、スマホの本文の下端を空ける（高さ66px＋下の隙間10px＋セーフエリア）。 */
+.mobile-tab-pad {
+  padding-bottom: 5rem;
+}
+
+@media (min-width: 1024px) {
+  .mobile-tab-pad {
+    padding-bottom: 0;
+  }
+}
+
+:root[data-keyboard="open"] .mobile-tab-pad {
+  padding-bottom: 0;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);

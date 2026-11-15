@@ -226,6 +226,14 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
 - **同じURLで30秒以内に続けて起きたら自動では読み込み直さず、ボタンの画面で止める**（sessionStorageの印。ループさせない）
 - 自動既読の後の `router.refresh()` は残した。外すと、iOSの端スワイプ（履歴の戻る）で一覧へ戻ったときに未読の印が古いまま出うるため
 
+## スマホの下部固定ナビ（#916）
+
+スマホ（lg未満）は、画面下に浮かせたリキッドグラス風のバー（`src/components/chat/mobile-tab-bar.tsx`）にホーム・天気・チャット・メール・ニュースの5つを常駐させる。設定・モデルは従来どおりドロワーから。lg以上は左の帯のみで出さない。
+
+- **バーの見た目は `globals.css` の `.mobile-tab-bar`、本文の下余白は `.mobile-tab-pad`（`ChatShell` の本文列）。** どちらも `html[data-keyboard="open"]`（`useVisualViewportFit()` が立てる）の間は消す。バーの高さ・位置を変えたら余白（5rem）も揃える
+- バッジは既存のメニューと同じ値（`pendingProposalCount`・`mailBadgeSlot`・`topicCount`）を使う。**項目を足すときは `ConversationRail` と両方を見る**
+- 画面ごとの下端の固定要素はバーの上に収まる前提（余白で逃がしている）。新しい画面で下端にシートなどを固定するときは `z-index`（バーは `z-30`）に注意
+
 ## Route Handlerのリクエスト本文（#262）
 
 **本文はJSONの `null` でも「読めた」ことになる。** `request.json()` は本文が `null` なら `null` を返す
