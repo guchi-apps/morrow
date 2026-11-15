@@ -167,22 +167,39 @@ describe("カード引き落とし見込みとの突き合わせ（#910）", () 
       status: "mismatch", cardId: 3, cardName: "三井住友ゴールドVISA", paymentDate: "2026-11-26", displayedAmount: 193731, mailAmount: 184591, source: "estimate",
     });
   });
-  it("額が同じなら一致、日が違えば当てない、日付が無ければnull", () => {
+  it("額が同じなら一致、日が違えば当てない（理由付きの none）、日付が無ければnull", () => {
     assert.equal(evaluateCardWithdrawal(mail({ amount: 193731 }), items, "m1")?.status, "match");
-    assert.equal(evaluateCardWithdrawal(mail({ date: "2026-12-26" }), items, "m1"), null);
+    assert.equal(evaluateCardWithdrawal(mail({ date: "2026-12-26" }), items, "m1")?.status, "none");
     assert.equal(evaluateCardWithdrawal(mail({ date: null }), items, "m1"), null);
   });
   it("請求元・口座のどちらにも合わなければ別のカードとして当てない", () => {
-    assert.equal(evaluateCardWithdrawal(mail({ payee: "◯◯ペイ", account: "ゆうちょ銀行" }), items, "m1"), null);
+    assert.equal(evaluateCardWithdrawal(mail({ payee: "◯◯ペイ", account: "ゆうちょ銀行" }), items, "m1")?.status, "none");
   });
   it("同じ日に複数あっても、名前で1件に絞れなければ選ばない", () => {
     const two = [...items, { ...items[0], cardId: 9, cardName: "三井住友プラチナ" }];
-    assert.equal(evaluateCardWithdrawal(mail(), two, "m1"), null);
+    const check = evaluateCardWithdrawal(mail(), two, "m1");
+    assert.equal(check?.status, "none");
+    assert.match(check?.status === "none" ? check.reason : "", /決められません/);
   });
   it("このメールの確定額が登録済みなら confirmed（二重に提案しない）", () => {
     const done = items.map((i) => (i.cardId === 3 ? { ...i, amountJpy: 184591, source: "confirmed" as const, confirmationSourceKey: cardConfirmSourceKey("m1") } : i));
     assert.equal(evaluateCardWithdrawal(mail(), done, "m1")?.status, "confirmed");
     assert.equal(evaluateCardWithdrawal(mail(), done, "m2")?.status, "match");
+  });
+  it("実データの形: 全カードが同じ口座から落ち、口座の名前がメールに無くても請求元で1件に決まる（#963）", () => {
+    // 2026-11-15にClaude CodeのAIDEコネクタから asset_manager_card_withdrawals {days:62} を呼んだ応答の一部（額・名前はそのまま）
+    const real = parseCardWithdrawals({
+      status: "ok",
+      withdrawals: [
+        { cardId: 3, cardName: "三井住友ゴールドカード VISA", bankId: 1, bankName: "VNEO 代表口座", paymentDate: "2026-11-26", amountJpy: 193731, estimatedAmountJpy: 193731, source: "estimate", confirmation: null },
+        { cardId: 14, cardName: "楽天カード", bankId: 1, bankName: "VNEO 代表口座", paymentDate: "2026-11-27", amountJpy: 3654, estimatedAmountJpy: 3654, source: "estimate", confirmation: null },
+      ],
+    });
+    const check = evaluateCardWithdrawal(mail({ account: null }), real, "m1");
+    assert.equal(check?.status, "mismatch");
+    assert.equal(check?.status === "mismatch" ? check.displayedAmount : 0, 193731);
+    // 利用者が選んだ口座（VNEO）は残高の判定にだけ使い、カードの特定は変わらない
+    assert.equal(evaluateCardWithdrawal(mail({ account: "VNEO 代表口座" }), real, "m1")?.status, "mismatch");
   });
   it("取得できなかった回は unknown（一致と混ぜない）。引き落とし日が無ければ何も出さない", () => {
     assert.equal(evaluateCardWithdrawal(mail(), null, "m1")?.status, "unknown");

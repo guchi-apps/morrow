@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 /**
@@ -8,12 +9,18 @@ import { useEffect } from "react";
  * 失敗しても画面は止めない（次に開いたときに送る）。
  */
 export function TopicSeenMarker({ renderedAt }: { renderedAt: string }) {
+  const router = useRouter();
   useEffect(() => {
     void fetch("/api/topics/seen", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ seenAt: renderedAt }),
-    }).catch(() => {});
+    })
+      .then((res) => {
+        // レイアウトのバッジ（未読件数。#964）を取り直す。画面の「新着」の線は初回のseenAtで固定なので消えない。
+        if (res.ok) router.refresh();
+      })
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 初回の描画時刻だけを送る。
   }, []);
   return null;

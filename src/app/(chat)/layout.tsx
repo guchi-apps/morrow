@@ -7,7 +7,7 @@ import { MenuInfo } from "@/components/chat/menu-info";
 import { APP_VERSION } from "@/lib/app-version";
 import { getCurrentUser } from "@/lib/auth-user";
 import { countPendingProposals } from "@/lib/hermes/proposals";
-import { recentTopicCount } from "@/lib/topics";
+import { unreadTopicCount } from "@/lib/topics";
 
 export default async function ChatLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser();
@@ -20,9 +20,9 @@ export default async function ChatLayout({ children }: { children: React.ReactNo
 
   const now = new Date();
 
-  // 溜まっている話題の件数（#144）。`count` 1本なので待ち時間はほとんど足さない。
+  // ニュースの未読件数（#964）。`count` 1本なので待ち時間はほとんど足さない。
   const [topicCount, pendingProposalCount] = await Promise.all([
-    recentTopicCount(user.id, now),
+    unreadTopicCount(user.id, user.topicsSeenAt, now),
     // Hermesの確認待ちの件数（#794）。左メニューのバッジ。`count` 1本
     countPendingProposals(user.id, now),
   ]);

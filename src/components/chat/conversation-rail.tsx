@@ -145,7 +145,7 @@ export function ConversationRail({
             <Newspaper className="size-3.5 text-muted" aria-hidden="true" />
             ニュース
           </span>
-          <MenuBadge count={topicCount} label={`ニュース${topicCount}件`} />
+          <MenuBadge count={topicCount} label={`未読のニュース${topicCount}件`} />
         </Link>
 
         {/* 用途ごとのAIモデル（#349。旧・設定の「返答のモデル」#71）。設定とは独立した画面。 */}

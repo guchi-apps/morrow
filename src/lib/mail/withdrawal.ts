@@ -45,7 +45,7 @@ async function loadCardItems(userId: string): Promise<CardWithdrawalItem[] | nul
 
 /**
  * メールの確定額とAsset Managerのカード引き落とし見込みの突き合わせ（#910）。読み取りだけ・保存しない。
- * 引き落とし日が読めていない・同じ日の予定に当たらない・決められないときはnull。取得できなかった回は `unknown`（「一致」と混ぜない。#214）。
+ * 引き落とし日が読めていなければnull、同じ日の予定に当たらない・決められないときは `none`。取得できなかった回は `unknown`（「一致」と混ぜない。#214）。
  */
 export async function checkCardWithdrawal(userId: string, withdrawal: Withdrawal, messageId: string): Promise<CardCheck | null> {
   if (!withdrawal.date) return null;
@@ -66,7 +66,7 @@ export async function confirmCardWithdrawal(userId: string, withdrawal: Withdraw
   const server = await connectedServerFor(userId, "aide");
   if (!server) return { ok: false, message: "AIDEが接続されていません。設定の接続から繋いでください。" };
   const check = evaluateCardWithdrawal(withdrawal, await loadCardItems(userId), messageId);
-  if (!check || check.status === "unknown") return { ok: false, message: "Asset Managerの見込みを確かめられなかったため、登録しませんでした。" };
+  if (!check || check.status === "unknown" || check.status === "none") return { ok: false, message: "Asset Managerの見込みを確かめられなかったため、登録しませんでした。" };
   if (check.status !== "mismatch") return { ok: false, message: check.status === "confirmed" ? "このメールの額はすでに登録されています。" : "見込みはすでにメールの額と一致しています。" };
   try {
     const json = await callCardWithdrawalWriteToolJson(server, "asset_manager_confirm_card_withdrawal", cardConfirmArgs(check, messageId));

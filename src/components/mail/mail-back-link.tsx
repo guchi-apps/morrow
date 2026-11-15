@@ -5,12 +5,10 @@ import { useSearchParams } from "next/navigation";
 
 import { safeMailBack } from "@/lib/mail/back-path";
 
-import { leaveMailPane } from "./mail-transition";
-
-/** 「← 一覧へ戻る」。押すと本文の画面が右へ少し退き、一覧が左から戻る（#699）。 */
+/** 「← 一覧へ戻る」。動きを付けずにすぐ一覧へ戻る（#967）。 */
 export function MailBackLink({ href }: { href: string }) {
   return (
-    <Link href={href} onClick={(event) => leaveMailPane(event, "back")} className="self-start text-xs text-accent hover:underline">
+    <Link href={href} className="self-start text-xs text-accent hover:underline">
       ← 一覧へ戻る
     </Link>
   );

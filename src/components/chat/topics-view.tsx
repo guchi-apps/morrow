@@ -1,3 +1,6 @@
+import { Clock, Newspaper } from "lucide-react";
+
+import { HeaderDialog } from "@/components/chat/header-dialog";
 import { jstTimeLabel } from "@/lib/day-key";
 import type { TopicBoard } from "@/lib/topics";
 
@@ -48,74 +51,46 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
 
         <TopicRefreshButton />
 
-        <details className="group rounded-xl border border-border bg-surface">
-          <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3.5 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
-            <svg
-              viewBox="0 0 24 24"
-              className="size-4 shrink-0 text-accent transition-transform group-open:rotate-90"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="m9 18 6-6-6-6" />
-            </svg>
-            <span className="text-[0.8125rem] font-bold">通知する時間</span>
-            <span className="ml-auto text-right text-[0.6875rem] text-muted">
-              {schedules.length > 0
-                ? hasDevice
-                  ? `${schedules.length}件登録中・変更する`
-                  : `${schedules.length}件登録中・通知する端末が未登録`
-                : "未登録・追加する"}
-            </span>
-          </summary>
-          <div className="border-t border-border px-4 py-3.5">
-            <ScheduledPushSettingsCard initial={schedules} hasDevice={hasDevice} categories={categories} />
-          </div>
-        </details>
+        <HeaderDialog
+          icon={Clock}
+          label="通知する時間"
+          badge={schedules.length}
+          summary={
+            schedules.length > 0
+              ? hasDevice
+                ? `${schedules.length}件登録中`
+                : `${schedules.length}件登録中・通知する端末が未登録`
+              : "未登録"
+          }
+        >
+          <ScheduledPushSettingsCard initial={schedules} hasDevice={hasDevice} categories={categories} />
+        </HeaderDialog>
 
         {topics.length === 0 ? (
           <p className="rounded-xl border border-border bg-surface px-4 py-3 text-xs leading-relaxed text-muted">
             {enabledCategories.length === 0
-              ? "仕入れを止めています。下の種類を1つ以上チェックしてから「最近の記事を取得する」を押してください。"
+              ? "仕入れを止めています。ヘッダーの「通知する内容」で種類を1つ以上チェックしてから「最近の記事を取得する」を押してください。"
               : "まだニュースがありません。「最近の記事を取得する」を押すと仕入れが始まり、30秒ほどで並びます。"}
           </p>
         ) : (
           <TopicTabs categories={categories} allTopics={topics} byCategory={byCategory} mergedCount={mergedCount} seenAt={seenAt} now={now} />
         )}
 
-        <details className="group rounded-xl border border-border bg-surface">
-          <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3.5 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
-            <svg
-              viewBox="0 0 24 24"
-              className="size-4 shrink-0 text-accent transition-transform group-open:rotate-90"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="m9 18 6-6-6-6" />
-            </svg>
-            <span className="text-[0.8125rem] font-bold">仕入れる種類</span>
-            <span className="ml-auto text-right text-[0.6875rem] text-muted">
-              {enabledCategories.length > 0 ? `${enabledCategories.length}種類を仕入れ中・管理する` : "仕入れを止めています・管理する"}
-            </span>
-          </summary>
-          <div className="border-t border-border px-4 py-3.5">
-            <p className="mb-3 text-[0.6875rem] leading-relaxed text-muted">
-              チェックした種類だけを、定時のお知らせの前と「最近の記事を取得する」を押したときにウェブで調べます。
-            </p>
-            <TopicCategoryPicker initial={categories} />
-          </div>
-        </details>
+        <HeaderDialog
+          icon={Newspaper}
+          label="通知する内容"
+          badge={enabledCategories.length}
+          summary={enabledCategories.length > 0 ? `ニュースを仕入れる種類・${enabledCategories.length}種類を仕入れ中` : "ニュースを仕入れる種類・仕入れを止めています"}
+        >
+          <p className="text-[0.6875rem] leading-relaxed text-muted">
+            チェックした種類だけを、定時のお知らせの前と「最近の記事を取得する」を押したときにウェブで調べます。
+          </p>
+          <TopicCategoryPicker initial={categories} />
+        </HeaderDialog>
 
         <p className="text-[0.6875rem] leading-relaxed text-muted">
           <b className="font-medium text-foreground">
-            ニュースはお知らせとは別の場所に溜まり、通知（Push）は上の「通知する時間」に設定した時刻にだけ届きます。
+            ニュースはお知らせとは別の場所に溜まり、通知（Push）はヘッダーの「通知する時間」に設定した時刻にだけ届きます。
           </b>
           ダッシュボードに出るのは新しい{bubbleLimit}件だけで、{lifetimeHours}時間経つと入れ替わります。要点と一言はモデルが
           記事から書いたもので、細部は出典の記事で確かめてください。

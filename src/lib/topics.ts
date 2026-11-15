@@ -9,6 +9,7 @@ import { safeNoticeUrl } from "@/lib/notice-url";
 import { SCHEDULED_PUSH_ALL } from "@/lib/scheduled-push-rule";
 import { groupDuplicateTopics, unspokenGroups, type TopicGroup } from "@/lib/topic-dedupe";
 import { SECRETARY_INTRO, SECRETARY_VOICE_RULES } from "@/lib/persona";
+import { unreadCount } from "@/lib/topic-timeline";
 import { listTopicCategories } from "@/lib/topic-category-store";
 import { OTHER_CATEGORY_ID, type TopicCategory } from "@/lib/topic-categories";
 
@@ -257,15 +258,23 @@ export async function topicBoard(userId: string, now = new Date()): Promise<Topi
   };
 }
 
-/** 左メニューに出す件数（期間内の話題。同じ出来事は1件と数える。#362）。 */
-export async function recentTopicCount(userId: string, now = new Date()): Promise<number> {
+/**
+ * 左メニュー・下部タブのバッジに出す未読件数（#964）。期間内の話題を同じ出来事ごとに1件へまとめ、
+ * 代表の `createdAt` が `seenAt`（話題の画面を見た時刻）より後のものを数える。画面の「新着」と同じ定義
+ * （`unreadCount()`）で、`seenAt` が無い初回は0件。
+ */
+export async function unreadTopicCount(userId: string, seenAt: Date | null, now = new Date()): Promise<number> {
+  if (seenAt === null) return 0;
   const topics = await db.topic.findMany({
     where: { userId, fetchedAt: { gt: new Date(now.getTime() - TOPIC_LIFETIME_MS) } },
-    select: { title: true, summary: true },
+    select: { id: true, title: true, summary: true, createdAt: true },
     orderBy: [{ fetchedAt: "desc" }, { id: "asc" }],
     take: TOPIC_MERGE_FETCH,
   });
-  return groupDuplicateTopics(topics).length;
+  return unreadCount(
+    groupDuplicateTopics(topics).map((group) => group.primary),
+    seenAt,
+  );
 }
 
 /**

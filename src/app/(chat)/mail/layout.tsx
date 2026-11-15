@@ -1,6 +1,11 @@
-import { MailTransition } from "@/components/mail/mail-transition";
-
-/** メールの一覧⇔本文の切り替えに動きを付ける（#699）。 */
+/**
+ * メールの一覧⇔本文は、動き（スライド）を付けずにすぐ切り替える（#967）。
+ * 待ちは各 `loading.tsx` のスケルトンで見せる。
+ */
 export default function MailLayout({ children }: { children: React.ReactNode }) {
-  return <MailTransition>{children}</MailTransition>;
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+    </div>
+  );
 }

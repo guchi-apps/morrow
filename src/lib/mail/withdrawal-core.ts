@@ -222,20 +222,23 @@ export type CardCheck =
   | { status: "mismatch"; cardId: number; cardName: string; paymentDate: string; displayedAmount: number; mailAmount: number; source: "estimate" | "confirmed" }
   | { status: "confirmed"; cardName: string; paymentDate: string; amount: number }
   | { status: "match"; cardName: string; paymentDate: string; amount: number }
+  | { status: "none"; reason: string }
   | { status: "unknown"; reason: string };
 
 /**
  * メールの引き落とし（日付と額）を、引き落とし予定のうち**ちょうど1件**と突き合わせる。
- * 同じ日の予定が複数あるときは、請求元・引き落とし口座の名前が合うものに絞る。決められなければnull（推測で選ばない）。
+ * 同じ日の予定が複数あるときは、請求元・引き落とし口座の名前が合うものに絞る。決められなければ `none`（推測で選ばない。
+ * 理由を画面に出す。#963）。引き落とし日が無ければnull（突き合わせない）。取得できなかった回は `unknown`。
  */
 export function evaluateCardWithdrawal(w: Withdrawal, items: readonly CardWithdrawalItem[] | null, messageId: string): CardCheck | null {
   if (!w.date) return null;
   if (!items) return { status: "unknown", reason: "Asset Managerのカード引き落とし見込みを取得できませんでした。" };
   const sameDay = items.filter((i) => i.paymentDate === w.date);
-  if (sameDay.length === 0) return null;
+  if (sameDay.length === 0) return { status: "none", reason: `${w.date}のカード引き落とし見込みはAsset Managerにありません（カード以外の引き落としなら対象外です）。` };
   const related = sameDay.filter((i) => (w.payee ? sharesRun(w.payee, i.cardName) : false) || (w.account && i.bankName ? sharesRun(w.account, i.bankName, 2) : false));
   const pool = related.length > 0 ? related : w.payee || w.account ? [] : sameDay;
-  if (pool.length !== 1) return null;
+  if (pool.length === 0) return { status: "none", reason: `${w.date}の見込みはありますが、請求元・口座の名前が合うカードがありません。` };
+  if (pool.length > 1) return { status: "none", reason: `${w.date}の見込みが複数あり、どのカードか決められません。` };
   const item = pool[0];
   const key = cardConfirmSourceKey(messageId);
   if (item.source === "confirmed" && item.confirmationSourceKey === key && item.amountJpy === w.amount) {
