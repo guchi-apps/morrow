@@ -122,7 +122,7 @@ export async function POST(request: Request) {
           if (event.type === "turn") {
             turnId = event.data.turnId;
             currentSessionId = event.data.sessionId;
-            // 始まったセッションを利用者へ結びつける（#937）。結べない回は後の継続が新規会話になるだけで、ターンは止めない
+            // 始まったセッションを利用者へ結びつける（#937）。DBの失敗で結べない回は後の継続が新規会話になるだけで、ターンは止めない
             const claimed = await claimHermesSession(user.id, currentSessionId).catch((error) => {
               console.error("[aide-bot] Hermesセッションの持ち主を記録できなかった", error instanceof Error ? error.message : error);
               return null;
@@ -130,6 +130,7 @@ export async function POST(request: Request) {
             if (claimed === false) {
               // すでに別の利用者のセッション。idをブラウザへ渡さず、ターンも続けない
               console.error("[aide-bot] 別の利用者のHermesセッションidが返った");
+              await (await hermesClient()).interrupt(event.data.turnId).catch(() => {});
               write(sse({ type: "error", data: { reason: "hermes_down", message: "会話を始められませんでした。もう一度お試しください。" } }));
               break;
             }
