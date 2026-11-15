@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { AccountPickerSheet } from "@/components/mail/account-picker-sheet";
 import { FlowRowButton } from "@/components/mail/flow-row";
 import { MailChat } from "@/components/mail/mail-chat";
 import { useTypewriter } from "@/components/mail/typewriter";
@@ -316,6 +317,7 @@ const stamp = (iso: string) => iso.slice(0, 16).replace("T", " ");
 
 /** 引き落とし前の残高確認（#842）。足りると言い切れないときは理由を出す。他の引き落とし・入金は含まない。 */
 function BalanceCard({ check, busy, error, onRecheck, onPick, task }: { check: BalanceCheck; busy: boolean; error: string | null; onRecheck: () => void; onPick: (account: string) => void; task: React.ReactNode }) {
+  const [picking, setPicking] = useState(false);
   const badge =
     check.status === "enough"
       ? { text: "足りています", cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" }
@@ -349,19 +351,19 @@ function BalanceCard({ check, busy, error, onRecheck, onPick, task }: { check: B
       )}
       <p className="text-[0.6875rem] text-muted">金額はメールに書かれた確定額です。Asset Managerの見込み額と違うときは、メールの額が正です。</p>
       {check.status === "unknown" && check.choices && (
-        <div className="flex flex-wrap items-center gap-1.5" aria-label="引き落とし口座を選ぶ">
-          {check.choices.map((name) => (
+        <>
+          <div>
             <button
-              key={name}
               type="button"
               disabled={busy}
-              onClick={() => onPick(name)}
-              className="rounded-full border border-border bg-background px-2.5 py-1 text-[0.6875rem] font-bold transition-colors hover:bg-rail-active disabled:opacity-60"
+              onClick={() => setPicking(true)}
+              className="rounded-[9px] bg-accent px-3 py-1.5 text-xs font-bold text-accent-foreground transition-opacity disabled:opacity-60"
             >
-              {name}
+              🏦 口座を選ぶ…
             </button>
-          ))}
-        </div>
+          </div>
+          <AccountPickerSheet open={picking} choices={check.choices} busy={busy} onPick={onPick} onClose={() => setPicking(false)} />
+        </>
       )}
       {error && (
         <p role="alert" className="text-danger">
