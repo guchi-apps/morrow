@@ -9,6 +9,7 @@ import type { PaymentFields, Suggestion, SuggestKind } from "@/lib/mail/suggest-
 import { ASSET_MANAGER_SUBSCRIPTIONS_URL, subscriptionLink } from "@/lib/mail/subscription-link";
 import type { RegisteredSubscription, SubscriptionMatch } from "@/lib/mail/subscription-match-core";
 import { registeredDetails, registeredSummary } from "@/lib/mail/subscription-match-view";
+import { CARRIERS, CARRIER_LABELS, trackingBlocker, trackingUrl } from "@/lib/mail/tracking-link";
 import { cn } from "@/lib/utils";
 
 /**
@@ -25,6 +26,7 @@ export const KIND_META: Record<SuggestKind, { icon: string; title: string; run: 
   subscription: { icon: "🔁", title: "サブスクを確認する（Asset Managerで）", run: "Asset Managerのサブスク一覧を開く ↗" },
   task: { icon: "📌", title: "タスクにする", run: "タスクを作る" },
   event: { icon: "📅", title: "予定にする", run: "予定を登録する" },
+  tracking: { icon: "📦", title: "発送状況を追跡する", run: "追跡ページを開く ↗" },
 };
 
 /** `href` は家計簿だけ: 作った（取り込み済みの）レシートの編集画面。自動で開けなかったときのリンクにする（#781）。 */
@@ -161,7 +163,7 @@ export function FlowSheet({ card, recommended, outcome, match, calendars, runnin
               ? "Asset Managerに同じ項目が見つかったので、そちらの登録内容を表示しています（読み取った値より優先）。"
               : card.kind === "payment"
               ? "AIが本文から読み取った値です。Asset Managerの画面で直してから確定してください。"
-              : `AIが本文から読み取った値です。外れることがあるので、確かめてから${card.kind === "subscription" ? "開いてください" : "登録してください"}。`}
+              : `AIが本文から読み取った値です。外れることがあるので、確かめてから${card.kind === "subscription" || card.kind === "tracking" ? "開いてください" : "登録してください"}。`}
             {card.reason && <>　理由: {card.reason}</>}
           </p>
 
@@ -197,6 +199,23 @@ export function FlowSheet({ card, recommended, outcome, match, calendars, runnin
                 </Field>
                 <Field label="開始日" className="col-span-2">
                   <input type="date" className={input} value={String(f.startDate ?? "")} onChange={(e) => onEdit("subscription", "startDate", e.target.value)} />
+                </Field>
+              </>
+            )}
+            {card.kind === "tracking" && (
+              <>
+                <Field label="配送会社" className="col-span-2">
+                  <select className={input} value={String(f.carrier ?? "")} onChange={(e) => onEdit("tracking", "carrier", e.target.value)}>
+                    <option value="">選んでください</option>
+                    {CARRIERS.map((c) => (
+                      <option key={c} value={c}>
+                        {CARRIER_LABELS[c]}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="追跡番号" className="col-span-2">
+                  <input inputMode="text" autoCapitalize="characters" className={input} value={String(f.number ?? "")} onChange={(e) => onEdit("tracking", "number", e.target.value)} />
                 </Field>
               </>
             )}
@@ -263,6 +282,8 @@ export function FlowSheet({ card, recommended, outcome, match, calendars, runnin
 
           {card.kind === "payment" ? (
             <PaymentActions card={card} outcome={outcome} running={running} onRun={onRun} fallback={app} />
+          ) : card.kind === "tracking" ? (
+            <TrackingActions card={card} />
           ) : card.kind === "subscription" && found ? (
             <>
               <details className="text-xs text-muted">
@@ -343,6 +364,40 @@ function RegisteredPanel({ matches }: { matches: RegisteredSubscription[] }) {
         ))}
       </dl>
     </div>
+  );
+}
+
+/** 発送状況の追跡（#972）。番号入りの配送会社のページを新しいタブで開く。検証を通らなければ開けず、理由を出す。 */
+function TrackingActions({ card }: { card: Extract<Suggestion, { kind: "tracking" }> }) {
+  const { carrier, number } = card.fields;
+  const blocker = trackingBlocker(carrier, number);
+  const url = trackingUrl(carrier, number);
+  const [copied, setCopied] = useState(false);
+  return (
+    <>
+      {blocker && <p className="text-[0.6875rem] text-danger">{blocker}</p>}
+      {url ? (
+        <a href={url} target="_blank" rel="noopener noreferrer" className={primary}>
+          {carrier ? CARRIER_LABELS[carrier] : ""}の追跡ページを開く ↗
+        </a>
+      ) : (
+        <span aria-disabled="true" className={cn(primary, "opacity-45")}>
+          {KIND_META.tracking.run}
+        </span>
+      )}
+      {number && (
+        <button
+          type="button"
+          className="text-center text-xs text-accent hover:underline"
+          onClick={() => {
+            void navigator.clipboard?.writeText(number).then(() => setCopied(true)).catch(() => {});
+          }}
+        >
+          {copied ? "番号をコピーしました" : "追跡番号をコピー"}
+        </button>
+      )}
+      <p className="text-center text-[0.6875rem] text-muted">番号を入れた状態で配送会社のサイトが開きます。Morrowには保存しません（iPhoneのMorrowアプリでは外部のブラウザで開きます）。</p>
+    </>
   );
 }
 

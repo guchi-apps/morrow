@@ -13,6 +13,8 @@ export const FLOW_APP_LINKS: Record<SuggestKind, { label: string; url: string }>
   subscription: { label: "Asset Managerのサブスク一覧を開く", url: ASSET_MANAGER_SUBSCRIPTIONS_URL },
   task: { label: "DaySpanのタスクを開く", url: "https://dayspan.gucchii.com/tasks" },
   event: { label: "詳細をDaySpanで開く（繰り返し・通知など）", url: "https://dayspan.gucchii.com/calendar" },
+  // 追跡は番号入りのURL（`trackingUrl()`）を主ボタンに使う。ここは使わない（型を揃えるだけ）
+  tracking: { label: "日本郵便の追跡サービスを開く", url: "https://trackings.post.japanpost.jp/services/srv/search/" },
 };
 
 /**
