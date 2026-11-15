@@ -59,9 +59,14 @@ export function browserStorage(): StorageLike | null {
  */
 let chatSnapshot: { userId: string; state: ChatState } | null = null;
 
-/** 実行は画面を離れた時点で中断されている。実行中の印と、答えを待つ承認（もう答えられない）を落として持つ。 */
-export function saveChatSnapshot(userId: string, state: ChatState): void {
+/** 続きを受け直せないとき、実行は画面を離れた時点で終わっている。実行中の印と、答えを待つ承認（もう答えられない）を落として持つ。 */
+export function saveChatSnapshot(userId: string, state: ChatState, resumable = false): void {
   if (state.items.length === 0 || !state.sessionId) return;
+  // 実行中のターンを続きから受け直せるとき（#1000）は、実行中・承認待ちを落とさずそのまま持つ
+  if (resumable) {
+    chatSnapshot = { userId, state };
+    return;
+  }
   const settled = endTurn(state);
   chatSnapshot = {
     userId,
@@ -75,4 +80,24 @@ export function loadChatSnapshot(userId: string): ChatState | null {
 
 export function clearChatSnapshot(): void {
   chatSnapshot = null;
+}
+
+/**
+ * 画面を離れたときに実行中だったターン（#1000）。サーバーは画面の接続と無関係に続きを溜めているので、戻ったら
+ * `received`（受けたイベント数）の続きから受け直す。`ChatState` の控えと同じくメモリにだけ持つ。
+ */
+let activeTurn: { userId: string; turnId: string; received: number } | null = null;
+
+export function saveActiveTurn(userId: string, turnId: string, received: number): void {
+  activeTurn = { userId, turnId, received };
+}
+
+/** 控えの会話が続きを受け直せるターンを持っているか（読むだけ。消すのは `clearActiveTurn()`）。 */
+export function peekActiveTurn(userId: string, state: ChatState): { turnId: string; received: number } | null {
+  if (!activeTurn || activeTurn.userId !== userId || state.turnId !== activeTurn.turnId) return null;
+  return { turnId: activeTurn.turnId, received: activeTurn.received };
+}
+
+export function clearActiveTurn(): void {
+  activeTurn = null;
 }
