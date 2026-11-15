@@ -65,12 +65,20 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
   const flowStates = flowRowStates(flowRecords);
 
   return (
-    <div className="mobile-tab-pad mail-action-pad min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-[900px] flex-col gap-3.5 px-3.5 py-4 md:px-7 md:py-6">
-        <MailBackLink
-          href={back}
-          archived={result.ok && !result.value.message.labelIds.includes("INBOX") && !result.value.message.labelIds.includes("TRASH")}
+    <div className="mobile-tab-pad min-h-0 flex-1 overflow-y-auto">
+      {/* 上端に固定するバー（#987）。取得できたときは操作つき（MailDetailActions）、できなければ戻るだけ */}
+      {result.ok ? (
+        <MailDetailActions
+          id={result.value.message.id}
+          unread={result.value.message.unread}
+          inInbox={result.value.message.labelIds.includes("INBOX")}
+          inTrash={result.value.message.labelIds.includes("TRASH")}
+          back={back}
         />
+      ) : (
+        <MailBackLink href={back} />
+      )}
+      <div className="mx-auto flex w-full max-w-[900px] flex-col gap-3.5 px-3.5 py-4 md:px-7 md:py-6">
 
         {!result.ok ? (
           <p role="alert" className="rounded-[10px] border border-danger/30 bg-danger-surface px-3.5 py-2.5 text-xs leading-relaxed text-danger">
@@ -81,14 +89,6 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
             const { message } = result.value;
             return (
               <>
-                <MailDetailActions
-                  id={message.id}
-                  unread={message.unread}
-                  inInbox={message.labelIds.includes("INBOX")}
-                  inTrash={message.labelIds.includes("TRASH")}
-                  back={back}
-                />
-
                 {/* 開いた時点で要約と提案を自動で取る（#766）。メールが変わったら作り直す */}
                 <MailAnalysis
                   key={message.id}

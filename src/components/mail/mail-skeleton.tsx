@@ -11,14 +11,8 @@ const BODY_LINES = ["w-[96%]", "w-[88%]", "w-[92%]", "w-[70%]", null, "w-[94%]",
 export function MailDetailSkeleton() {
   return (
     <div className="mobile-tab-pad min-h-0 flex-1 overflow-y-auto">
+      <MailBackLinkFromQuery />
       <div className="mx-auto flex w-full max-w-[900px] flex-col gap-3.5 px-3.5 py-4 md:px-7 md:py-6">
-        <MailBackLinkFromQuery />
-        <div className="flex flex-wrap gap-1.5" aria-hidden="true">
-          <Bar className="h-[30px] w-[78px] rounded-[9px]" />
-          <Bar className="h-[30px] w-[84px] rounded-[9px]" />
-          <Bar className="h-[30px] w-[70px] rounded-[9px]" />
-          <Bar className="h-[30px] w-[72px] rounded-[9px]" />
-        </div>
         <div className="overflow-hidden rounded-xl border border-border bg-surface">
           <div className="flex flex-col gap-2 px-4 py-4">
             <Bar className="h-5 w-[62%]" />
