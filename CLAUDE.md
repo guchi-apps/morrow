@@ -230,7 +230,7 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
 
 スマホ（lg未満）は、画面下に浮かせたリキッドグラス風のバー（`src/components/chat/mobile-tab-bar.tsx`）にホーム・天気・チャット・メール・ニュースの5つを常駐させる。設定・モデルは従来どおりドロワーから。lg以上は左の帯のみで出さない。
 
-- **バーの見た目は `globals.css` の `.mobile-tab-bar`、本文の下余白は `.mobile-tab-pad`（`ChatShell` の本文列）。** どちらも `html[data-keyboard="open"]`（`useVisualViewportFit()` が立てる）の間は消す。バーの高さ・位置を変えたら余白（5rem）も揃える
+- **バーの見た目は `globals.css` の `.mobile-tab-bar`、本文の下余白は `.mobile-tab-pad`（**各 `overflow-y-auto` の内側**に付ける。#928。本文列の外側で空けるとバーの下が単色の地になり透けない。`ChatShell` は画面の下端まで伸び、セーフエリアも余白に含む。チャットの入力欄だけ `.mobile-tab-pad-form`）。**新しいスクロール領域を足したら `mobile-tab-pad` を付ける**。** どちらも `html[data-keyboard="open"]`（`useVisualViewportFit()` が立てる）の間は消す。バーの高さ・位置を変えたら余白（5rem）も揃える
 - バッジは既存のメニューと同じ値（`pendingProposalCount`・`mailBadgeSlot`・`topicCount`）を使う。**項目を足すときは `ConversationRail` と両方を見る**
 - 画面ごとの下端の固定要素はバーの上に収まる前提（余白で逃がしている）。新しい画面で下端にシートなどを固定するときは `z-index`（バーは `z-30`）に注意
 

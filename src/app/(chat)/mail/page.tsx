@@ -119,7 +119,7 @@ export default async function MailPage({ searchParams }: Props) {
   const learnedRules = normalizeLearnedRules(user.mailLearnedRules, jstDayKey(now));
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <div className="mobile-tab-pad min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[900px] flex-col gap-3.5 px-3.5 py-4 md:px-7 md:py-6">
         <h2 className="text-base font-bold tracking-tight">{heading}</h2>
 
