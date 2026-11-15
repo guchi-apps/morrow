@@ -78,7 +78,7 @@ export function MobileTabBar({
   return (
     <nav
       aria-label="メインメニュー"
-      className="mobile-tab-bar fixed inset-x-3.5 bottom-[calc(0.625rem+var(--app-bottom-inset))] z-30 flex h-[66px] items-center rounded-full p-1.5 lg:hidden"
+      className="mobile-tab-bar fixed inset-x-[1.875rem] bottom-[calc(0.625rem+var(--app-bottom-inset))] z-30 flex h-[54px] items-center rounded-full p-1 lg:hidden"
     >
       {tabs.map(({ href, label, Icon, active, badge }) => (
         <Link
@@ -86,11 +86,11 @@ export function MobileTabBar({
           href={href}
           aria-current={active ? "page" : undefined}
           className={cn(
-            "relative flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-full text-[0.625rem] text-muted transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
+            "relative flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-full text-[0.5938rem] text-muted transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
             active && "bg-foreground/10 font-medium text-accent shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]",
           )}
         >
-          <Icon className="size-[22px]" strokeWidth={1.8} aria-hidden="true" />
+          <Icon className="size-[19px]" strokeWidth={1.8} aria-hidden="true" />
           <span className="max-w-full truncate">{label}</span>
           {badge}
         </Link>
