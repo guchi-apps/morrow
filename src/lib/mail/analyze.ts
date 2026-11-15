@@ -8,8 +8,8 @@ import { acquireMailCodex, currentMailCodex } from "@/lib/mail/codex-lock";
 import { analysisCacheKey, buildAnalyzePrompt, freshValue, parseAnalyzeReply, putCache, type CacheEntry, type MailAnalysis } from "@/lib/mail/analyze-core";
 import type { MailFailureKind } from "@/lib/mail/contract";
 import { plainBody, withReceivedDate } from "@/lib/mail/suggest-core";
-import { checkWithdrawal } from "@/lib/mail/withdrawal";
-import type { BalanceCheck } from "@/lib/mail/withdrawal-core";
+import { checkCardWithdrawal, checkWithdrawal, confirmCardWithdrawal, type CardConfirmOutcome } from "@/lib/mail/withdrawal";
+import type { BalanceCheck, CardCheck } from "@/lib/mail/withdrawal-core";
 
 /**
  * メールのAI分析（#766）。**サーバー専用。** メールを開いたときに画面が自動で呼び、要約と提案を1回のCodexで作る。
@@ -116,7 +116,7 @@ async function run(user: MailUser, messageId: string, key: string, refresh: bool
 }
 
 export type BalanceOutcome =
-  | { ok: true; check: BalanceCheck | null }
+  | { ok: true; check: BalanceCheck | null; card: CardCheck | null }
   | { ok: false; kind: MailFailureKind | "no_analysis"; message: string | null };
 
 /**
@@ -128,7 +128,27 @@ export async function recheckBalance(user: MailUser, messageId: string, pickedAc
   if (!mail.ok) return mail;
   const hit = freshValue(cache.get(analysisCacheKey(user.id, messageId)), Date.now());
   if (!hit) return { ok: false, kind: "no_analysis", message: "分析の結果が残っていません。分析し直してください。" };
-  return { ok: true, check: hit.withdrawal ? await checkWithdrawal(user.id, hit.withdrawal, new Date(), pickedAccount) : null };
+  if (!hit.withdrawal) return { ok: true, check: null, card: null };
+  const [check, card] = await Promise.all([
+    checkWithdrawal(user.id, hit.withdrawal, new Date(), pickedAccount),
+    checkCardWithdrawal(user.id, hit.withdrawal, messageId),
+  ]);
+  return { ok: true, check, card };
+}
+
+/**
+ * メールの確定額でカードの引き落とし見込みを上書きする（#910）。**先に `getMail()` で持ち主を照合する**。
+ * 額・日は分析の記憶から取る（画面の申告は受け取らない）。記憶が無ければ `no_analysis`。
+ */
+export async function applyCardConfirmation(
+  user: MailUser,
+  messageId: string,
+): Promise<CardConfirmOutcome | { ok: false; kind: MailFailureKind | "no_analysis"; message: string | null }> {
+  const mail = await getMail(user, messageId);
+  if (!mail.ok) return mail;
+  const hit = freshValue(cache.get(analysisCacheKey(user.id, messageId)), Date.now());
+  if (!hit?.withdrawal) return { ok: false, kind: "no_analysis", message: "分析の結果が残っていません。分析し直してください。" };
+  return confirmCardWithdrawal(user.id, hit.withdrawal, messageId);
 }
 
 /** 先回りで分析するメールの上限（1回の新着確認あたり）。 */

@@ -127,6 +127,8 @@ export const MCP_PRESETS: McpPreset[] = [
       // #748。Hermesの提案を承認したあとだけMorrowのサーバーが呼ぶ（`HERMES_WRITE_TOOLS`）。台帳の更新。
       "asset_manager_update_subscription",
       "asset_manager_record_subscription_cancellation",
+      // #910。メールの確定額でカード引き落とし見込みを上書きする（`CARD_WITHDRAWAL_WRITE_TOOLS`）。
+      "asset_manager_confirm_card_withdrawal",
       "aide_research_desk_import_weekly_report",
     ],
     // #366。読み取り・疎通確認だけの道具。AIDEが道具を足しても、ここへ足すまでは
@@ -145,6 +147,8 @@ export const MCP_PRESETS: McpPreset[] = [
       "aide_utility_bills",
       "aide_zaim_master",
       "asset_manager_subscriptions",
+      // #910。カード引き落とし見込みの読み取りだけ
+      "asset_manager_card_withdrawals",
       "aide_host_status",
       "aide_uptime_monitors",
       "aide_service_quotas",

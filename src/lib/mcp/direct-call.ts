@@ -116,6 +116,24 @@ export async function callWriteToolJson(
 }
 
 /**
+ * メールの確定額でカードの引き落とし見込みを上書きする書き込み（#910）の許可リスト。
+ * 利用者がメール詳細の確認で押したときだけ、Morrowのサーバーが呼ぶ。メール用（上）・Hermes用（下）とは別の入口。
+ */
+export const CARD_WITHDRAWAL_WRITE_TOOLS = ["asset_manager_confirm_card_withdrawal"] as const;
+export type CardWithdrawalWriteTool = (typeof CARD_WITHDRAWAL_WRITE_TOOLS)[number];
+
+export async function callCardWithdrawalWriteToolJson(
+  server: ConnectedServer,
+  tool: CardWithdrawalWriteTool,
+  args: Record<string, unknown>,
+): Promise<ToolJson> {
+  if (!(CARD_WITHDRAWAL_WRITE_TOOLS as readonly string[]).includes(tool)) {
+    throw new McpCallError(`${tool} は許可していない書き込みの道具です`);
+  }
+  return callTool(server, tool, args, WRITE_CALL_TIMEOUT_MS);
+}
+
+/**
  * Hermesの提案（#748）を利用者が承認したあとだけ、Morrowのサーバーが呼ぶ書き込みの許可リスト。
  * メール用（上）とは型を分けてあり、広げても `callWriteToolJson()` の3本は変わらない。
  * `docs/hermes-actions.md` の「取り消せない書き込み」の表と揃える。

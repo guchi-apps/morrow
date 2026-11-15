@@ -909,6 +909,14 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 - Push通知への組み込みは見送り（新着確認は件名・冒頭だけで額が取れない）
 - **口座名がメールに無い・合う口座が決められないときは、残高の一覧から口座を選んで再判定できる**（#909。`withPickedAccount()`・`POST /api/mail/flow/balance` の `account`。一覧にある名前だけ受け付け、選んだ口座は保存しない）。**金額はメールの確定額**と画面に明記する。Asset Managerのカード引き落とし見込みをMorrowから読む・メールの額で上書きする道具はAIDEに無いので、食い違いの検出・登録は別Issue
 
+### メールの確定額でカード引き落とし見込みを上書きする（#910）
+
+引き落とし前の残高確認のカードに、メールの額とAsset Managerのカード引き落とし見込みの食い違いを出し、「メールの額で登録」で上書きする（`withdrawal-core.ts` の `evaluateCardWithdrawal()`・`withdrawal.ts`・`POST /api/mail/flow/card-confirm`）。
+
+- **読みは `asset_manager_card_withdrawals`（分析・残高の取り直しのたびに引く）、書きは `asset_manager_confirm_card_withdrawal`**（許可リスト `CARD_WITHDRAWAL_WRITE_TOOLS`・`callCardWithdrawalWriteToolJson()`。メール用3本・Hermes用とは別の入口）。契約は `docs/external-tool-contracts.md`。**取り消し（見込みへ戻す）の道具はAIDEに無い**（Asset Managerのホームから戻す）
+- **同じ日の予定に、請求元・引き落とし口座の名前が合う1件だけを当てる**（決められなければ何も出さない。「カード」「銀行」は手掛かりにしない）。口は `{ id }` だけを受け取り、**額・日は分析の記憶、カードは見込みの読み直しでサーバーが決める**（画面の申告は受けない）。食い違いが無ければ書かない。冪等キーは `morrow-mail:<メールID>`
+- 見込み・確定額はDB・ログに残さない（#732）。取得できなかった回は `unknown`（一致と混ぜない）
+
 ### メール本文への指示（#784）
 
 - 「AIの分析」カードの末尾の「💬 このメールについて頼む」（`mail-chat.tsx`）から自由な文で頼むと、`POST /api/mail/flow/chat` が本文＋指示＋直近のやり取りでCodexを1回呼び（`chat-core.ts`・`chat.ts`・`test/mail-chat.test.ts`）、返事の文と、必要なら提案の行（分析と同じ形・同じ検証・同じ `/apply`）を返す。モデルは用途「メールの分析」と同じ、使用量の機能は `mail_chat`
