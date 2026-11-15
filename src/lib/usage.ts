@@ -1,5 +1,7 @@
 import type { UsageGroup } from "@/lib/ai-usage-report";
 import { db } from "@/lib/db";
+import { dayStart } from "@/lib/day-key";
+import { recentDayKeys, type UsageRowLike } from "@/lib/usage-daily";
 import type { UsageFeature } from "@/lib/usage-feature";
 
 /**
@@ -93,4 +95,23 @@ export async function recordApiUsage(params: {
   } catch (error) {
     console.error("[aide-bot] 使用量の記録に失敗した", error);
   }
+}
+
+/**
+ * モデル画面の使用量グラフ用に、利用者自身の直近 `days` 日（日本時間の日付で数える）の記録を引く（#945）。
+ * 他の利用者の行は読まない。集計は純粋な `buildDailyUsage()`。
+ */
+export async function dailyUsageRows(userId: string, now: Date, days: number): Promise<UsageRowLike[]> {
+  const since = dayStart(recentDayKeys(now, days)[0]);
+  return db.apiUsage.findMany({
+    where: { userId, createdAt: { gte: since } },
+    select: {
+      createdAt: true,
+      feature: true,
+      inputTokens: true,
+      outputTokens: true,
+      cacheWriteTokens: true,
+      cacheReadTokens: true,
+    },
+  });
 }

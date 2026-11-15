@@ -240,6 +240,47 @@ async function main() {
     console.log(`[aide-bot] 使用量を投入しました: ${standalone.length}件`);
   }
 
+  // モデル画面の使用量グラフ（#945）。用途別・日毎の積み上げを確かめるため、メールの判定・分析も積む。
+  // 上のブロックは初回だけなので、すでにシード済みの開発DBでもメールの記録が無ければ足す。
+  const mailUsageExists = await db.apiUsage.count({
+    where: { userId: user.id, feature: { in: ["mail", "mail_suggest"] } },
+  });
+
+  if (mailUsageExists === 0) {
+    const mailRows = [];
+    for (let daysBefore = 13; daysBefore >= 0; daysBefore -= 1) {
+      const at = daysAgo(daysBefore);
+      at.setHours(12, 0, 0, 0);
+      const triageCalls = 2 + (daysBefore % 4);
+      for (let call = 0; call < triageCalls; call += 1) {
+        mailRows.push({
+          userId: user.id,
+          feature: "mail",
+          model: "gpt-6-luna",
+          inputTokens: 1800 + call * 120,
+          outputTokens: 220,
+          cacheWriteTokens: 0,
+          cacheReadTokens: 6000,
+          createdAt: new Date(at.getTime() + call * 600_000),
+        });
+      }
+      if (daysBefore % 3 !== 2) {
+        mailRows.push({
+          userId: user.id,
+          feature: "mail_suggest",
+          model: "gpt-6-sol",
+          inputTokens: 9000 + daysBefore * 300,
+          outputTokens: 900,
+          cacheWriteTokens: 0,
+          cacheReadTokens: 12000,
+          createdAt: new Date(at.getTime() + 3_600_000),
+        });
+      }
+    }
+    await db.apiUsage.createMany({ data: mailRows });
+    console.log(`[aide-bot] メールの使用量を投入しました: ${mailRows.length}件`);
+  }
+
   // 外部サービスとの接続（#46）。slugは利用者の中で一意なのでupsertできる。
   for (const seed of CONNECTION_SEEDS) {
     await db.mcpConnection.upsert({

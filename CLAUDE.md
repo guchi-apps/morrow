@@ -633,6 +633,13 @@ issue-deckの共有トークンAPIから実行時に取る**（`src/lib/shared-t
 - **利用枠の残量は出せない。** `codex exec --json` にも `codex doctor --json` にも消費率は載らず、
   非対話で取る口が無い（`codex-cli 0.151.0` / `0.152.1` で確認）。**Codex CLIを上げたときはここを見直す**
 
+### モデル画面の使用量グラフ（#945）
+
+モデル画面（`/models`）の上部に、利用者自身の `ApiUsage` を日本時間の日付×用途で積んだ棒グラフ（7／14／30日。棒を押すとその日の内訳）を出す。**金額は出さない**（Codexはサブスク定額で実請求が無く、単価表も#634で消えている。単価が確認できたら足す）。
+
+- 集計は純粋な `src/lib/usage-daily.ts`（`test/usage-daily.test.ts`）、DBの取り出しは `dailyUsageRows()`（`usage.ts`）、画面は `src/components/models/usage-chart.tsx`（依存は足さずdivで描く）。取得に失敗してもモデルの選択は開ける
+- **記録の機能名（`feature`）→グラフの用途は `USAGE_FEATURE_BUCKETS`（`usage-feature.ts`）。** 選択カードの3用途と一対一ではない（学習・一覧要約は「メールの判定」のモデル）。対応表に無い機能・空文字は「その他」。**機能を足したらここも足す**（型で落ちる）
+
 ## 使用量を外へ返す（ops-dashboard向け。#297）
 
 ops-dashboardの「アプリ別のAI利用」（ops-dashboard#325）が、`GET /api/ai-usage` を読みにくる。
