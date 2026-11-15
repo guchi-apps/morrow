@@ -6,6 +6,7 @@ import { HermesError } from "@/lib/hermes/client-core";
 import { SESSION_ID_PATTERN, type BridgeEvent } from "@/lib/hermes/contract";
 import { describeHermesError, RATE_LIMITED } from "@/lib/hermes/errors";
 import { markNotesReported, pendingHermesNotes, recordAutoAction, ingestStreamToolStart } from "@/lib/hermes/proposals";
+import { buildPrompt } from "@/lib/hermes/prompt-attachment";
 import { parseProposalEvent } from "@/lib/hermes/proposal-core";
 import { recordHermesTurnUsage } from "@/lib/hermes/record-usage";
 import type { RelayEvent } from "@/lib/hermes/stream-view";
@@ -74,7 +75,7 @@ export async function POST(request: Request) {
   const mailContext = await mailContextFor(user, text).catch(() => null);
   // 天気について聞く指示なら、現在地（無ければ自宅）の予報を添える（#930。失敗してもターンは止めない）
   const weatherContext = await weatherContextFor(user.id, text, parseChatLocation(body?.location));
-  const prompt = [notes.text, mailContext?.prompt, weatherContext?.prompt, text].filter((part) => part).join("\n\n");
+  const prompt = buildPrompt([notes.text, mailContext?.prompt, weatherContext?.prompt], text);
 
   let events: AsyncGenerator<BridgeEvent>;
   try {

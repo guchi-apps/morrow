@@ -85,7 +85,7 @@ export function DashboardView({ userId, now, todayKey, offset, topics }: Props) 
       prevLabel={prev === null ? null : peekName(prev)}
       nextLabel={next === null ? null : peekName(next)}
     >
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="mobile-tab-pad min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-[980px] flex-col gap-3 px-3.5 py-4 md:gap-4 md:px-7 md:py-6">
           <DayNav todayKey={todayKey} offset={offset} prev={prev} next={next} now={now} />
 

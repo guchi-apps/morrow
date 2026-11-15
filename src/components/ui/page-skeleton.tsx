@@ -32,7 +32,7 @@ export function CardSkeleton({ lines = ["w-[70%]", "w-[55%]"], title = "w-[30%]"
 /** 各画面のloading.tsxの外枠。見出し（ChatShell）の下で、画面の本文と同じ幅・余白に揃える。 */
 export function PageSkeleton({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <div className="mobile-tab-pad min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[900px] flex-col gap-3.5 px-3.5 py-4 md:px-7 md:py-6">
         <LoadingLabel>{label}</LoadingLabel>
         {children}

@@ -132,7 +132,7 @@
 
 @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
   .mobile-tab-bar {
-    background: color-mix(in srgb, var(--surface) 55%, transparent);
+    background: color-mix(in srgb, var(--surface) 42%, transparent);
     -webkit-backdrop-filter: blur(22px) saturate(1.8);
     backdrop-filter: blur(22px) saturate(1.8);
   }
@@ -142,14 +142,15 @@
   display: none;
 }
 
-/* 下部ナビのぶん、スマホの本文の下端を空ける（高さ66px＋下の隙間10px＋セーフエリア）。 */
+/* 下部ナビのぶん、各スクロール領域の内側の下端を空ける（#928。高さ66px＋下の隙間10px。
+   本文の外側で空けるとバーの下が単色の地になり透けないため、スクロール領域の中で取る）。 */
 .mobile-tab-pad {
-  padding-bottom: 5rem;
+  padding-bottom: calc(5rem + var(--app-bottom-inset));
 }
 
 @media (min-width: 1024px) {
   .mobile-tab-pad {
-    padding-bottom: 0;
+    padding-bottom: var(--app-bottom-inset);
   }
 }
 
@@ -157,12 +158,25 @@
   padding-bottom: 0;
 }
 
+/* チャットの入力欄（#928）。バーの上に収める。入力欄の地は不透明のまま、下の余白もその中に含める。 */
+.mobile-tab-pad-form {
+  padding-bottom: calc(5rem + 0.625rem + var(--app-bottom-inset));
+}
+
+@media (min-width: 1024px) {
+  .mobile-tab-pad-form {
+    padding-bottom: calc(0.625rem + var(--app-bottom-inset));
+  }
+}
+
+:root[data-keyboard="open"] .mobile-tab-pad-form {
+  padding-bottom: 0.625rem;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: system-ui, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
-  /* iOSでホーム画面から起動したときに、下端のホームインジケータへ内容が潜り込まないようにする。 */
-  padding-bottom: var(--app-bottom-inset);
 }
 
 /* iOSのPWAが画面上端に固定ヘッダーを検出できないときの自動ぼかしを抑える（#395）。

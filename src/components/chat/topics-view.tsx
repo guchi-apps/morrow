@@ -32,7 +32,7 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
   const enabledCategories = categories.filter((category) => category.enabled);
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <div className="mobile-tab-pad min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[900px] flex-col gap-4 px-3.5 py-4 md:gap-5 md:px-7 md:py-6">
         <TopicSeenMarker renderedAt={now.toISOString()} />
         <div className="flex items-baseline justify-between gap-3">

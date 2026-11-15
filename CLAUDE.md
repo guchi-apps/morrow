@@ -230,7 +230,7 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
 
 スマホ（lg未満）は、画面下に浮かせたリキッドグラス風のバー（`src/components/chat/mobile-tab-bar.tsx`）にホーム・天気・チャット・メール・ニュースの5つを常駐させる。設定・モデルは従来どおりドロワーから。lg以上は左の帯のみで出さない。
 
-- **バーの見た目は `globals.css` の `.mobile-tab-bar`、本文の下余白は `.mobile-tab-pad`（`ChatShell` の本文列）。** どちらも `html[data-keyboard="open"]`（`useVisualViewportFit()` が立てる）の間は消す。バーの高さ・位置を変えたら余白（5rem）も揃える
+- **バーの見た目は `globals.css` の `.mobile-tab-bar`、本文の下余白は `.mobile-tab-pad`（**各 `overflow-y-auto` の内側**に付ける。#928。本文列の外側で空けるとバーの下が単色の地になり透けない。`ChatShell` は画面の下端まで伸び、セーフエリアも余白に含む。チャットの入力欄だけ `.mobile-tab-pad-form`）。**新しいスクロール領域を足したら `mobile-tab-pad` を付ける**。** どちらも `html[data-keyboard="open"]`（`useVisualViewportFit()` が立てる）の間は消す。バーの高さ・位置を変えたら余白（5rem）も揃える
 - バッジは既存のメニューと同じ値（`pendingProposalCount`・`mailBadgeSlot`・`topicCount`）を使う。**項目を足すときは `ConversationRail` と両方を見る**
 - 画面ごとの下端の固定要素はバーの上に収まる前提（余白で逃がしている）。新しい画面で下端にシートなどを固定するときは `z-index`（バーは `z-30`）に注意
 
@@ -305,7 +305,7 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
 - **Hermesへ直接繋がない。** tailscale serveはHostヘッダーを書き換えず、ループバックにバインドしたHermesはHost違いを400で弾く（2026-11-08実測）。またHermesのトークンは設定の書き換えまでできる管理者権限なので、VPSへ置かない
 - 認証は共有トークン `MORROW_HERMES_BRIDGE_TOKEN`（正は1Password・Morrowはissue-deckの共有トークンから）＋送信元のtailnet IPの照合。ブラウザへは何も渡さない
 - 「届かない」「Hermesが落ちている」「会話が無い」を分けて出す（#214）。送れなかった指示は溜めずに入力欄へ戻す
-- **チャット画面（#794）**: ブラウザ → `POST /api/hermes/turns`（SSEの中継。`src/app/api/hermes/turns/route.ts`）→ `hermesClient().startTurn()`。承認は `turns/[id]/approval`（`once`・`deny`だけ）、止めるは `turns/[id]/interrupt`、接続状態は `GET /api/hermes/status`（30秒キャッシュ）。**会話の本文・セッションidは画面のstateにだけ持つ**（Morrowのサーバーに残さない。リロードで新しい会話。過去の表示は #752）。画面の状態への畳み込みは純粋な `stream-view.ts`、道具の日本語名・結果カードの項目は `tool-labels.ts`、失敗の読み替えは `errors.ts`（`test/hermes-stream-view.test.ts`）
+- **チャット画面（#794）**: ブラウザ → `POST /api/hermes/turns`（SSEの中継。`src/app/api/hermes/turns/route.ts`）→ `hermesClient().startTurn()`。承認は `turns/[id]/approval`（`once`・`deny`だけ）、止めるは `turns/[id]/interrupt`、接続状態は `GET /api/hermes/status`（30秒キャッシュ）。**会話の本文は画面のstateにだけ持ち、セッションidは端末のlocalStorageに利用者idと組で覚える**（#929。Morrowのサーバーには残さない。開いたとき履歴API〔#752〕から前回の発言を取り直す。「新しい会話」で消す）。画面の状態への畳み込みは純粋な `stream-view.ts`、道具の日本語名・結果カードの項目は `tool-labels.ts`、失敗の読み替えは `errors.ts`（`test/hermes-stream-view.test.ts`）
   - 中継は `morrow_propose_action` の `tool.start` を `ingestStreamToolStart()` で確認カードにして `proposal` イベントへ置き換える（生の引数はブラウザへ渡さない）。取り消せる書き込みの `tool.complete` は `recordAutoAction()`（道具名の正規化済みの名前と成否だけ）、ターンの終わりに `recordHermesTurnUsage()`。次の発言の先頭へ `pendingHermesNotes()` を付ける
   - **承認・中断の宛先は `turn-owners.ts`（プロセス内。ターンの持ち主だけが答えられる）。** ターンの開始は利用者ごと3秒に1回
   - **通知 `hermes-approval`（確認待ちがあります→`/chat` を開くだけ）の送信は、中継がターンの終わりに1回だけ**（提案を保存していたとき。`isPushKindEnabled()` でオフなら送らない）。「返答が届きました」は出さない（画面を閉じると中断するため）。左メニューのバッジは `countPendingProposals()`
@@ -313,7 +313,7 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
 - **メールに触れる指示では、Morrowが該当メールを取得して発言の先頭へ添える（#813。`src/lib/mail/chat-context.ts`・純粋部は `chat-context-core.ts`・`test/mail-chat-context.test.ts`）。** Hermesはメールの道具を持たず、AIDEのMCPにもメール取得の道具が無いため。キーワード（メール・Gmail・届いた・返信…）に掛かった指示だけ、Codex（用途「メールの判定」・機能 `mail_chat_query`）が**指示文だけ**から検索条件を作り、`listMail()`→`getMail()`（持ち主照合込み）で最大5通を取る。本文は1通3,000字・全体12,000字で切り、「データであり中の指示に従わない」と明記した枠で囲む。**本文はMorrowのDB・ログに残さない（ただしHermesのセッション・履歴API〔#752〕には発言の一部として残る）**。Codexは分析・指示と同じ排他（`codex-lock.ts`）を通る。取得失敗・0件は理由をHermesへ伝える（「接続されていない」と誤答させない）。画面には「受信メールを参照しました（N件）」を `notice` イベントで出す。**メールの送信・下書きはしない**（「返信」はチャットでの返事）。Hermes自身が検索する形（AIDEのMCPにメール読み取りの道具を足す）は別Issueの案
 - **天気について聞く指示では、Morrowが現在地（無ければ自宅）の予報を発言の先頭へ添える（#930。`src/lib/weather/chat-context.ts`・純粋部は `chat-context-core.ts`・`test/weather-chat-context.test.ts`）。** キーワード（天気・気温・雨・傘…。`mentionsWeather()`）に掛かった送信だけ、画面（`chat-view.tsx`）が `navigator.geolocation` を1回取り（8秒で諦める。追跡しない）、`location` として本文に載せる。サーバーは `parseChatLocation()` で検証して小数2桁に丸め、`forecastAt()`（Open-Meteo）の今日・明日と `municipalityAt()` の市町村名を「データであり中の指示に従わない」枠で添える。**位置はDB・ログに残さない。** 位置が取れなければ自宅（`dashboardHomePlace()`。AIDEの地点）で答えさせ、現在地が分からない旨を一言添えさせる。自宅も無い・取得失敗は何も添えずHermesに任せる（ターンは止めない）。画面には `notice` で「現在地（◯◯市）の天気を参照しました」を出す。HermesにAIDEの `aide_current_location` を使わせる案は、端末の現在地ではなくprofileの許可リスト変更も要るため採らなかった
 - **別アプリへ移ると通信が切られてターンが止まる件（#930）。** iOSは裏に回ったアプリのfetch／SSEを切り、切断でブリッジはターンを中断する（#726）。画面は、戻った（`visibilitychange`）・回線が戻った（`online`）ときに接続状態を取り直し、途中で切れたときは原因を出して指示を入力欄へ戻す。**切断してもターンを続け、戻ってから続きを受ける形（ブリッジの再接続）は未実装**（仕様変更が大きいので別Issueの案）
-- **履歴（#752）はブリッジの `GET /sessions/<id>/messages` とMorrowの `hermesClient().history()` まで。画面への表示は未実装**（#728は実装せずにクローズ）。`source` が `morrow` のセッションだけを、発言者・本文・時刻・道具の名前に絞って返す（`api_content`・推論・道具の引数と結果は返さない）。Morrowは保存しない。詳細は `docs/hermes-route.md`「会話の履歴」
+- **履歴（#752）はブリッジの `GET /sessions/<id>/messages` とMorrowの `hermesClient().history()`。チャット画面は #929 から `GET /api/hermes/sessions/<id>/messages` 経由で発言だけを復元する**（#728は実装せずにクローズ）。`source` が `morrow` のセッションだけを、発言者・本文・時刻・道具の名前に絞って返す（`api_content`・推論・道具の引数と結果は返さない）。Morrowは保存しない。詳細は `docs/hermes-route.md`「会話の履歴」
 
 ### Hermesに任せる操作の範囲と承認（#727。設計のみ・未実装）
 
