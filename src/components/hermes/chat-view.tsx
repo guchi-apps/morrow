@@ -10,6 +10,7 @@ import type { HermesErrorKind } from "@/lib/hermes/client-core";
 import type { ProposalView } from "@/lib/hermes/proposal-core";
 import { browserStorage, clearSessionId, loadSessionId, saveSessionId } from "@/lib/hermes/session-memory";
 import { readSseEvents } from "@/lib/hermes/sse";
+import { mentionsWeather } from "@/lib/weather/chat-context-core";
 import {
   addNotice,
   answerApproval,
@@ -57,6 +58,18 @@ async function fetchStatus(): Promise<ChatConnection> {
   }
 }
 
+/** 現在地を1回だけ取る（追跡しない。8秒で諦める）。拒否・失敗・非対応はnull（サーバーが自宅の天気で代える）。 */
+function currentLocation(): Promise<{ latitude: number; longitude: number } | null> {
+  if (typeof navigator === "undefined" || !("geolocation" in navigator)) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => resolve({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 5 * 60_000 },
+    );
+  });
+}
+
 export function ChatView({ userId, initialPending }: Props) {
   const [chat, setChat] = useState<ChatState>(initialChatState);
   const [input, setInput] = useState("");
@@ -86,9 +99,20 @@ export function ChatView({ userId, initialPending }: Props) {
     void fetchStatus().then((state) => {
       if (active) setConnection(state);
     });
+    // 別アプリから戻った・回線が戻ったときは、接続状態を取り直す（#930。裏にいる間に通信が切られて「届きません」のまま残るため）
+    const recheck = () => {
+      if (document.visibilityState === "hidden") return;
+      void fetchStatus().then((state) => {
+        if (active) setConnection(state);
+      });
+    };
+    document.addEventListener("visibilitychange", recheck);
+    window.addEventListener("online", recheck);
     // 画面を離れたらターンの接続を閉じる（ブリッジは切断で中断する）
     return () => {
       active = false;
+      document.removeEventListener("visibilitychange", recheck);
+      window.removeEventListener("online", recheck);
       abortRef.current?.abort();
     };
   }, []);
@@ -147,11 +171,13 @@ export function ChatView({ userId, initialPending }: Props) {
     const controller = new AbortController();
     abortRef.current = controller;
     let started = false;
+    // 天気について聞くときは現在地を添える（#930。取れなければ送らず、サーバーが自宅の天気で答える）
+    const location = mentionsWeather(text) ? await currentLocation() : null;
     try {
       const response = await fetch("/api/hermes/turns", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, ...(chat.sessionId ? { sessionId: chat.sessionId } : {}) }),
+        body: JSON.stringify({ text, ...(chat.sessionId ? { sessionId: chat.sessionId } : {}), ...(location ? { location } : {}) }),
         signal: controller.signal,
       });
       if (!response.ok || !response.body) {
@@ -176,8 +202,18 @@ export function ChatView({ userId, initialPending }: Props) {
       }
     } catch {
       if (!controller.signal.aborted) {
-        if (started) setChat((s) => addNotice(s, "error", "Hermesとの接続が切れました。実行の途中までで止まっています。"));
-        else {
+        if (started) {
+          // iOSで別アプリへ移ると通信が切られ、実行は途中で止まる（#930）。指示はHermesへ届いて書き込みが済んでいる場合があるので、
+          // 入力は戻さない（再送すると二重に実行しうる）。結果を確かめてから送り直してもらう
+          setChat((s) =>
+            addNotice(
+              s,
+              "error",
+              "アプリを離れるなどで接続が切れ、実行が途中で止まりました。途中まで実行された可能性があるので、結果を確認してから送り直してください。",
+            ),
+          );
+          void fetchStatus().then(setConnection);
+        } else {
           setInput(text);
           setConnection("unreachable");
           setChat((s) => addNotice(s, "error", "Morrowに接続できませんでした。もう一度試してください。"));

@@ -16,6 +16,8 @@ import { readJsonObject } from "@/lib/json-body";
 import { mailContextFor } from "@/lib/mail/chat-context";
 import { isPushKindEnabled } from "@/lib/push/kinds-server";
 import { sendPushToUser } from "@/lib/push/subscriptions";
+import { parseChatLocation } from "@/lib/weather/chat-context-core";
+import { weatherContextFor } from "@/lib/weather/chat-context";
 
 /**
  * チャットの1ターン（#794）。ブラウザ → ここ → ブリッジ（`hermesClient().startTurn()`）のSSE中継。設計は `docs/hermes-route.md`・`docs/hermes-actions.md`。
@@ -71,7 +73,9 @@ export async function POST(request: Request) {
   const notes = continuing ? await pendingHermesNotes(user.id, continuing) : { text: "", ids: [] };
   // メールに触れる指示なら、検索して該当メールを先頭へ添える（#813。失敗してもターンは止めない）
   const mailContext = await mailContextFor(user, text).catch(() => null);
-  const prompt = buildPrompt([notes.text, mailContext?.prompt], text);
+  // 天気について聞く指示なら、現在地（無ければ自宅）の予報を添える（#930。失敗してもターンは止めない）
+  const weatherContext = await weatherContextFor(user.id, text, parseChatLocation(body?.location));
+  const prompt = buildPrompt([notes.text, mailContext?.prompt, weatherContext?.prompt], text);
 
   let events: AsyncGenerator<BridgeEvent>;
   try {
@@ -103,6 +107,7 @@ export async function POST(request: Request) {
       const heartbeat = setInterval(() => write(": ping\n\n"), HEARTBEAT_MS);
 
       if (mailContext) write(sse({ type: "notice", data: { text: mailContext.label } }));
+      if (weatherContext) write(sse({ type: "notice", data: { text: weatherContext.label } }));
 
       let turnId: string | null = null;
       let currentSessionId = continuing ?? "";
