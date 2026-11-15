@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatItemView } from "@/components/hermes/chat-items";
 import { ProposalCard } from "@/components/hermes/proposal-card";
 import { describeHermesError, type ChatConnection } from "@/lib/hermes/errors";
+import { readTurnIdHeader } from "@/lib/hermes/turn-header";
 import type { HermesErrorKind } from "@/lib/hermes/client-core";
 import type { ProposalView } from "@/lib/hermes/proposal-core";
 import { nextRestoreDelay, shouldRetryRestore } from "@/lib/hermes/restore-retry";
@@ -281,8 +282,10 @@ export function ChatView({ userId, initialPending }: Props) {
     return () => {
       const state = chatRef.current;
       // 実行中のターンはサーバーが続けている。戻ったら続きから受け直せるよう、位置を覚えておく（#1000）
-      if (state.running && state.turnId && !endedRef.current) {
-        saveActiveTurn(userId, state.turnId, receivedRef.current);
+      // turnId はヘッダーで先に受けた値（turnRef）も見る。最初のイベント前に離れても続きを受け直せる（#1005）
+      const activeTurnId = state.turnId ?? turnRef.current;
+      if (state.running && activeTurnId && !endedRef.current) {
+        saveActiveTurn(userId, activeTurnId, receivedRef.current);
         saveChatSnapshot(userId, state, true);
       } else {
         clearActiveTurn();
@@ -404,7 +407,8 @@ export function ChatView({ userId, initialPending }: Props) {
       setConnection("ok");
       receivedRef.current = 0;
       endedRef.current = false;
-      turnRef.current = null;
+      // ターンIDはヘッダーで本文より先に届く。最初のイベント前の「止める」でもinterruptを送れる（#1005）
+      turnRef.current = readTurnIdHeader(response.headers);
       setChat((s) => startTurn(s, text));
       try {
         await consume(response.body);
@@ -452,7 +456,7 @@ export function ChatView({ userId, initialPending }: Props) {
     const controller = abortRef.current;
     const turnId = turnRef.current;
     if (!turnId) {
-      // ターンの開始前。接続そのものを閉じる
+      // ターンの開始前（レスポンス前）。接続を閉じる。サーバーは、ターンが始まった時点で切れていればそのターンを止める（#1005）
       controller?.abort();
       return;
     }
@@ -468,6 +472,11 @@ export function ChatView({ userId, initialPending }: Props) {
   }, []);
 
   const newConversation = useCallback(() => {
+    // 実行中のターンは、止める操作と同じく先にinterruptを送る（接続を閉じるだけではサーバーが続ける。#1005）
+    const turnId = turnRef.current;
+    if (turnId && !endedRef.current) {
+      void fetch(`/api/hermes/turns/${encodeURIComponent(turnId)}/interrupt`, { method: "POST" }).catch(() => {});
+    }
     abortRef.current?.abort();
     // 復元中なら取り消す（中断された復元は結果を反映しないので、読み込み中の表示もここで閉じる）
     restoreAbortRef.current?.abort();
