@@ -72,8 +72,10 @@ export const MCP_PRESETS: McpPreset[] = [
     id: "aide",
     label: "AIDE",
     url: "https://aide.gucchii.com/mcp",
-    // メールの提案の「タスクを作る」（`aide_create_task`。#689・#788）。予定・家計簿・天気などはscope不要。
-    scopes: ["tasks:write"],
+    // メールの提案の「タスクを作る」（`aide_create_task`。#689・#788）と、メールの紐づけの候補の
+    // 「未完了のタスク」（`aide_tasks`。#834・#922）。AIDEは読み取りにも `tasks:read` を求め、`tasks:write` では読めない。
+    // 予定・家計簿・天気などはscope不要。
+    scopes: ["tasks:read", "tasks:write"],
     description: "資産と固定費・部屋の状態・VPSとサブPCの稼働・今日の見通し・開発状況",
     provides: [
       "いまの室温・湿度・CO2（aide_room_sensors）とエアコンの運転状態（aide_aircon_status）",

@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
-import { callToolJson, connectedServerFor } from "@/lib/mcp/direct-call";
+import { callToolJson, connectedServerFor, McpCallError } from "@/lib/mcp/direct-call";
+import { MISSING_SCOPE_REASON } from "@/lib/mcp/tool-error";
 
 import {
   parseEventCandidates,
@@ -88,6 +89,15 @@ export async function mailIdsByTarget(userId: string, targets: { kind: LinkKind;
   return map;
 }
 
+/**
+ * 候補の取得に失敗したときの画面の文。接続の権限（scope）不足は待っても直らないので、
+ * 「時間をおいて」ではなく繋ぎ直しを案内する（#922）。
+ */
+function failureMessage(error: unknown, fallback: string): string {
+  if (error instanceof McpCallError && error.reason === MISSING_SCOPE_REASON) return `${MISSING_SCOPE_REASON}。`;
+  return fallback;
+}
+
 export type CandidateResult = { ok: true; items: LinkCandidate[] } | { ok: false; kind: "unconfigured" | "failed"; message: string };
 
 /** 予定の候補: 今日の前後（-7〜+6日）。 */
@@ -102,7 +112,7 @@ export async function eventCandidates(userId: string): Promise<CandidateResult> 
     return { ok: true, items: parseEventCandidates(json) };
   } catch (error) {
     console.error("[aide-bot] 紐づけ候補（予定）の取得に失敗した", error instanceof Error ? error.message : error);
-    return { ok: false, kind: "failed", message: "予定を取得できませんでした。時間をおいて試してください。" };
+    return { ok: false, kind: "failed", message: failureMessage(error, "予定を取得できませんでした。時間をおいて試してください。") };
   }
 }
 
@@ -115,6 +125,6 @@ export async function taskCandidates(userId: string): Promise<CandidateResult> {
     return { ok: true, items: parseTaskCandidates(json) };
   } catch (error) {
     console.error("[aide-bot] 紐づけ候補（タスク）の取得に失敗した", error instanceof Error ? error.message : error);
-    return { ok: false, kind: "failed", message: "タスクを取得できませんでした。時間をおいて試してください。" };
+    return { ok: false, kind: "failed", message: failureMessage(error, "タスクを取得できませんでした。時間をおいて試してください。") };
   }
 }
