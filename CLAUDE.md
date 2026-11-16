@@ -227,6 +227,10 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
 - **同じURLで30秒以内に続けて起きたら自動では読み込み直さず、ボタンの画面で止める**（sessionStorageの印。ループさせない）
 - 自動既読の後の `router.refresh()` は残した。外すと、iOSの端スワイプ（履歴の戻る）で一覧へ戻ったときに未読の印が古いまま出うるため
 
+## 下から出るシートとキーボード（#1020）
+
+`<dialog>` のシート（`flow-sheet`・`account-picker-sheet`・`mail-links`・`mail-criteria-dialog`・`header-dialog`）はfixedでレイアウトビューポートの下端に付くが、iOSはキーボードでそれを縮めないため下側が裏に入る。`useVisualViewportFit()` がキーボードが出ている間だけ `--keyboard-inset`（`keyboardInsetOf()`）を書き、シートは `bottom-[var(--keyboard-inset)]`・`max-h-[min(85dvh,calc(var(--app-height)-1rem))]` で乗る。**共通クラスにしない**（レイヤー外のCSSはmdの `md:inset-y-0` に勝って中央表示が壊れる）。**下シートを足すときは同じ2つを指定する**。シート内の入力欄は同フックが `scrollIntoView` で寄せる。
+
 ## スマホの下部固定ナビ（#916）
 
 スマホ（lg未満）は、画面下に浮かせたリキッドグラス風のバー（`src/components/chat/mobile-tab-bar.tsx`）にホーム・天気・チャット・メール・ニュースの5つを常駐させる。設定・モデルは従来どおりドロワーから。lg以上は左の帯のみで出さない。

@@ -168,7 +168,7 @@ export function FlowSheet({ card, recommended, outcome, match, calendars, runnin
       onClose={onClose}
       // 背景（::backdrop）を押したら閉じる。中身の上の操作はdialog自身が対象にならない
       onClick={(e) => e.target === e.currentTarget && ref.current?.close()}
-      className="flow-sheet fixed inset-x-0 bottom-0 top-auto m-0 mx-auto max-h-[85dvh] w-full max-w-[560px] overflow-y-auto rounded-t-[18px] border border-border bg-surface p-0 text-foreground backdrop:bg-black/55"
+      className="flow-sheet fixed inset-x-0 bottom-[var(--keyboard-inset)] top-auto m-0 mx-auto max-h-[min(85dvh,calc(var(--app-height)-1rem))] w-full max-w-[560px] overflow-y-auto rounded-t-[18px] border border-border bg-surface p-0 text-foreground backdrop:bg-black/55"
     >
       {card && meta && app && (
         <div className="flex flex-col gap-3 px-4 pb-[calc(1.25rem+var(--app-bottom-inset))] pt-2">

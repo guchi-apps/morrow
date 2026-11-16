@@ -39,20 +39,29 @@ export function useVisualViewportFit() {
 
       const focused = isEditableFocused(document.activeElement);
       if (!focused) restingHeight = Math.max(restingHeight, viewport.height);
-      const keyboardOpen = isKeyboardOpen(
-        Math.max(window.innerHeight, focused ? restingHeight : 0),
-        viewport.height,
-        focused,
-      );
+      const layoutHeight = Math.max(window.innerHeight, focused ? restingHeight : 0);
+      const keyboardOpen = isKeyboardOpen(layoutHeight, viewport.height, focused);
       if (keyboardOpen) {
+        // 下から出るシート（`<dialog>`。fixedでレイアウトビューポートの下端に付く）を、
+        // キーボードの上へ持ち上げる高さ（#1020）。
+        const inset = `${keyboardInsetOf(layoutHeight, viewport.height, viewport.offsetTop)}px`;
+        root.style.setProperty("--keyboard-inset", inset);
         const height = `${Math.round(viewport.height)}px`;
         const changed = root.style.getPropertyValue("--app-height") !== height;
         root.style.setProperty("--app-height", height);
         root.dataset.keyboard = "open";
         // 高さだけを変えても会話欄のスクロール位置はそのまま残る。キーボードによる変化の回だけ
         // 末尾へ寄せ、最新の対話が押し出されないようにする（#385）。
-        if (changed) window.dispatchEvent(new Event(KEYBOARD_VIEWPORT_CHANGE_EVENT));
+        if (changed) {
+          window.dispatchEvent(new Event(KEYBOARD_VIEWPORT_CHANGE_EVENT));
+          // シートの中の入力欄が、持ち上げたシートの外へ出ないよう見える位置へ寄せる。
+          const active = document.activeElement;
+          if (focused && active instanceof HTMLElement && active.closest("dialog")) {
+            active.scrollIntoView({ block: "nearest" });
+          }
+        }
       } else {
+        root.style.removeProperty("--keyboard-inset");
         root.style.removeProperty("--app-height");
         delete root.dataset.keyboard;
       }
@@ -84,6 +93,7 @@ export function useVisualViewportFit() {
       window.removeEventListener("focusin", onFocusIn);
       for (const timer of timers) window.clearTimeout(timer);
       if (frame) cancelAnimationFrame(frame);
+      root.style.removeProperty("--keyboard-inset");
       root.style.removeProperty("--app-height");
       delete root.dataset.keyboard;
     };
@@ -110,6 +120,14 @@ export function isKeyboardOpen(
 ) {
   const min = editableFocused ? KEYBOARD_MIN_HEIGHT_FOCUSED : KEYBOARD_MIN_HEIGHT;
   return layoutHeight - visualHeight > min;
+}
+
+/**
+ * キーボードが覆う高さ（レイアウトビューポートの下端から、見えている領域の下端まで）。
+ * fixedの要素はレイアウトビューポート基準なので、この値だけ持ち上げるとキーボードの上に乗る。
+ */
+export function keyboardInsetOf(layoutHeight: number, visualHeight: number, offsetTop = 0) {
+  return Math.max(0, Math.round(layoutHeight - (offsetTop + visualHeight)));
 }
 
 /** 文字を入力する要素にフォーカスしているか（画面キーボードが出る要素）。 */

@@ -22,7 +22,7 @@ export function AccountPickerSheet({ open, choices, busy, onPick, onClose }: { o
       aria-label="引き落とし口座を選ぶ"
       onClose={onClose}
       onClick={(e) => e.target === e.currentTarget && ref.current?.close()}
-      className="flow-sheet fixed inset-x-0 bottom-0 top-auto m-0 mx-auto max-h-[85dvh] w-full max-w-[560px] overflow-y-auto rounded-t-[18px] border border-border bg-surface p-0 text-foreground backdrop:bg-black/55"
+      className="flow-sheet fixed inset-x-0 bottom-[var(--keyboard-inset)] top-auto m-0 mx-auto max-h-[min(85dvh,calc(var(--app-height)-1rem))] w-full max-w-[560px] overflow-y-auto rounded-t-[18px] border border-border bg-surface p-0 text-foreground backdrop:bg-black/55"
     >
       {open && (
         <div className="flex flex-col gap-2 px-4 pb-[calc(1.25rem+var(--app-bottom-inset))] pt-2">

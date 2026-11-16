@@ -111,6 +111,8 @@
 :root {
   --app-height: 100dvh;
   --app-bottom-inset: env(safe-area-inset-bottom);
+  /* キーボードが覆う高さ（#1020）。下から出るシートの `bottom` に使う。キーボードが出ている間だけ `useVisualViewportFit()` が書く */
+  --keyboard-inset: 0px;
 }
 
 :root[data-keyboard="open"] {
