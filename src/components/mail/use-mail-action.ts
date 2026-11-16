@@ -94,7 +94,6 @@ export function useMailAction(options: { after?: (action: MailAction) => void } 
    */
   async function archiveRow(id: string, unread: boolean, optimistic = false): Promise<boolean> {
     setNotice(null);
-    setBackgroundFailure(null);
     // 本文の画面から押した回（#1023）: 完了を待たずに一覧から隠し、失敗したら戻して一覧側の赤い帯で知らせる
     if (optimistic) rememberArchived([id]);
     const fail = (text: string): false => {
