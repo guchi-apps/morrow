@@ -911,6 +911,7 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 ### メール詳細の操作と要約（#717）
 
 - **本文を開いた時点で未読なら自動で既読にする**（#835。`MailDetailActions` のeffect。開いたメールごとに1回だけで、成功の表示は出さず失敗だけ赤字。「未読に戻す」を押しても再度は既読にしない）
+- **本文のアーカイブは完了を待たずに一覧へ戻る**（#1023）。`archiveRow(id, false, true)`（楽観モード）が先に `rememberArchived()` で一覧から隠し、`router.push(back)` の後ろで共有の直列キューが送る。失敗したら `forgetArchived()` で行を戻し、モジュール共有の失敗通知（`use-mail-action.ts`）を一覧の赤い帯に出す。待ちの間は一覧の「アーカイブ中…」が出る
 - **本文の画面の操作は「既読／未読に戻す」と「アーカイブ（アーカイブ済みなら受信トレイへ戻す）」だけ**（`mail-detail-actions.tsx`）。スター・ラベル・ゴミ箱は使わないので出さない。サーバー側の `star`／`label-*`／`trash`（`aide-client`・`/api/mail/actions`・契約）は一覧が使うので残してある。ラベル名のための一覧取得も詳細からは外した（「処理済み」ラベルの自動付与〔#689〕はサーバー側で一覧を引くので残る）
 - **要約は#766で提案と1回のAI呼び出しにまとめた**（下の「メールのAI分析」）。「📝 要約する」ボタン・`POST /api/mail/flow/summary`・`summary.ts`・用途「メールの要約」（`mail_summary`）は消した。`summary-core.ts` には要約の決まりごと（`SUMMARY_RULES`）と返答の検証（`parseSummaryReply()`）だけが残る。使用量の機能名 `mail_summary` は過去の記録の名前としてだけ残す
 

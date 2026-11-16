@@ -155,14 +155,14 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
           )}
         </div>
       )}
-      {queued > 0 ? (
+      {queued > 0 && (
         <p role="status" className="flex items-center gap-2 rounded-[10px] border border-border bg-surface px-3.5 py-2.5 text-xs text-muted">
           <span aria-hidden className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-border border-t-emerald-500" />
           アーカイブ中…（残り{queued}通）
         </p>
-      ) : (
-        <MailNotice notice={notice} />
       )}
+      {/* 失敗は処理中でも隠さない（本文の画面から裏で流した失敗を含む。#1023） */}
+      {(queued === 0 || notice?.error) && <MailNotice notice={notice} />}
 
       {messages.length > 0 && (
       <ul className="overflow-hidden rounded-xl border border-border bg-surface">
