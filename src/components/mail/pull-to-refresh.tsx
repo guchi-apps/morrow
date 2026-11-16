@@ -6,12 +6,13 @@ import { useRef, useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-import { describeMailCheck, type CheckResult } from "./mail-check-button";
 import { isPullGesture, PULL_THRESHOLD, pullDistance, shouldRefresh } from "./pull-to-refresh-core";
 
+const EDGE_PX = 24;
+
 /**
- * メール一覧のスクロール領域を包み、先頭で下へ引いて離すと「いま確認」と同じ処理を走らせる（#1015）。
- * 新着確認（`POST /api/mail/check`。一覧キャッシュも捨てる）→ `router.refresh()`。タッチ操作だけ。
+ * メール一覧のスクロール領域を包み、先頭で下へ引いて離すと一覧を取り直す（#1015）。
+ * 一覧キャッシュを捨てる（`POST /api/mail/refresh`）→ `router.refresh()`。新着の判定（`/api/mail/check`）は裏で走らせ、終わったらもう一度取り直す。タッチ操作だけ。
  */
 export function PullToRefresh({ className, children }: { className?: string; children: ReactNode }) {
   const router = useRouter();
@@ -20,18 +21,21 @@ export function PullToRefresh({ className, children }: { className?: string; chi
   const [distance, setDistance] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [running, setRunning] = useState(false);
-  const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const [failed, setFailed] = useState(false);
 
   async function refresh() {
     setRunning(true);
-    setMessage(null);
+    setFailed(false);
     try {
-      const response = await fetch("/api/mail/check", { method: "POST", cache: "no-store" });
-      const data = (await response.json().catch(() => null)) as { result?: CheckResult } | null;
-      setMessage(data?.result ? describeMailCheck(data.result) : { text: "更新に失敗しました。", error: true });
+      // 一覧のキャッシュを捨てて取り直す。新着の判定は時間がかかる（Codex）ので待たず、終わったら一覧を取り直す
+      await fetch("/api/mail/refresh", { method: "POST", cache: "no-store" });
       router.refresh();
+      void fetch("/api/mail/check", { method: "POST", cache: "no-store" })
+        .then(() => router.refresh())
+        .catch(() => undefined);
+      await new Promise((resolve) => window.setTimeout(resolve, 600));
     } catch {
-      setMessage({ text: "更新に失敗しました（通信できませんでした）。", error: true });
+      setFailed(true);
     } finally {
       setRunning(false);
     }
@@ -39,7 +43,9 @@ export function PullToRefresh({ className, children }: { className?: string; chi
 
   function onTouchStart(event: React.TouchEvent<HTMLDivElement>) {
     const touch = event.touches[0];
-    start.current = running || !touch ? null : { x: touch.clientX, y: touch.clientY };
+    // 画面の左右端（戻る・進むのスワイプ）から始めた操作は拾わない
+    const edge = touch ? touch.clientX < EDGE_PX || touch.clientX > window.innerWidth - EDGE_PX : false;
+    start.current = running || !touch || edge ? null : { x: touch.clientX, y: touch.clientY };
     pulling.current = false;
   }
 
@@ -99,15 +105,9 @@ export function PullToRefresh({ className, children }: { className?: string; chi
           </>
         )}
       </div>
-      {message && !running && (
-        <p
-          role={message.error ? "alert" : "status"}
-          className={cn(
-            "mx-3.5 mt-2 rounded-lg px-3 py-2 text-xs leading-relaxed md:mx-7",
-            message.error ? "border border-danger/30 bg-danger-surface text-danger" : "bg-surface text-muted",
-          )}
-        >
-          {message.text}
+      {failed && !running && (
+        <p role="alert" className="mx-3.5 mt-2 rounded-lg border border-danger/30 bg-danger-surface px-3 py-2 text-xs text-danger md:mx-7">
+          更新に失敗しました（通信できませんでした）。
         </p>
       )}
       {children}

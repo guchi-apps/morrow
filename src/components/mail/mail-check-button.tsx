@@ -8,7 +8,7 @@ import { createPortal } from "react-dom";
 import { HEADER_ICON_BUTTON, useHeaderSlot } from "@/components/chat/header-actions";
 import { cn } from "@/lib/utils";
 
-export type CheckResult = {
+type CheckResult = {
   status: "checked" | "initialized" | "disabled" | "busy" | "too_soon" | "failed" | "not_owner";
   judged: number;
   needed: number;
@@ -18,7 +18,7 @@ export type CheckResult = {
   message?: string;
 };
 
-export function describeMailCheck(result: CheckResult): { text: string; error: boolean } {
+function describe(result: CheckResult): { text: string; error: boolean } {
   switch (result.status) {
     case "checked": {
       const partial = result.partial ? "（一部のアカウントは取得できませんでした）" : "";
@@ -58,7 +58,7 @@ export function MailCheckButton({ className }: { className?: string }) {
     try {
       const response = await fetch("/api/mail/check", { method: "POST", cache: "no-store" });
       const data = (await response.json().catch(() => null)) as { result?: CheckResult } | null;
-      setMessage(data?.result ? describeMailCheck(data.result) : { text: "確認に失敗しました。", error: true });
+      setMessage(data?.result ? describe(data.result) : { text: "確認に失敗しました。", error: true });
       router.refresh();
     } catch {
       setMessage({ text: "確認に失敗しました（通信できませんでした）。", error: true });
