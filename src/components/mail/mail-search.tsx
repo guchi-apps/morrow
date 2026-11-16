@@ -43,19 +43,21 @@ export function MailSearch({ initialQuery, view, account, labels, supportsLabels
   const [active, setActive] = useState(initialQuery);
   // 同じ語で送り直したときも結果を取り直す（覚えた結果があればすぐ返る）
   const [nonce, setNonce] = useState(0);
-  // URLの `?q=` として知っている値。表示切替のリンク（`?q=` 無し）で来たら検索をやめ、
-  // 自分で書き換えたURLのままの取り直し（`router.refresh()`）では検索を保つ
-  const [urlQuery, setUrlQuery] = useState(initialQuery);
-  if (urlQuery !== initialQuery) {
-    setUrlQuery(initialQuery);
-    setText(initialQuery);
-    setActive(initialQuery);
+  // サーバーから最後に受け取った `?q=`。この値が変わったとき（別の `?q=` で開き直した・取り直した）だけ検索を合わせる。
+  // 自分で送った検索はURLを `replaceState` で書き換えるだけでサーバーの値は変わらないので、ここでは比べない
+  // （以前は送った語と比べていたため、送った直後に古い値〔空〕へ戻され、入力が消えて検索もされなかった。#1014）
+  const [serverQuery, setServerQuery] = useState(initialQuery);
+  if (serverQuery !== initialQuery) {
+    setServerQuery(initialQuery);
+    if (initialQuery !== active) {
+      setText(initialQuery);
+      setActive(initialQuery);
+    }
   }
 
   function apply(next: string) {
     const q = next.trim().slice(0, TEXT_LIMIT);
     setActive(q);
-    setUrlQuery(q);
     const params = new URLSearchParams(window.location.search);
     if (q) params.set("q", q);
     else params.delete("q");
