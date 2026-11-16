@@ -13,6 +13,9 @@ import type { RelayEvent } from "@/lib/hermes/stream-view";
 import { isAutoWriteTool, isProposeTool, knownToolKey, resultFailed } from "@/lib/hermes/tool-labels";
 import { claimHermesSession, ownsHermesSession } from "@/lib/hermes/session-owner";
 import { registerTurn, releaseTurn } from "@/lib/hermes/turn-owners";
+import { expireTurnLog, registerTurnLog, TurnLog } from "@/lib/hermes/turn-pump";
+import { TURN_ID_HEADER } from "@/lib/hermes/turn-header";
+import { streamOf } from "@/lib/hermes/turn-stream";
 import { readJsonObject } from "@/lib/json-body";
 import { mailContextFor } from "@/lib/mail/chat-context";
 import { isPushKindEnabled } from "@/lib/push/kinds-server";
@@ -26,7 +29,8 @@ import { weatherContextFor } from "@/lib/weather/chat-context";
  * - ブラウザへトークンもsubpcの名前も渡さない。イベントはここで読み替えてから流す
  * - `morrow_propose_action` の呼び出しは、確認カード（`HermesProposal`）を保存して `proposal` イベントに置き換える
  * - 取り消せる書き込みの `tool.complete` は、道具名と成否だけを記録する（引数・結果の本文は残さない）
- * - **画面を閉じる（接続が切れる）とターンは中断される**（#726）。確認待ちは保存済みなので、後から承認できる
+ * - **画面の接続が切れてもターンは続く**（#1000。溜め `turn-pump.ts` と `turns/<id>/events` で続きを受け直す）。「止める」・1ターンの上限で止まる
+ * - 最初のイベントは `turn`（ブリッジの契約）。レスポンス前に受けてidを `x-hermes-turn-id` で渡す（#1005）
  * - 使用量はターンの終わりに1行（`recordHermesTurnUsage()`。#737）
  */
 
@@ -36,12 +40,7 @@ export const maxDuration = 660;
 
 const MAX_TEXT = 4000;
 const MIN_INTERVAL_MS = 3000;
-const HEARTBEAT_MS = 15_000;
 const lastStarts = new Map<string, number>();
-
-function sse(event: RelayEvent): string {
-  return `event: ${event.type}\ndata: ${JSON.stringify(event.data)}\n\n`;
-}
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
@@ -82,7 +81,7 @@ export async function POST(request: Request) {
 
   let events: AsyncGenerator<BridgeEvent>;
   try {
-    events = await (await hermesClient()).startTurn({ ...(continuing ? { sessionId: continuing } : {}), text: prompt }, request.signal);
+    events = await (await hermesClient()).startTurn({ ...(continuing ? { sessionId: continuing } : {}), text: prompt });
   } catch (error) {
     // 送れなかった指示は溜めない。画面が入力欄へ戻す（#726）
     lastStarts.delete(user.id);
@@ -94,120 +93,141 @@ export async function POST(request: Request) {
   }
   await markNotesReported(user.id, notes.ids);
 
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      let closed = false;
-      const write = (chunk: string) => {
-        if (closed) return;
+  // ブリッジのストリームはブラウザの接続と無関係に読み切る（#1000）。画面が離れても（iOSで別アプリへ移るなど）ターンは続き、
+  // 戻った画面は `turns/<id>/events` で続きを受ける。止めるのは「止める」と1ターンの上限だけ
+  const log = new TurnLog<RelayEvent>();
+  if (mailContext) log.push({ type: "notice", data: { text: mailContext.label } });
+  if (weatherContext) log.push({ type: "notice", data: { text: weatherContext.label } });
+
+  // 最初の `turn` イベントをレスポンスより前に受け、ターンIDをヘッダーで渡す（#1005）。
+  // 本文を読み始める前の「止める」・画面離脱でも、画面がinterruptと再接続に使うidを持てる
+  let turnId: string | null = null;
+  let sessionIdOfTurn = continuing ?? "";
+  let rest: AsyncGenerator<BridgeEvent> = events;
+  try {
+    const first = await events.next();
+    if (!first.done && first.value.type === "turn") {
+      const turn = first.value;
+      turnId = turn.data.turnId;
+      sessionIdOfTurn = turn.data.sessionId;
+      // 始まったセッションを利用者へ結びつける（#937）。DBの失敗で結べない回は後の継続が新規会話になるだけで、ターンは止めない
+      const claimed = await claimHermesSession(user.id, sessionIdOfTurn).catch((error) => {
+        console.error("[aide-bot] Hermesセッションの持ち主を記録できなかった", error instanceof Error ? error.message : error);
+        return null;
+      });
+      if (claimed === false) {
+        // すでに別の利用者のセッション。idをブラウザへ渡さず、ターンも続けない
+        console.error("[aide-bot] 別の利用者のHermesセッションidが返った");
+        await (await hermesClient()).interrupt(turn.data.turnId).catch(() => {});
+        void events.return(undefined).catch(() => {});
+        lastStarts.delete(user.id);
+        return NextResponse.json({ error: "会話を始められませんでした。もう一度お試しください。", kind: "hermes_down" }, { status: 502 });
+      }
+      registerTurn(turnId, user.id);
+      registerTurnLog(turnId, user.id, log as TurnLog<unknown>);
+      log.push(turn);
+      // 本文が届く前に画面が離れていた（止める・新しい会話・画面離脱）。ターンの存在を知らせる先が無いので、ここで止める
+      if (request.signal.aborted) {
         try {
-          controller.enqueue(encoder.encode(chunk));
+          await (await hermesClient()).interrupt(turnId);
         } catch {
-          closed = true;
-        }
-      };
-      // Apacheなどのプロキシに切られないように、こちらからもコメント行を流す
-      const heartbeat = setInterval(() => write(": ping\n\n"), HEARTBEAT_MS);
-
-      if (mailContext) write(sse({ type: "notice", data: { text: mailContext.label } }));
-      if (weatherContext) write(sse({ type: "notice", data: { text: weatherContext.label } }));
-
-      let turnId: string | null = null;
-      let currentSessionId = continuing ?? "";
-      let toolCount = 0;
-      let proposalsCreated = 0;
-
-      try {
-        for await (const event of events) {
-          if (event.type === "turn") {
-            turnId = event.data.turnId;
-            currentSessionId = event.data.sessionId;
-            // 始まったセッションを利用者へ結びつける（#937）。DBの失敗で結べない回は後の継続が新規会話になるだけで、ターンは止めない
-            const claimed = await claimHermesSession(user.id, currentSessionId).catch((error) => {
-              console.error("[aide-bot] Hermesセッションの持ち主を記録できなかった", error instanceof Error ? error.message : error);
-              return null;
-            });
-            if (claimed === false) {
-              // すでに別の利用者のセッション。idをブラウザへ渡さず、ターンも続けない
-              console.error("[aide-bot] 別の利用者のHermesセッションidが返った");
-              await (await hermesClient()).interrupt(event.data.turnId).catch(() => {});
-              write(sse({ type: "error", data: { reason: "hermes_down", message: "会話を始められませんでした。もう一度お試しください。" } }));
-              break;
-            }
-            registerTurn(turnId, user.id);
-            write(sse(event));
-            continue;
-          }
-
-          if (event.type === "tool.start") {
-            toolCount += 1;
-            if (isProposeTool(event.data.name)) {
-              // 提案は確認カードにして流す。生の呼び出し（引数）はブラウザへ渡さない
-              if (parseProposalEvent(event.data.name, event.data.args)) {
-                try {
-                  const proposal = await ingestStreamToolStart({
-                    userId: user.id,
-                    sessionId: currentSessionId,
-                    callId: `${turnId ?? "turn"}:${toolCount}`,
-                    name: event.data.name,
-                    args: event.data.args,
-                  });
-                  if (proposal) {
-                    proposalsCreated += 1;
-                    write(sse({ type: "proposal", data: { proposal } }));
-                  }
-                } catch (error) {
-                  console.error("[aide-bot] Hermesの提案を保存できなかった", error instanceof Error ? error.message : error);
-                }
-              }
-              continue;
-            }
-          }
-
-          if (event.type === "tool.complete") {
-            if (isProposeTool(event.data.name)) continue;
-            if (isAutoWriteTool(event.data.name) && event.data.name) {
-              await recordAutoAction({
-                userId: user.id,
-                sessionId: currentSessionId,
-                tool: knownToolKey(event.data.name) ?? event.data.name,
-                ok: !resultFailed(event.data.result),
-              });
-            }
-          }
-
-          if (event.type === "message.complete") await recordHermesTurnUsage(user.id, event.data.usage);
-          if (event.type === "reasoning.delta" || event.type === "tool.progress") continue; // 画面には出さない
-
-          write(sse(event));
-        }
-      } catch (error) {
-        // 接続が切れた（画面を閉じた）・ブリッジ側の失敗。切れた側にはもう届かないので、ログだけ残す
-        if (!request.signal.aborted) {
-          console.error("[aide-bot] Hermesのストリームが途中で切れた", error instanceof Error ? error.message : error);
-          write(sse({ type: "error", data: { reason: "hermes_down", message: "Hermesとの接続が途中で切れました。" } }));
-        }
-      } finally {
-        clearInterval(heartbeat);
-        if (turnId) releaseTurn(turnId);
-        if (proposalsCreated > 0) await notifyPending(user.id, proposalsCreated);
-        closed = true;
-        try {
-          controller.close();
-        } catch {
-          // すでに閉じている
+          // 止められなくても、読み切りと後始末はpumpが行う
         }
       }
-    },
-  });
+    } else if (!first.done) {
+      rest = (async function* () {
+        yield first.value;
+        yield* events;
+      })();
+    }
+  } catch (error) {
+    console.error("[aide-bot] Hermesのターンの開始を読めなかった", error instanceof Error ? error.message : error);
+    lastStarts.delete(user.id);
+    return NextResponse.json({ error: "Hermesとの接続が途中で切れました。", kind: "hermes_down" }, { status: 502 });
+  }
+  void pumpTurn({ events: rest, log, userId: user.id, turnId, sessionId: sessionIdOfTurn });
 
-  return new Response(stream, {
+  return new Response(streamOf(log, 0), {
     headers: {
       "content-type": "text/event-stream; charset=utf-8",
       "cache-control": "no-store, no-transform",
       "x-accel-buffering": "no",
+      ...(turnId ? { [TURN_ID_HEADER]: turnId } : {}),
     },
   });
+}
+
+/** ブリッジのイベントを読み、提案の保存・使用量・通知を済ませて、ブラウザ向けのイベントを溜めへ積む。 */
+async function pumpTurn(options: {
+  events: AsyncGenerator<BridgeEvent>;
+  log: TurnLog<RelayEvent>;
+  userId: string;
+  /** 最初の `turn` イベントは呼び出し側で処理済み（#1005）。無ければnull。 */
+  turnId: string | null;
+  sessionId: string;
+}): Promise<void> {
+  const { events, log, userId, turnId } = options;
+  const user = { id: userId };
+  const currentSessionId = options.sessionId;
+  let toolCount = 0;
+  let proposalsCreated = 0;
+
+  try {
+    for await (const event of events) {
+      if (event.type === "tool.start") {
+        toolCount += 1;
+        if (isProposeTool(event.data.name)) {
+          // 提案は確認カードにして流す。生の呼び出し（引数）はブラウザへ渡さない
+          if (parseProposalEvent(event.data.name, event.data.args)) {
+            try {
+              const proposal = await ingestStreamToolStart({
+                userId: user.id,
+                sessionId: currentSessionId,
+                callId: `${turnId ?? "turn"}:${toolCount}`,
+                name: event.data.name,
+                args: event.data.args,
+              });
+              if (proposal) {
+                proposalsCreated += 1;
+                log.push({ type: "proposal", data: { proposal } });
+              }
+            } catch (error) {
+              console.error("[aide-bot] Hermesの提案を保存できなかった", error instanceof Error ? error.message : error);
+            }
+          }
+          continue;
+        }
+      }
+
+      if (event.type === "tool.complete") {
+        if (isProposeTool(event.data.name)) continue;
+        if (isAutoWriteTool(event.data.name) && event.data.name) {
+          await recordAutoAction({
+            userId: user.id,
+            sessionId: currentSessionId,
+            tool: knownToolKey(event.data.name) ?? event.data.name,
+            ok: !resultFailed(event.data.result),
+          });
+        }
+      }
+
+      if (event.type === "message.complete") await recordHermesTurnUsage(user.id, event.data.usage);
+      if (event.type === "reasoning.delta" || event.type === "tool.progress") continue; // 画面には出さない
+
+      log.push(event);
+    }
+  } catch (error) {
+    // ブリッジ側の失敗。画面が残っていれば（または戻れば）エラーとして届く
+    console.error("[aide-bot] Hermesのストリームが途中で切れた", error instanceof Error ? error.message : error);
+    log.push({ type: "error", data: { reason: "hermes_down", message: "Hermesとの接続が途中で切れました。" } });
+  } finally {
+    if (turnId) {
+      releaseTurn(turnId);
+      expireTurnLog(turnId);
+    }
+    log.finish();
+    if (proposalsCreated > 0) await notifyPending(user.id, proposalsCreated);
+  }
 }
 
 /** 確認待ちがあることを知らせる（1ターンにつき1回。押すとチャットを開くだけ。種類がオフなら送らない）。 */

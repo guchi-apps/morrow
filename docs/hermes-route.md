@@ -149,7 +149,7 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 | ターンの開始 | 利用者ごとに3秒に1回 | Morrow |
 | 切断 | Morrowとの接続が切れたら `session.interrupt`（承認待ちは拒否で終わる） | ブリッジ |
 
-- 切断時に続けて走らせ、`session.events.since` で追いかける形は #725 で未試験。まずは中断（安全側）で始め、要るなら後で広げる
+- ブリッジ自体は切断で中断する（安全側）。ただしMorrowのサーバーはブラウザの切断と無関係にブリッジのストリームを読み切って溜め、戻った画面へ続きを返す（#1000。`src/lib/hermes/turn-pump.ts`）。ブリッジ側で続きを追いかける形（`session.events.since`）は未試験のまま
 - 使用量は `message.complete.usage` から `ApiUsage` へ1ターン1行（対応表は #725 のコメント）
 
 ## 必要な作業

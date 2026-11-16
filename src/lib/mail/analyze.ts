@@ -4,7 +4,7 @@ import { jstDayKey } from "@/lib/day-key";
 
 import { getMail, type MailUser } from "@/lib/mail/aide-client";
 import { getStoredAnalysis, saveAnalysis, storedAnalysisIds } from "@/lib/mail/analysis-store";
-import { acquireMailCodex, currentMailCodex } from "@/lib/mail/codex-lock";
+import { acquireMailCodex, currentMailCodex, someoneWaitsForMailCodex } from "@/lib/mail/codex-lock";
 import { analysisCacheKey, buildAnalyzePrompt, freshValue, parseAnalyzeReply, putCache, type CacheEntry, type MailAnalysis } from "@/lib/mail/analyze-core";
 import type { MailFailureKind } from "@/lib/mail/contract";
 import { plainBody, withReceivedDate } from "@/lib/mail/suggest-core";
@@ -37,13 +37,15 @@ export async function analyzeMail(user: MailUser, messageId: string, options: { 
   if (current?.key === key) return current.promise;
   const release = acquireMailCodex(user.id, { kind: "analyze", key });
   if (!release) {
-    const summarizing = currentMailCodex(user.id)?.kind === "list_summary";
+    const busyKind = currentMailCodex(user.id)?.kind;
     return {
       ok: false,
       kind: "busy",
-      message: summarizing
+      message: busyKind === "list_summary"
         ? "一覧の要約を作っています。少し待ってください。"
-        : current
+        : busyKind === "search"
+          ? "メールのAI検索をしています。少し待ってください。"
+          : current
           ? "別のメールを分析しています。少し待ってください。"
           : "指示への返事を作っています。少し待ってください。",
     };
@@ -191,6 +193,8 @@ async function prefetchBatch(user: MailUser, messageIds: string[]): Promise<bool
     const stored = await storedAnalysisIds(user.id, ids);
     for (const id of ids) {
       if (stored.has(id)) continue;
+      // 利用者の検索（#998）が空きを待っているなら譲る
+      if (someoneWaitsForMailCodex(user.id)) return false;
       let outcome = await analyzeMail(user, id);
       for (let i = 0; !outcome.ok && outcome.kind === "busy" && i < PREFETCH_BUSY_RETRIES; i++) {
         // 利用者の操作（分析・指示・学習）が走っているなら譲って打ち切る。待つのは一覧の要約が走っているときだけ
