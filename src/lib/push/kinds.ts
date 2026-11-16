@@ -40,8 +40,8 @@ export const PUSH_KIND_INFO: Record<PushKind, PushKindInfo> = {
     hint: "新着メールのうち、メールの画面で決めた基準で「必要」と判定したものを知らせます。",
     when: "15分ごとの新着確認と「いま確認」",
     sample: {
-      title: "必要なメール（1通）",
-      body: "（見本）差出人：件名 — 理由がここに並びます。",
+      title: "（見本）メールの件名がここに出ます",
+      body: "差出人 — 必要と判断した理由がここに並びます。",
       url: "/mail",
     },
   },
