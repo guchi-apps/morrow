@@ -115,6 +115,34 @@ function Field({ label, children, className }: { label: string; children: ReactN
   );
 }
 
+/** 日付＋時刻の任意入力。「未設定にする」で日付と時刻をまとめて空に戻す（#1021） */
+function OptionalDateTime({ label, dateKey, timeKey, fields, onEdit }: { label: string; dateKey: string; timeKey: string; fields: Record<string, unknown>; onEdit: (key: string, value: string) => void }) {
+  const date = String(fields[dateKey] ?? "");
+  const time = String(fields[timeKey] ?? "");
+  return (
+    <div className="col-span-2 flex min-w-0 flex-col gap-1 text-[0.6875rem] text-muted">
+      <div className="flex items-center justify-between">
+        <span>{label}</span>
+        <button
+          type="button"
+          disabled={date === "" && time === ""}
+          onClick={() => {
+            onEdit(dateKey, "");
+            onEdit(timeKey, "");
+          }}
+          className="py-1 text-xs text-accent disabled:text-muted disabled:opacity-60"
+        >
+          未設定にする
+        </button>
+      </div>
+      <div className="grid grid-cols-[3fr_2fr] gap-2">
+        <input type="date" aria-label={`${label}の日付`} className={input} value={date} onChange={(e) => onEdit(dateKey, e.target.value)} />
+        <input type="time" aria-label={`${label}の時刻`} className={cn(input, "disabled:opacity-40")} disabled={date === ""} value={date === "" ? "" : time} onChange={(e) => onEdit(timeKey, e.target.value)} />
+      </div>
+    </div>
+  );
+}
+
 export function FlowSheet({ card, recommended, outcome, match, calendars, running, onEdit, onRun, onOpenSubscription, onClose }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
 
@@ -224,19 +252,9 @@ export function FlowSheet({ card, recommended, outcome, match, calendars, runnin
                 <Field label="タイトル" className="col-span-2">
                   <input className={input} value={String(f.title ?? "")} onChange={(e) => onEdit("task", "title", e.target.value)} />
                 </Field>
-                <Field label="期限" className="col-span-2">
-                  <div className="grid grid-cols-[3fr_2fr] gap-2">
-                    <input type="date" aria-label="期限の日付" className={input} value={String(f.due ?? "")} onChange={(e) => onEdit("task", "due", e.target.value)} />
-                    <input type="time" aria-label="期限の時刻" className={input} value={String(f.dueTime ?? "")} onChange={(e) => onEdit("task", "dueTime", e.target.value)} />
-                  </div>
-                </Field>
-                <Field label="予定日" className="col-span-2">
-                  <div className="grid grid-cols-[3fr_2fr] gap-2">
-                    <input type="date" aria-label="予定日の日付" className={input} value={String(f.planned ?? "")} onChange={(e) => onEdit("task", "planned", e.target.value)} />
-                    <input type="time" aria-label="予定日の時刻" className={input} value={String(f.plannedTime ?? "")} onChange={(e) => onEdit("task", "plannedTime", e.target.value)} />
-                  </div>
-                  <p className="mt-1 text-[0.6875rem] text-muted">時刻は任意です。タスクは日付だけを保持するので、時刻はメモの先頭に記録されます。</p>
-                </Field>
+                <OptionalDateTime label="期限" dateKey="due" timeKey="dueTime" fields={f} onEdit={(key, value) => onEdit("task", key, value)} />
+                <OptionalDateTime label="予定日" dateKey="planned" timeKey="plannedTime" fields={f} onEdit={(key, value) => onEdit("task", key, value)} />
+                <p className="col-span-2 -mt-1 text-[0.6875rem] text-muted">期限・予定日はどちらも空のままで作れます。時刻は日付を選ぶと入力できます。</p>
                 <Field label="メモ" className="col-span-2">
                   <textarea rows={2} className={textarea} value={String(f.memo ?? "")} onChange={(e) => onEdit("task", "memo", e.target.value)} />
                 </Field>
