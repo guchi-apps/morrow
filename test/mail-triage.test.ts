@@ -80,13 +80,20 @@ describe("composeMailPush", () => {
   it("1通なら本文の画面へ、複数なら一覧へ", () => {
     const one = composeMailPush([{ id: "abc", from: '"市役所" <a@b>', subject: "納付期限", reason: "支払い" }]);
     assert.equal(one.url, "/mail/abc");
-    assert.equal(one.title, "必要なメール（1通）");
-    assert.equal(one.body, "市役所：納付期限 — 支払い");
+    assert.equal(one.title, "納付期限");
+    assert.equal(one.body, "市役所 — 支払い");
     const many = composeMailPush([
       { id: "a", from: "x@y", subject: "s1", reason: "" },
       { id: "b", from: "x@y", subject: "s2", reason: "" },
     ]);
     assert.equal(many.url, "/mail");
+    assert.equal(many.title, "必要なメール（2通）");
+  });
+
+  it("1通で件名が無ければ「（件名なし）」、長い件名は60字で切る（#1007）", () => {
+    assert.equal(composeMailPush([{ id: "a", from: "x@y", subject: "", reason: "" }]).title, "（件名なし）");
+    const long = composeMailPush([{ id: "a", from: "x@y", subject: "件".repeat(100), reason: "" }]);
+    assert.equal(long.title, `${"件".repeat(60)}…`);
   });
 
   it("本文は200文字に収める", () => {

@@ -169,6 +169,17 @@ export type NeededMail = { id: string; from: string; subject: string; reason: st
 
 /** 通知の文面。1通なら本文の画面へ、複数なら一覧へ飛ばす。 */
 export function composeMailPush(mails: NeededMail[]): { title: string; body: string; url: string } {
+  // 1通のときは、見出しに件名を出す（#1007。「必要なメール（1通）」では中身が分からない）。本文は差出人と理由
+  if (mails.length === 1) {
+    const mail = mails[0]!;
+    const sender = flattenText(senderName(mail.from), 30);
+    const body = `${sender}${mail.reason ? ` — ${mail.reason}` : ""}`;
+    return {
+      title: flattenText(mail.subject, 60) || "（件名なし）",
+      body: body.length > PUSH_BODY_LIMIT ? `${body.slice(0, PUSH_BODY_LIMIT - 1)}…` : body,
+      url: `/mail/${encodeURIComponent(mail.id)}`,
+    };
+  }
   const lines = mails.map((mail) => {
     const subject = flattenText(mail.subject, 60) || "（件名なし）";
     return `${flattenText(senderName(mail.from), 30)}：${subject}${mail.reason ? ` — ${mail.reason}` : ""}`;
