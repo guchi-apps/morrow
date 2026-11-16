@@ -14,6 +14,14 @@ const refreshGate = createRefreshGate();
 
 export type MailActionNotice = { text: string; error: boolean };
 
+// 本文の画面から裏で流したアーカイブ（#1023）の失敗。本文の画面はもう無いので、一覧が拾えるようモジュールで持つ
+let backgroundFailure: MailActionNotice | null = null;
+const failureListeners = new Set<() => void>();
+function setBackgroundFailure(next: MailActionNotice | null) {
+  backgroundFailure = next;
+  failureListeners.forEach((l) => l());
+}
+
 type SendResult = { ok: true; done: string } | { ok: false; error: string };
 
 async function send(action: MailAction, ids: string[], labelId: string | null): Promise<SendResult> {
@@ -43,6 +51,15 @@ export function useMailAction(options: { after?: (action: MailAction) => void } 
   const [notice, setNotice] = useState<MailActionNotice | null>(null);
   const [queued, setQueued] = useState(archiveQueue.pending());
   useEffect(() => archiveQueue.subscribe(setQueued), []);
+  const [shared, setShared] = useState<MailActionNotice | null>(backgroundFailure);
+  useEffect(() => {
+    const sync = () => setShared(backgroundFailure);
+    sync();
+    failureListeners.add(sync);
+    return () => {
+      failureListeners.delete(sync);
+    };
+  }, []);
 
   async function apply(
     action: MailAction,
@@ -53,6 +70,7 @@ export function useMailAction(options: { after?: (action: MailAction) => void } 
   ): Promise<boolean> {
     setPending(true);
     setNotice(null);
+    setBackgroundFailure(null);
     try {
       const result = await send(action, ids, labelId);
       if (!result.ok) {
@@ -74,28 +92,34 @@ export function useMailAction(options: { after?: (action: MailAction) => void } 
    * スワイプでのアーカイブ（#715）。未読なら先に既読にしてからアーカイブする。
    * 既読が通ってアーカイブが失敗した場合は、既読のまま残ることを赤字で知らせる。
    */
-  async function archiveRow(id: string, unread: boolean): Promise<boolean> {
+  async function archiveRow(id: string, unread: boolean, optimistic = false): Promise<boolean> {
     setNotice(null);
+    setBackgroundFailure(null);
+    // 本文の画面から押した回（#1023）: 完了を待たずに一覧から隠し、失敗したら戻して一覧側の赤い帯で知らせる
+    if (optimistic) rememberArchived([id]);
+    const fail = (text: string): false => {
+      if (optimistic) {
+        forgetArchived([id]);
+        setBackgroundFailure({ text, error: true });
+      } else {
+        setNotice({ text, error: true });
+      }
+      return false;
+    };
     return archiveQueue.enqueue(async () => {
       let markedRead = false;
       try {
         if (unread) {
           const read = await send("read", [id], null);
-          if (!read.ok) {
-            setNotice({ text: read.error, error: true });
-            return false;
-          }
+          if (!read.ok) return fail(read.error);
           markedRead = true;
           refreshGate.markSucceeded();
         }
         const archived = await send("archive", [id], null);
-        if (!archived.ok) {
-          setNotice({ text: markedRead ? `${archived.error}（既読にはしました）` : archived.error, error: true });
-          return false;
-        }
+        if (!archived.ok) return fail(markedRead ? `${archived.error}（既読にはしました）` : archived.error);
         refreshGate.markSucceeded();
         rememberArchived([id]);
-        setNotice({ text: archived.done, error: false });
+        if (!optimistic) setNotice({ text: archived.done, error: false });
         return true;
       } finally {
         // 取り直しは列が空になった最後の1回だけ（途中で取り直すとAIDEへの要求が重なる）。
@@ -105,5 +129,5 @@ export function useMailAction(options: { after?: (action: MailAction) => void } 
     });
   }
 
-  return { apply, archiveRow, pending, notice, queued };
+  return { apply, archiveRow, pending, notice: notice ?? shared, queued };
 }
