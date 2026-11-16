@@ -34,6 +34,7 @@ import { deleteListSummaries } from "@/lib/mail/list-summary";
 import { decorateMailRows } from "@/lib/mail/list-rows";
 import { DEFAULT_MAIL_CRITERIA } from "@/lib/mail/triage-core";
 import { normalizeLearnedRules } from "@/lib/mail/learn-core";
+import { PullToRefresh } from "@/components/mail/pull-to-refresh";
 import { cn } from "@/lib/utils";
 
 // メールは開くたびにAIDEから取る（Morrowは保存しない）。
@@ -120,7 +121,7 @@ export default async function MailPage({ searchParams }: Props) {
   const checkedAt = user.mailCheckedAt;
 
   return (
-    <div className="mobile-tab-pad min-h-0 flex-1 overflow-y-auto">
+    <PullToRefresh className="mobile-tab-pad min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[900px] flex-col gap-3.5 px-3.5 pb-4 md:px-7 md:pb-6">
         {/* ヘッダー右上のアイコン（いま確認 → アカウント → お知らせする基準。並びは order で固定）。中身はポータルで置き場へ入る */}
         {showAccounts && result.ok && (
@@ -225,6 +226,6 @@ export default async function MailPage({ searchParams }: Props) {
         )}
         </MailSearch>
       </div>
-    </div>
+    </PullToRefresh>
   );
 }
