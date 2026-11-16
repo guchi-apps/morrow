@@ -64,24 +64,47 @@ function jsonIn(answer: string, open: string, close: string): unknown {
   }
 }
 
-/** 条件の返答を読む。入力そのもの・重複・空は落とす。読めなければ null。 */
+/**
+ * 検索演算子・演算子記号を含む条件か（IMAPの追加アカウントは語の全文検索しかできず、含むと0件になる）。
+ * `from:`・`subject:` などの `語:` 形式、大文字の OR/AND/NOT、語頭の `-`、括弧・引用符・`{}` を見る。
+ */
+export function hasSearchOperator(query: string): boolean {
+  return (
+    /(^|\s)[A-Za-z_]+:/.test(query) ||
+    /(^|\s)(OR|AND|NOT)(\s|$)/.test(query) ||
+    /(^|\s)-\S/.test(query) ||
+    /[(){}"“”]/.test(query)
+  );
+}
+
+/** 条件の返答を読む。入力そのもの・重複・空・演算子入りは落とす。読めなければ null。 */
 export function parseSearchQueries(answer: string, literal: string): string[] | null {
+  return parseSearchQueriesDetailed(answer, literal)?.queries ?? null;
+}
+
+/** `parseSearchQueries()` に、演算子入りで除外した本数を添えたもの。 */
+export function parseSearchQueriesDetailed(answer: string, literal: string): { queries: string[]; droppedOperators: number } | null {
   const raw = jsonIn(answer, "{", "}");
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
   const list = (raw as Record<string, unknown>).queries;
   if (!Array.isArray(list)) return null;
   const seen = new Set([normalizeQuery(literal)]);
   const queries: string[] = [];
+  let droppedOperators = 0;
   for (const item of list) {
     if (typeof item !== "string") continue;
     const clean = flattenText(item, SEARCH_TEXT_LIMIT).replace(/…$/, "");
     const key = normalizeQuery(clean);
     if (clean === "" || seen.has(key)) continue;
+    if (hasSearchOperator(clean)) {
+      droppedOperators += 1;
+      continue;
+    }
     seen.add(key);
     queries.push(clean);
     if (queries.length >= SEARCH_QUERY_MAX) break;
   }
-  return queries;
+  return { queries, droppedOperators };
 }
 
 function normalizeQuery(query: string): string {
