@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { linkAppUrl } from "../src/lib/mail/app-links.ts";
+import { linkAppUrl, taskOpenUrl } from "../src/lib/mail/app-links.ts";
 
 describe("linkAppUrl（#914）", () => {
   it("予定は日付付きでカレンダーを開く", () => {
@@ -17,5 +17,16 @@ describe("linkAppUrl（#914）", () => {
   it("日付の無い・形が違うタスクは/tasks", () => {
     assert.equal(linkAppUrl("task", null), "https://dayspan.gucchii.com/tasks");
     assert.equal(linkAppUrl("task", "5/31"), "https://dayspan.gucchii.com/tasks");
+  });
+});
+
+describe("taskOpenUrl（#1022）", () => {
+  it("予定日があればその日、無ければ期限の日のカレンダーを開く", () => {
+    assert.equal(taskOpenUrl({ planned: "2026-11-17", due: "2026-11-20" }), "https://dayspan.gucchii.com/calendar?date=2026-11-17");
+    assert.equal(taskOpenUrl({ planned: null, due: "2026-11-20" }), "https://dayspan.gucchii.com/calendar?date=2026-11-20");
+  });
+  it("予定日が不正なら期限へ、どちらも無ければタスク一覧", () => {
+    assert.equal(taskOpenUrl({ planned: "11/17", due: "2026-11-20" }), "https://dayspan.gucchii.com/calendar?date=2026-11-20");
+    assert.equal(taskOpenUrl({}), "https://dayspan.gucchii.com/tasks");
   });
 });
