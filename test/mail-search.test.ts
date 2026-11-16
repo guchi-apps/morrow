@@ -8,7 +8,9 @@ import {
   buildRankPrompt,
   buildSearchQueriesPrompt,
   parseRankReply,
+  hasSearchOperator,
   parseSearchQueries,
+  parseSearchQueriesDetailed,
 } from "@/lib/mail/search-core";
 import { orderByRank, type SearchRank } from "@/lib/mail/search-order";
 
@@ -27,8 +29,21 @@ describe("buildSearchQueriesPrompt", () => {
 
 describe("parseSearchQueries", () => {
   it("queriesを読み、入力そのもの・重複・空・文字列以外を落とす", () => {
-    const reply = '前置き {"queries": ["ミニ四駆 モーター", "出荷 OR 発送", "出荷  OR 発送", "", 3, "from:yodobashi.com"]} 後ろ';
-    assert.deepEqual(parseSearchQueries(reply, "ミニ四駆  モーター"), ["出荷 OR 発送", "from:yodobashi.com"]);
+    const reply = '前置き {"queries": ["ミニ四駆 モーター", "出荷", "出荷", "", 3, "発送"]} 後ろ';
+    assert.deepEqual(parseSearchQueries(reply, "ミニ四駆  モーター"), ["出荷", "発送"]);
+  });
+
+  it("検索演算子・演算子記号を含む条件は落とす", () => {
+    const bad = ["出荷 OR 発送", "from:yodobashi.com", "subject:注文", "newer_than:7d", "-広告", "(a b)", '"完全一致"'];
+    const reply = JSON.stringify({ queries: [...bad, "ヨドバシ", "10:30 開始"] });
+    assert.deepEqual(parseSearchQueries(reply, "x"), ["ヨドバシ", "10:30 開始"]);
+    for (const q of bad) assert.equal(hasSearchOperator(q), true, q);
+    assert.equal(hasSearchOperator("order or ship"), false);
+  });
+
+  it("全て演算子入りなら空配列と除外本数を返す", () => {
+    const r = parseSearchQueriesDetailed('{"queries": ["from:a", "x OR y"]}', "z");
+    assert.deepEqual(r, { queries: [], droppedOperators: 2 });
   });
 
   it(`最大${SEARCH_QUERY_MAX}本で切る`, () => {

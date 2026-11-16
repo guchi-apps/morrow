@@ -12,7 +12,7 @@ import {
   buildRankPrompt,
   buildSearchQueriesPrompt,
   parseRankReply,
-  parseSearchQueries,
+  parseSearchQueriesDetailed,
   type SearchEvent,
 } from "@/lib/mail/search-core";
 
@@ -159,6 +159,7 @@ async function withAi(
   // 2. AIに検索語を作らせる
   const model = await modelFor(user.id, "mail");
   let queries: string[] | null = null;
+  let droppedOperators = 0;
   try {
     const result = await runCodexRecorded({
       userId: user.id,
@@ -168,12 +169,18 @@ async function withAi(
       prompt: buildSearchQueriesPrompt({ text: q, today: jstDayKey(new Date()) }),
       timeoutMs: QUERY_TIMEOUT_MS,
     });
-    queries = parseSearchQueries(result.messages.at(-1) ?? result.text, q);
+    const parsed = parseSearchQueriesDetailed(result.messages.at(-1) ?? result.text, q);
+    queries = parsed?.queries ?? null;
+    droppedOperators = parsed?.droppedOperators ?? 0;
   } catch (error) {
     console.error("[aide-bot] メール検索の条件を作れなかった", error instanceof Error ? error.message : error);
   }
   if (queries === null) {
     emit({ type: "ai_unavailable", reason: "AIで検索条件を作れなかったため、キーワードに一致したメールだけを出しています。" });
+    return;
+  }
+  if (queries.length === 0 && droppedOperators > 0) {
+    emit({ type: "ai_unavailable", reason: "AIが作った検索条件に使えない書き方（演算子）が含まれていたため、キーワードに一致したメールだけを出しています。" });
     return;
   }
   emit({ type: "queries", queries });
