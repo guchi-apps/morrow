@@ -24,17 +24,33 @@ const reply = JSON.stringify({
   suggestions: [
     { kind: "payment", reason: "電気料金の請求", confidence: 0.9, fields: { name: "電気料金", amount: 8420, date: "2026-11-05", usage: "258kWh" } },
     { kind: "task", reason: "期限あり", confidence: 0.7, fields: { title: "支払う", due: "2026-11-14", memo: "要点" } },
-    { kind: "payment", reason: "重複", confidence: 0.1, fields: { name: "x", amount: 1, date: "2026-11-05" } },
+    { kind: "task", reason: "まったく同じ内容", confidence: 0.2, fields: { title: "支払う", due: "2026-11-14", memo: "要点" } },
+    { kind: "payment", reason: "別の支払い", confidence: 0.1, fields: { name: "x", amount: 1, date: "2026-11-05" } },
     { kind: "bogus", fields: {} },
   ],
 });
 
 describe("parseSuggestReply", () => {
-  it("候補を読み、同じ種類の重複・知らない種類を落とす", () => {
+  it("候補を読み、同じ内容の重複・知らない種類を落とす。同じ種類の別の内容は残す（#1051）", () => {
     const result = parseSuggestReply(`前置き${reply}後書き`);
     assert.ok(result);
     assert.equal(result.recommended, "payment");
-    assert.deepEqual(result.suggestions.map((s) => s.kind), ["payment", "task"]);
+    assert.deepEqual(result.suggestions.map((s) => s.kind), ["payment", "task", "payment"]);
+  });
+
+  it("受け取り日が2日に分かれるタスク2件を両方残す（#1051）", () => {
+    const result = parseSuggestReply(
+      JSON.stringify({
+        recommended: "task",
+        suggestions: [
+          { kind: "task", confidence: 0.9, fields: { title: "注文品を受け取る（1点目）", planned: "2026-11-18" } },
+          { kind: "task", confidence: 0.9, fields: { title: "注文品を受け取る（2点目）", planned: "2026-11-19" } },
+          { kind: "event", confidence: 0.6, fields: { title: "来店", date: "2026-11-20", startTime: "10:00" } },
+        ],
+      }),
+    );
+    assert.deepEqual(result?.suggestions.map((s) => (s.kind === "task" ? s.fields.planned : s.kind)), ["2026-11-18", "2026-11-19", "event"]);
+    assert.equal(result?.recommended, "task");
   });
 
   it("読めない返答はnull。候補が無ければ推奨なし", () => {
