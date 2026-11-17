@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { composeScheduledBody, daysToMask, isDue, maskToDays, scheduledDedupeKey, sortSchedules } from "../src/lib/scheduled-push-rule.ts";
+import { ALL_DAYS_MASK, composeScheduledBody, daysToMask, isDue, maskToDays, nextScheduledLabel, scheduledDedupeKey, sortSchedules } from "../src/lib/scheduled-push-rule.ts";
 
 // 2026-09-25は金曜。日本時間で指定する。
 const at = (time: string) => new Date(`2026-09-25T${time}:00+09:00`);
@@ -42,4 +42,20 @@ test("設定の一覧は時刻の昇順で、同時刻はIDの順", () => {
   ];
   assert.deepEqual(sortSchedules(rows).map((row) => row.id), ["d", "z", "a", "b", "c"]);
   assert.equal(rows[0].id, "c", "元の配列は変えない");
+});
+
+test("次に迎える定時のラベル（24時間以内は時刻だけ、先は曜日つき）", () => {
+  const row = (daysMask: number, hour: number, minute: number, enabled = true) => ({ daysMask, hour, minute, enabled });
+  // 2026-11-17は火曜（日本時間の10:00 = 01:00Z）
+  const now = new Date("2026-11-17T01:00:00Z");
+  assert.equal(nextScheduledLabel([row(ALL_DAYS_MASK, 18, 0)], now), "18:00");
+  // 今日の時刻を過ぎていれば明日の同時刻（ちょうど24時間後は時刻のみ）
+  assert.equal(nextScheduledLabel([row(ALL_DAYS_MASK, 10, 0)], now), "10:00");
+  assert.equal(nextScheduledLabel([row(ALL_DAYS_MASK, 6, 30)], now), "06:30");
+  // 24時間より先は曜日つき（水曜のみ・11:00 → 25時間後）
+  assert.equal(nextScheduledLabel([row(daysToMask([3]), 11, 0)], now), "水 11:00");
+  // 一番近いものを選び、無効な行は無視する
+  assert.equal(nextScheduledLabel([row(ALL_DAYS_MASK, 18, 0), row(ALL_DAYS_MASK, 12, 0), row(ALL_DAYS_MASK, 11, 0, false)], now), "12:00");
+  assert.equal(nextScheduledLabel([row(ALL_DAYS_MASK, 11, 0, false)], now), null);
+  assert.equal(nextScheduledLabel([], now), null);
 });
