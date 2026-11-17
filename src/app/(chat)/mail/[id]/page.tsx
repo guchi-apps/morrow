@@ -95,6 +95,7 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
                   id={message.id}
                   // 「登録済み」の印の材料（#750の控え）。サブスクの「一覧を開いた」は登録の確認にならないので含めない。確認待ちも含めない
                   registeredKinds={flowStates.registeredKinds}
+                  registeredKeys={flowStates.registeredKeys}
                   // 家計簿の確認待ち・取り込み済みは、確定したか分からない。「登録済み」にしない（#821）
                   receiptState={flowStates.receiptState}
                   // 紐づけ済みの対象（`kind:targetId`）。紐づけの提案の行を「紐づけ済み」にする（#1029）

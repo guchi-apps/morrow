@@ -24,6 +24,8 @@ export function useFlowCards(mailId: string) {
   const [rows, setRows] = useState<Record<string, FlowRow>>({});
   const [outcomes, setOutcomes] = useState<Record<string, CardResult>>({});
   const [running, setRunning] = useState<string | null>(null);
+  /** まとめて登録（#1051）の実行中。行ごとの登録・別のまとめて登録を止める。 */
+  const [bulkRunning, setBulkRunning] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   /** サブスク提案のAsset Managerとの照合（#884）。行の識別子→結果。取得中・未取得はキーが無い。 */
   const [matches, setMatches] = useState<Record<string, SubscriptionMatch>>({});
@@ -99,6 +101,57 @@ export function useFlowCards(mailId: string) {
       .catch(() => {});
   }
 
+  /**
+   * `/apply` を1回呼ぶ（家計簿のタブは扱わない）。まとめて登録（#1051）と行ごとの登録の共通部分。
+   * HTTP・通信の失敗はここで行に表示し `data: null` を返す。`ok` は登録できたとき真。
+   */
+  async function applyOne(rowId: string, card: Suggestion): Promise<{ ok: boolean; data: ApplyResponse | null }> {
+    try {
+      const response = await fetch("/api/mail/flow/apply", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: mailId, kind: card.kind, fields: card.fields, confidence: card.confidence }),
+      });
+      const data = (await response.json().catch(() => null)) as ApplyResponse | null;
+      if (!response.ok) {
+        setOutcomes((o) => ({ ...o, [rowId]: { text: data?.error ?? `実行できませんでした（HTTP ${response.status}）。`, error: true, done: false } }));
+        return { ok: false, data: null };
+      }
+      return { ok: data?.status !== "failed", data: data ?? {} };
+    } catch {
+      setOutcomes((o) => ({ ...o, [rowId]: { text: "実行できませんでした（通信できませんでした）。", error: true, done: false } }));
+      return { ok: false, data: null };
+    }
+  }
+
+  /**
+   * 選んだ行をまとめて登録する（#1051。タスク・予定だけ）。`/apply` を1件ずつ順に呼ぶ（検証・冪等キー・予定の重複確認は行ごとの登録と同じ）。
+   * 途中で失敗しても残りは続け、成功した行は残る。
+   */
+  async function runMany(rowIds: string[]): Promise<{ kind: Suggestion["kind"]; ok: boolean }[]> {
+    const results: { kind: Suggestion["kind"]; ok: boolean }[] = [];
+    let anyDone = false;
+    setBulkRunning(true);
+    try {
+      for (const rowId of rowIds) {
+        const card = rows[rowId]?.card;
+        if (!card) continue;
+        setRunning(rowId);
+        const { ok, data } = await applyOne(rowId, card);
+        if (data) {
+          setOutcomes((o) => ({ ...o, [rowId]: { text: `${data.message ?? "実行しました。"}${data.labeled ? "「処理済み」ラベルを付けました。" : ""}`, error: !ok, done: ok } }));
+        }
+        anyDone ||= ok;
+        results.push({ kind: card.kind, ok });
+      }
+    } finally {
+      setRunning(null);
+      setBulkRunning(false);
+    }
+    if (anyDone) router.refresh();
+    return results;
+  }
+
   async function run(rowId: string, card: Suggestion) {
     setRunning(rowId);
     // 家計簿は作ったレシートをAsset Managerで開く（#781）。作り終わってから開くとポップアップとして止められるので、
@@ -117,18 +170,11 @@ export function useFlowCards(mailId: string) {
     }
     let opened = false;
     try {
-      const response = await fetch("/api/mail/flow/apply", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: mailId, kind: card.kind, fields: card.fields, confidence: card.confidence }),
-      });
-      const data = (await response.json().catch(() => null)) as { message?: string; error?: string; status?: string; labeled?: boolean; receiptId?: number } | null;
-      if (!response.ok) {
-        setOutcomes((o) => ({ ...o, [rowId]: { text: data?.error ?? `実行できませんでした（HTTP ${response.status}）。`, error: true, done: false } }));
-        return;
-      }
-      const failed = data?.status === "failed";
-      const href = card.kind === "payment" && !failed ? (receiptUrl(data?.receiptId) ?? undefined) : undefined;
+      const { data } = await applyOne(rowId, card);
+      // HTTPの失敗・通信の失敗は `applyOne()` が表示済み
+      if (!data) return;
+      const failed = data.status === "failed";
+      const href = card.kind === "payment" && !failed ? (receiptUrl(data.receiptId) ?? undefined) : undefined;
       if (href) {
         if (tab) {
           tab.location.href = href;
@@ -140,12 +186,10 @@ export function useFlowCards(mailId: string) {
       const noReceipt = card.kind === "payment" && !failed && !href ? "レシートの画面を開けませんでした。Asset Managerの家計簿連携から開いてください。" : "";
       setOutcomes((o) => ({
         ...o,
-        [rowId]: { text: `${data?.message ?? "実行しました。"}${data?.labeled ? "「処理済み」ラベルを付けました。" : ""}${noReceipt}`, error: failed, done: !failed, receipt: card.kind === "payment" && (data?.status === "pending" || data?.status === "duplicate") ? data.status : undefined, href },
+        [rowId]: { text: `${data.message ?? "実行しました。"}${data.labeled ? "「処理済み」ラベルを付けました。" : ""}${noReceipt}`, error: failed, done: !failed, receipt: card.kind === "payment" && (data.status === "pending" || data.status === "duplicate") ? data.status : undefined, href },
       }));
       // 登録した内容の欄（#750）と「処理済み」ラベルを更新する
       if (!failed) router.refresh();
-    } catch {
-      setOutcomes((o) => ({ ...o, [rowId]: { text: "実行できませんでした（通信できませんでした）。", error: true, done: false } }));
     } finally {
       // 開けなかった（失敗した・レシートのidが返らなかった）ら空のタブを閉じる
       if (tab && !opened) tab.close();
@@ -161,7 +205,7 @@ export function useFlowCards(mailId: string) {
       outcome={open ? outcomes[open] : undefined}
       match={open ? matches[open] : undefined}
       calendars={calendars}
-      running={open !== null && running === open}
+      running={open !== null && (running === open || bulkRunning)}
       onEdit={(_kind, key, value) => open && edit(open, key, value)}
       onRun={(card) => open && void run(open, card)}
       onOpenSubscription={recordOpened}
@@ -169,7 +213,9 @@ export function useFlowCards(mailId: string) {
     />
   );
 
-  return { rows, outcomes, matches, replace, setOpen, sheet };
+  return { rows, outcomes, matches, running, bulkRunning, runMany, replace, setOpen, sheet };
 }
 
 export type FlowCards = ReturnType<typeof useFlowCards>;
+
+type ApplyResponse = { message?: string; error?: string; status?: string; labeled?: boolean; receiptId?: number };

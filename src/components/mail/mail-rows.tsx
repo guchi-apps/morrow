@@ -10,7 +10,7 @@ import { mailAccountKeyOf, mailAccountTone, senderName, type MailAction, type Ma
 import { dimArchivedRows, isInboxRow, showInboxMark } from "@/lib/mail/inbox-mark";
 import { cn } from "@/lib/utils";
 
-import { FLOW_KIND_META } from "@/lib/mail/flow-record-core";
+import { FLOW_KIND_META } from "@/lib/mail/flow-summary";
 
 import { ACCOUNT_TONE_CLASS } from "./mail-account-chip";
 import { mailTimeLabel } from "./mail-format";

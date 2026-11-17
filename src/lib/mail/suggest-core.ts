@@ -38,7 +38,8 @@ const MEMO_LIMIT = 500;
 const LOCATION_LIMIT = 100;
 const CALENDAR_ID_LIMIT = 200;
 const PLACE_LIMIT = 100;
-export const SUGGEST_MAX = 3;
+/** 候補の上限（#1051で3→6。同じ種類を複数出せるようにしたため）。 */
+export const SUGGEST_MAX = 6;
 /** 品目の件数の上限（Asset Managerは100件まで受ける。メール1通の明細として現実的な範囲に絞る）。 */
 export const PAYMENT_ITEMS_MAX = 30;
 
@@ -134,7 +135,7 @@ export function plainBody(textBody: string | null, html: string | null): string 
 export const SUGGEST_KIND_RULES: readonly string[] = [
   "payment: 家計簿へ取り込む。サービス提供元の請求書・領収書・購入確認など、品目と金額が分かるメール。カード会社・銀行・決済サービスの利用通知は対象外",
   "subscription: サブスクに登録する。毎月・毎年など繰り返し請求される契約（自動更新の購入確認・更新のお知らせ）。1回きりの購入は対象外。payment と両方出してよい",
-  "task: タスクにする。期限のある支払い・手続き・返信など、利用者がやるべきことがあるメール",
+  "task: タスクにする。期限のある支払い・手続き・返信や、荷物の受け取り（再配達・不在票・コンビニ／営業所／宅配ロッカーでの受け取り案内）など、利用者がやるべきことがあるメール",
   "event: 予定にする。日時のある予約・約束・イベントの案内",
   "tracking: 発送状況を追跡する。ヤマト運輸・佐川急便・日本郵便の追跡番号（お問い合わせ番号・配達受付番号・送り状番号）が本文に書かれた発送のお知らせ。payment などと両方出してよい",
 ];
@@ -142,6 +143,7 @@ export const SUGGEST_KIND_RULES: readonly string[] = [
 /** 提案の決まりごと（プロンプト用）。 */
 export const SUGGEST_RULES: readonly string[] = [
   `候補は多くても${SUGGEST_MAX}件。当てはまらない種類は出さない。何もしなくてよいメールなら suggestions を空にし、recommended を null にする`,
+  "日付・用件が分かれるときは、同じ種類を複数出してよい（例: 受け取り日が2日に分かれる注文は task を2件、開催日と支払期限があれば event と task を1件ずつ）。同じ内容を重ねて出さない",
   "recommended は、いちばん先にやるとよい1件の kind。suggestions に含まれる kind だけ",
   "reason は候補の理由を日本語で80文字以内",
   "confidence は 0〜1。本文から確かに読み取れたものだけ高くする",
@@ -151,6 +153,7 @@ export const SUGGEST_RULES: readonly string[] = [
   "payment の items は、注文確認・レシートのように品目が分かれて金額が書かれているときだけ、1品目1行で name・amount（値引き後の円の整数）・quantity（数量。分からなければ null）を入れる。送料・手数料も金額があれば1行にする。品目ごとの金額が分からなければ items は空配列にして name にまとめる",
   "subscription の amount は1回あたりの請求額（円なら整数）、currency は JPY か USD、cycle は MONTHLY か YEARLY、day は請求日（1〜31）、startDate は契約開始日（YYYY-MM-DD）。読み取れない項目は null",
   "task の title は「何をするか」が分かる短いタイトル。due は期限（YYYY-MM-DD）・dueTime はその時刻（HH:MM）、planned は予定日（YYYY-MM-DD）・plannedTime はその時刻（HH:MM）で、どれも本文にあるときだけ（時刻は日付があり、時刻まで書かれているときだけ）。時刻は memo に書かず dueTime・plannedTime に入れる。memo に要点を1〜2文",
+  "荷物の受け取り: 再配達の案内・不在票・コンビニ／営業所／宅配ロッカー／置き配の受け取り案内など、利用者が自分で受け取る・再配達を頼む行動が要る配送メールは、task を出す（title は「荷物を受け取る」を基本に、受け取り先や品名が分かれば添える。due は保管期限・受け取り期限が本文にあるときだけ）。発送のお知らせのように届くのを待つだけのメールには、受け取りの task を出さない（追跡番号があれば tracking だけ）。受け取りの案内に追跡番号もあるときは、tracking と task を並べて出してよい",
   "event の date は YYYY-MM-DD、startTime・endTime は HH:MM（開始だけ分かるときは endTime を null にすると1時間後で補う。開始も分からなければ両方 null で終日）。日をまたぐ時刻予定（宿泊など）だけ endDate（YYYY-MM-DD）を入れる。calendarId・memo は出さなくてよい",
   "event の日時は、本文に書かれた予約・開催・来店などの日時だけを使う。メールの受信日時・送信時刻は使わない。「17時45分」「午後5時45分」は 17:45、「11/15」「11月15日」のように年が無いときは今日以降でいちばん近い日として YYYY-MM-DD にする。日付も時刻も本文から確かに読み取れるときは必ず入れ、読み取れなければ null",
   "event の location は、開催・来店の場所（店舗名・会場名・住所）を本文から読み取って100文字以内で入れる。店舗名と住所の両方があれば「店舗名 住所」の形にする。本文に書かれていなければ null で、推測しない",
@@ -378,7 +381,7 @@ export function normalizeSuggestion(kind: unknown, rawFields: unknown, reason = 
   return fields ? { kind, ...base, fields } : null;
 }
 
-/** 返答を読む。オブジェクトとして読めなければnull。壊れた候補・同じ種類の重複は落とす。 */
+/** 返答を読む。オブジェクトとして読めなければnull。壊れた候補・同じ内容の重複は落とす（同じ種類の別の内容は残す。#1051）。 */
 export function parseSuggestReply(answer: string): SuggestResult | null {
   const start = answer.indexOf("{");
   const end = answer.lastIndexOf("}");
@@ -393,13 +396,16 @@ export function parseSuggestReply(answer: string): SuggestResult | null {
   if (!top) return null;
 
   const all: Suggestion[] = [];
-  const seenAll = new Set<SuggestKind>();
+  // 同じ種類の候補も複数受ける（#1051。受け取り日が2日に分かれる注文のタスク2件など）。まったく同じ内容の重なりだけ落とす
+  const seenAll = new Set<string>();
   for (const item of Array.isArray(top.suggestions) ? top.suggestions : []) {
     const entry = record(item);
-    if (!entry || !isKind(entry.kind) || seenAll.has(entry.kind)) continue;
+    if (!entry || !isKind(entry.kind)) continue;
     const suggestion = normalizeSuggestion(entry.kind, entry.fields, text(entry.reason, REASON_LIMIT), entry.confidence);
     if (!suggestion) continue;
-    seenAll.add(suggestion.kind);
+    const key = `${suggestion.kind}:${JSON.stringify(suggestion.fields)}`;
+    if (seenAll.has(key)) continue;
+    seenAll.add(key);
     all.push(suggestion);
   }
   // 上限を超えるときも、追跡番号が読めた追跡提案は必ず残す（#983。上限内の最後の候補と入れ替える）

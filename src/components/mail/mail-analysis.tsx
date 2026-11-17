@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { FlowRowButton } from "@/components/mail/flow-row";
+import { FlowRowList } from "@/components/mail/flow-group";
 import { MailChat } from "@/components/mail/mail-chat";
 import { useTypewriter } from "@/components/mail/typewriter";
 import { useFlowCards, type FlowRow } from "@/components/mail/use-flow-cards";
 import { ANALYZE_RETRY_MS, shouldRetryAnalysis } from "@/lib/mail/analyze-retry";
+import { isRegisteredByRecord, recommendedIndex } from "@/lib/mail/flow-group";
 import { TYPEWRITER_MAX_MS, elapsedLabel, splitVisible } from "@/lib/mail/typewriter-core";
 import type { ReceiptState } from "@/lib/mail/flow-record-core";
 import type { MailAnalysis as Analysis } from "@/lib/mail/analyze-core";
@@ -21,7 +22,7 @@ import { type BalanceCheck, type CardCheck } from "@/lib/mail/withdrawal-core";
  */
 
 
-export function MailAnalysis({ id, registeredKinds, receiptState = null, linkedKeys = [] }: { id: string; registeredKinds: string[]; receiptState?: ReceiptState | null; linkedKeys?: string[] }) {
+export function MailAnalysis({ id, registeredKinds, registeredKeys = [], receiptState = null, linkedKeys = [] }: { id: string; registeredKinds: string[]; registeredKeys?: string[]; receiptState?: ReceiptState | null; linkedKeys?: string[] }) {
   const [loading, setLoading] = useState(true);
   const [waiting, setWaiting] = useState<"busy" | "network" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +39,8 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null, linkedK
   const [cardBusy, setCardBusy] = useState(false);
   const [cardError, setCardError] = useState<string | null>(null);
   const flow = useFlowCards(id);
+  // 同じ種類の行が複数あるかで、登録済みの見分け方を変える（#1051。`isRegisteredByRecord()`）
+  const cards = rowIds.flatMap((rowId) => (flow.rows[rowId] ? [flow.rows[rowId].card] : []));
   const { replace } = flow;
   const controller = useRef<AbortController | null>(null);
 
@@ -100,10 +103,11 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null, linkedK
       showBalance(check);
       setCard(cardCheck ?? null);
       setCardError(null);
-      // おすすめを先頭に並べる
+      // おすすめを先頭に並べる（同じ種類が複数あれば、印は先頭の1行だけ。#1051）
       const sorted = [...suggest.suggestions].sort((a, b) => Number(b.kind === suggest.recommended) - Number(a.kind === suggest.recommended));
+      const pick = recommendedIndex(sorted, suggest.recommended);
       const next: Record<string, FlowRow> = {};
-      sorted.forEach((card, index) => (next[`a-${index}`] = { card, recommended: card.kind === suggest.recommended }));
+      sorted.forEach((card, index) => (next[`a-${index}`] = { card, recommended: index === pick }));
       replace("a-", next);
       setRowIds(Object.keys(next));
     },
@@ -219,24 +223,17 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null, linkedK
             {rowIds.length === 0 ? (
               <p className="text-muted">このメールには、とくに必要な処理は見つかりませんでした。</p>
             ) : (
-              <ul className="flex flex-col gap-1.5">
-                {rowIds.map((rowId) => {
-                  const row = flow.rows[rowId];
-                  if (!row) return null;
-                  return (
-                    <li key={rowId}>
-                      <FlowRowButton
-                        card={row.card}
-                        recommended={row.recommended}
-                        registered={(flow.outcomes[rowId]?.done === true && !flow.outcomes[rowId]?.receipt) || (row.card.kind === "link" ? linkedKeys.includes(`${row.card.fields.kind}:${row.card.fields.targetId}`) : registeredKinds.includes(row.card.kind))}
-                        receipt={flow.outcomes[rowId]?.receipt ?? (row.card.kind === "payment" ? receiptState : null)}
-                        match={flow.matches[rowId]}
-                        onOpen={() => flow.setOpen(rowId)}
-                      />
-                    </li>
-                  );
-                })}
-              </ul>
+              <FlowRowList
+                key={runId}
+                rowIds={rowIds}
+                flow={flow}
+                registeredOf={(row) =>
+                  row.card.kind === "link"
+                    ? linkedKeys.includes(`${row.card.fields.kind}:${row.card.fields.targetId}`)
+                    : isRegisteredByRecord(row.card, cards, registeredKinds, registeredKeys)
+                }
+                receiptOf={(row) => (row.card.kind === "payment" ? receiptState : null)}
+              />
             )}
           </div>
         </>
