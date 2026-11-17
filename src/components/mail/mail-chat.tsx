@@ -2,9 +2,10 @@
 
 import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
-import { FlowRowButton } from "@/components/mail/flow-row";
+import { FlowRowList } from "@/components/mail/flow-group";
 import type { FlowCards, FlowRow } from "@/components/mail/use-flow-cards";
 import type { MailChatReply } from "@/lib/mail/chat-core";
+import { recommendedIndex } from "@/lib/mail/flow-group";
 
 /**
  * メール本文への指示（#784）。「AIの分析」カードの末尾に置く。指示を送ると `POST /api/mail/flow/chat`（Codexは1回）が
@@ -50,7 +51,9 @@ export function MailChat({ id, analyzing, flow }: { id: string; analyzing: boole
     const { reply, suggest } = outcome.value;
     const prefix = `c${counter.current++}-`;
     const rows: Record<string, FlowRow> = {};
-    suggest.suggestions.forEach((card, index) => (rows[`${prefix}${index}`] = { card, recommended: card.kind === suggest.recommended && suggest.suggestions.length > 1 }));
+    // 同じ種類が複数あれば、おすすめの印は先頭の1行だけ（#1051）
+    const pick = recommendedIndex(suggest.suggestions, suggest.recommended, true);
+    suggest.suggestions.forEach((card, index) => (rows[`${prefix}${index}`] = { card, recommended: index === pick }));
     flow.replace(prefix, rows);
     setTurns((current) => [...current, { role: "assistant", text: reply, rowIds: Object.keys(rows) }]);
   }
@@ -94,19 +97,7 @@ export function MailChat({ id, analyzing, flow }: { id: string; analyzing: boole
             ) : (
               <li key={index} className="flex max-w-[85%] flex-col gap-1.5 self-start rounded-xl border border-border bg-background px-3 py-2">
                 <p className="whitespace-pre-wrap break-words">{turn.text}</p>
-                {turn.rowIds.length > 0 && (
-                  <ul className="flex flex-col gap-1.5">
-                    {turn.rowIds.map((rowId) => {
-                      const row = flow.rows[rowId];
-                      if (!row) return null;
-                      return (
-                        <li key={rowId}>
-                          <FlowRowButton card={row.card} recommended={row.recommended} registered={flow.outcomes[rowId]?.done === true && !flow.outcomes[rowId]?.receipt} receipt={flow.outcomes[rowId]?.receipt ?? null} match={flow.matches[rowId]} onOpen={() => flow.setOpen(rowId)} />
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
+                {turn.rowIds.length > 0 && <FlowRowList rowIds={turn.rowIds} flow={flow} />}
                 <button type="button" onClick={() => void copy(index, turn.text)} className="self-end text-[0.6875rem] text-muted hover:text-foreground">
                   {copied === index ? "コピーしました" : "文をコピー"}
                 </button>
@@ -163,7 +154,7 @@ export function MailChat({ id, analyzing, flow }: { id: string; analyzing: boole
           送る
         </button>
       </form>
-      <p className="mt-1.5 text-[0.6875rem] text-muted">やり取りは保存されません。登録は行を押して確かめてから行います。</p>
+      <p className="mt-1.5 text-[0.6875rem] text-muted">やり取りは保存されません。登録は行を確かめてから行います。</p>
     </div>
   );
 }

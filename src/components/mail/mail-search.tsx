@@ -8,8 +8,11 @@ import type { MailListRow } from "@/lib/mail/list-rows";
 import type { SearchEvent } from "@/lib/mail/search-core";
 import { SEARCH_LEVEL_LABELS, SEARCH_LEVEL_SHOWN, orderByRank, type SearchLevel, type SearchRank } from "@/lib/mail/search-order";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
 
 import { MailRows, type MailRowAnnotation } from "./mail-rows";
+import { MailRowsSkeleton } from "./mail-skeleton";
+import { MailViewPendingContext } from "./mail-view-tabs";
 
 /** 入力の上限（文字）。`search-core.ts` の `SEARCH_TEXT_LIMIT` と同じ（プロンプトの文面をクライアントへ持ち込まないため値だけ揃える）。 */
 const TEXT_LIMIT = 200;
@@ -26,7 +29,9 @@ type Props = {
   nowMs: number;
   /** 上に固定する帯（#997）のクラス。検索欄はこの帯の末尾に入る。 */
   stickyClassName: string;
-  /** 固定する帯の中、検索欄より上に置くもの（表示切替など）。 */
+  /** 表示切替のタブ。検索結果を出している間は薄くして押せなくする（#1054）。 */
+  tabs: { key: string; label: string; href: string }[];
+  /** 固定する帯の中、タブの右に置くもの（最終確認など）。 */
   top: ReactNode;
   /** 固定する帯のすぐ下に置くもの（「いま確認」の結果など）。 */
   below?: ReactNode;
@@ -38,7 +43,7 @@ type Props = {
  * メールの検索欄と、検索結果への一覧の差し替え（#998）。Enterで画面全体を読み込み直さず、この下の一覧だけを結果に変える。
  * URLの `?q=` は書き換えるだけ（遷移しない）。×・空で送ると、サーバーで描いた元の一覧へすぐ戻る。
  */
-export function MailSearch({ initialQuery, view, account, labels, supportsLabels, inTrash, showAccount, nowMs, stickyClassName, top, below, children }: Props) {
+export function MailSearch({ initialQuery, view, account, labels, supportsLabels, inTrash, showAccount, nowMs, stickyClassName, tabs, top, below, children }: Props) {
   const [text, setText] = useState(initialQuery);
   const [active, setActive] = useState(initialQuery);
   // 同じ語で送り直したときも結果を取り直す（覚えた結果があればすぐ返る）
@@ -73,10 +78,47 @@ export function MailSearch({ initialQuery, view, account, labels, supportsLabels
     return `/mail${params.size > 0 ? `?${params}` : ""}`;
   }, [view, account, active]);
 
+  // 表示切替を押した直後（#1053）。新しいviewで描き直されると `key` ごと作り直されて消える。
+  // 遷移が失敗・中断して届かない場合に更新中のまま残らないよう、一定時間で戻す
+  const [pendingView, setPendingView] = useState<string | null>(null);
+  useEffect(() => {
+    if (pendingView === null) return;
+    const timer = setTimeout(() => setPendingView(null), 20000);
+    return () => clearTimeout(timer);
+  }, [pendingView]);
+  const switching = pendingView !== null && pendingView !== view;
+
   return (
-    <>
+    <MailViewPendingContext.Provider value={{ pending: pendingView, setPending: setPendingView }}>
       <div className={stickyClassName}>
-        {top}
+        <div className="flex items-center gap-2">
+          <nav aria-label="表示するメール" className={cn("flex shrink-0 flex-nowrap gap-1 text-xs transition-opacity sm:gap-1.5", active && "opacity-40")}>
+            {tabs.map((item) => {
+              const on = item.key === view;
+              return (
+                <Link
+                  key={item.key}
+                  href={item.href}
+                  aria-current={on ? "page" : undefined}
+                  aria-disabled={active ? true : undefined}
+                  tabIndex={active ? -1 : undefined}
+                  onClick={(event) => {
+                    // 検索結果を出している間は切り替えない。先に×で検索をやめてもらう（#1054）
+                    if (active) event.preventDefault();
+                  }}
+                  className={cn(
+                    "whitespace-nowrap rounded-full border px-2.5 py-1.5 transition-colors sm:px-3",
+                    on ? "border-foreground bg-foreground text-background" : "border-border bg-surface",
+                    active ? "cursor-default" : !on && "hover:bg-rail-active",
+                  )}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+          {top}
+        </div>
         <form
           role="search"
           // 読み込み途中（ハイドレーション前）に送られたときは、従来どおり `/mail?q=` へ遷移する
@@ -121,7 +163,9 @@ export function MailSearch({ initialQuery, view, account, labels, supportsLabels
       </div>
       {below}
 
-      {active ? (
+      {switching ? (
+        <MailRowsSkeleton />
+      ) : active ? (
         <MailSearchResults
           key={`${view}\u0000${account ?? ""}\u0000${active}\u0000${nonce}`}
           q={active}
@@ -137,7 +181,7 @@ export function MailSearch({ initialQuery, view, account, labels, supportsLabels
       ) : (
         children
       )}
-    </>
+    </MailViewPendingContext.Provider>
   );
 }
 

@@ -2,7 +2,7 @@
 
 import { RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useRef, useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -10,8 +10,43 @@ import { isPullGesture, PULL_THRESHOLD, pullDistance, shouldRefresh } from "./pu
 
 const EDGE_PX = 24;
 
+type PullState = { distance: number; dragging: boolean; running: boolean; failed: boolean };
+const PullContext = createContext<PullState>({ distance: 0, dragging: false, running: false, failed: false });
+
 /**
- * メール一覧のスクロール領域を包み、先頭で下へ引いて離すと一覧を取り直す（#1015）。
+ * 引っ張り更新の表示（#1049）。上に固定した帯（表示切替・検索）の下に置く。帯は動かさず、このぶんだけ一覧が下がる。
+ * `PullToRefresh` の内側で描く。何も出さないときは何も描かない（余白を作らない）。
+ */
+export function PullIndicator() {
+  const { distance, dragging, running, failed } = useContext(PullContext);
+  const height = running ? PULL_THRESHOLD : distance;
+  if (height === 0 && !failed) return null;
+  return (
+    <>
+      {height > 0 && (
+        <div
+          className="flex items-center justify-center gap-2 overflow-hidden text-xs text-muted"
+          style={{ height, transition: dragging ? "none" : "height 200ms ease" }}
+        >
+          <RefreshCw
+            className={cn("size-4", running && "animate-spin motion-reduce:animate-none")}
+            style={running ? undefined : { transform: `rotate(${distance * 4}deg)` }}
+            aria-hidden="true"
+          />
+          <span>{running ? "更新しています…" : shouldRefresh(distance) ? "離すと更新します" : "引っ張って更新"}</span>
+        </div>
+      )}
+      {failed && !running && (
+        <p role="alert" className="rounded-lg border border-danger/30 bg-danger-surface px-3 py-2 text-xs text-danger">
+          更新に失敗しました（通信できませんでした）。
+        </p>
+      )}
+    </>
+  );
+}
+
+/**
+ * メール一覧のスクロール領域を包み、先頭で下へ引いて離すと一覧を取り直す（#1015）。表示は `PullIndicator` が固定の帯の下に出す（#1049）。
  * 一覧キャッシュを捨てる（`POST /api/mail/refresh`）→ `router.refresh()`。新着の判定（`/api/mail/check`）は裏で走らせ、終わったらもう一度取り直す。タッチ操作だけ。
  */
 export function PullToRefresh({ className, children }: { className?: string; children: ReactNode }) {
@@ -80,37 +115,17 @@ export function PullToRefresh({ className, children }: { className?: string; chi
     if (go) void refresh();
   }
 
-  const height = running ? PULL_THRESHOLD : distance;
   return (
-    <div
-      className={cn(className, "overscroll-y-contain")}
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
-      onTouchCancel={onTouchEnd}
-    >
+    <PullContext.Provider value={{ distance, dragging, running, failed }}>
       <div
-        aria-hidden={height === 0}
-        className="flex items-center justify-center gap-2 overflow-hidden text-xs text-muted"
-        style={{ height, transition: dragging ? "none" : "height 200ms ease" }}
+        className={cn(className, "overscroll-y-contain")}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchEnd}
       >
-        {height > 0 && (
-          <>
-            <RefreshCw
-              className={cn("size-4", running && "animate-spin motion-reduce:animate-none")}
-              style={running ? undefined : { transform: `rotate(${distance * 4}deg)` }}
-              aria-hidden="true"
-            />
-            <span>{running ? "更新しています…" : shouldRefresh(distance) ? "離すと更新します" : "引っ張って更新"}</span>
-          </>
-        )}
+        {children}
       </div>
-      {failed && !running && (
-        <p role="alert" className="mx-3.5 mt-2 rounded-lg border border-danger/30 bg-danger-surface px-3 py-2 text-xs text-danger md:mx-7">
-          更新に失敗しました（通信できませんでした）。
-        </p>
-      )}
-      {children}
-    </div>
+    </PullContext.Provider>
   );
 }

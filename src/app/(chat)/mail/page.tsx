@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { after } from "next/server";
 import { redirect } from "next/navigation";
 
@@ -34,8 +33,7 @@ import { deleteListSummaries } from "@/lib/mail/list-summary";
 import { decorateMailRows } from "@/lib/mail/list-rows";
 import { DEFAULT_MAIL_CRITERIA } from "@/lib/mail/triage-core";
 import { normalizeLearnedRules } from "@/lib/mail/learn-core";
-import { PullToRefresh } from "@/components/mail/pull-to-refresh";
-import { cn } from "@/lib/utils";
+import { PullIndicator, PullToRefresh } from "@/components/mail/pull-to-refresh";
 
 // メールは開くたびにAIDEから取る（Morrowは保存しない）。
 export const dynamic = "force-dynamic";
@@ -147,26 +145,8 @@ export default async function MailPage({ searchParams }: Props) {
           showAccount={showAccounts && selected.length > 1}
           nowMs={now.getTime()}
           stickyClassName="sticky top-0 z-10 -mx-3.5 flex flex-col gap-2 border-b border-border bg-background px-3.5 pb-2.5 pt-3 md:-mx-7 md:px-7 md:pt-5"
+          tabs={MAIL_VIEWS.map((item) => ({ key: item.key, label: item.label, href: viewHref(item.key) }))}
           top={
-          <div className="flex items-center gap-2">
-            <nav aria-label="表示するメール" className="flex shrink-0 flex-nowrap gap-1 text-xs sm:gap-1.5">
-              {MAIL_VIEWS.map((item) => {
-                const on = item.key === view;
-                return (
-                  <Link
-                    key={item.key}
-                    href={viewHref(item.key)}
-                    aria-current={on ? "page" : undefined}
-                    className={cn(
-                      "whitespace-nowrap rounded-full border px-2.5 py-1.5 transition-colors sm:px-3",
-                      on ? "border-foreground bg-foreground text-background" : "border-border bg-surface hover:bg-rail-active",
-                    )}
-                  >
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </nav>
             <p className="ml-auto min-w-0 text-right text-[0.625rem] leading-snug text-muted sm:text-[0.6875rem]">
               {checkedAt ? (
                 <>
@@ -183,10 +163,14 @@ export default async function MailPage({ searchParams }: Props) {
                 "まだ新着を確認していません"
               )}
             </p>
-          </div>
           }
           // 「いま確認」のボタンはヘッダーへ。結果のメッセージだけがここ（固定部分の下）に出る
-          below={<MailCheckButton />}
+          below={
+            <>
+              <MailCheckButton />
+              <PullIndicator />
+            </>
+          }
         >
         {!result.ok ? (
           <p role="alert" className="rounded-[10px] border border-danger/30 bg-danger-surface px-3.5 py-2.5 text-xs leading-relaxed text-danger">

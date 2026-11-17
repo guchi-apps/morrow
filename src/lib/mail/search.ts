@@ -6,6 +6,7 @@ import type { AccountFilter } from "@/lib/mail/account-filter";
 import { listMailForPage, type MailUser } from "@/lib/mail/aide-client";
 import { acquireMailCodex, waitForMailCodex } from "@/lib/mail/codex-lock";
 import { MAIL_FAILURE_MESSAGES, type MailSummary, type MailViewKey } from "@/lib/mail/contract";
+import { searchViewFor } from "@/lib/mail/inbox-mark";
 import { decorateMailRows, type MailListRow } from "@/lib/mail/list-rows";
 import {
   RANK_CANDIDATE_MAX,
@@ -33,13 +34,6 @@ const MAX_RUNS = 30;
 const LOCK_WAIT_MS = 1_000;
 const LOCK_WAIT_TRIES = 20;
 
-/**
- * 検索の対象。受信トレイ・未読・すべての表示からは、アーカイブ済みを含む「すべて」から探す（#1032）。
- * ゴミ箱の表示だけは従来どおりゴミ箱の中を探す（画面がゴミ箱の行として描くため）。
- */
-export function searchViewFor(view: MailViewKey): MailViewKey {
-  return view === "trash" ? "trash" : "all";
-}
 
 type Event = SearchEvent<MailListRow>;
 

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  SUGGEST_KIND_RULES,
+  SUGGEST_RULES,
   findExistingEvent,
   normalizeSuggestion,
   parseSuggestReply,
@@ -22,17 +24,33 @@ const reply = JSON.stringify({
   suggestions: [
     { kind: "payment", reason: "電気料金の請求", confidence: 0.9, fields: { name: "電気料金", amount: 8420, date: "2026-11-05", usage: "258kWh" } },
     { kind: "task", reason: "期限あり", confidence: 0.7, fields: { title: "支払う", due: "2026-11-14", memo: "要点" } },
-    { kind: "payment", reason: "重複", confidence: 0.1, fields: { name: "x", amount: 1, date: "2026-11-05" } },
+    { kind: "task", reason: "まったく同じ内容", confidence: 0.2, fields: { title: "支払う", due: "2026-11-14", memo: "要点" } },
+    { kind: "payment", reason: "別の支払い", confidence: 0.1, fields: { name: "x", amount: 1, date: "2026-11-05" } },
     { kind: "bogus", fields: {} },
   ],
 });
 
 describe("parseSuggestReply", () => {
-  it("候補を読み、同じ種類の重複・知らない種類を落とす", () => {
+  it("候補を読み、同じ内容の重複・知らない種類を落とす。同じ種類の別の内容は残す（#1051）", () => {
     const result = parseSuggestReply(`前置き${reply}後書き`);
     assert.ok(result);
     assert.equal(result.recommended, "payment");
-    assert.deepEqual(result.suggestions.map((s) => s.kind), ["payment", "task"]);
+    assert.deepEqual(result.suggestions.map((s) => s.kind), ["payment", "task", "payment"]);
+  });
+
+  it("受け取り日が2日に分かれるタスク2件を両方残す（#1051）", () => {
+    const result = parseSuggestReply(
+      JSON.stringify({
+        recommended: "task",
+        suggestions: [
+          { kind: "task", confidence: 0.9, fields: { title: "注文品を受け取る（1点目）", planned: "2026-11-18" } },
+          { kind: "task", confidence: 0.9, fields: { title: "注文品を受け取る（2点目）", planned: "2026-11-19" } },
+          { kind: "event", confidence: 0.6, fields: { title: "来店", date: "2026-11-20", startTime: "10:00" } },
+        ],
+      }),
+    );
+    assert.deepEqual(result?.suggestions.map((s) => (s.kind === "task" ? s.fields.planned : s.kind)), ["2026-11-18", "2026-11-19", "event"]);
+    assert.equal(result?.recommended, "task");
   });
 
   it("読めない返答はnull。候補が無ければ推奨なし", () => {
@@ -315,6 +333,41 @@ describe("タスクの期限・予定日の時刻（#907）", () => {
     const bad = normalizeSuggestion("task", { title: "a", due: "2026-11-15", dueTime: "25:99" }, "r", 0.5);
     assert.ok(bad && bad.kind === "task");
     assert.equal(bad.fields.dueTime, null);
+  });
+});
+
+describe("荷物の受け取りタスク（#1052）", () => {
+  it("プロンプトの規則に受け取りの扱いがある", () => {
+    assert.ok(SUGGEST_KIND_RULES.some((r) => r.startsWith("task:") && r.includes("荷物の受け取り")));
+    assert.ok(SUGGEST_RULES.some((r) => r.startsWith("荷物の受け取り:") && r.includes("届くのを待つだけ")));
+  });
+
+  it("受け取りタスクの返答を読める（期限は保管期限）", () => {
+    const parsed = parseSuggestReply(
+      JSON.stringify({
+        recommended: "task",
+        suggestions: [{ kind: "task", reason: "再配達の案内", confidence: 0.8, fields: { title: "荷物を受け取る（コンビニ）", due: "2026-11-20", memo: "保管期限あり" } }],
+      }),
+    );
+    const task = parsed?.suggestions[0];
+    assert.ok(task && task.kind === "task");
+    assert.equal(task.fields.title, "荷物を受け取る（コンビニ）");
+    assert.equal(task.fields.due, "2026-11-20");
+  });
+});
+
+describe("受け取りタスクと追跡の併存（#1052）", () => {
+  it("tracking と task が両方残る", () => {
+    const parsed = parseSuggestReply(
+      JSON.stringify({
+        recommended: "task",
+        suggestions: [
+          { kind: "tracking", reason: "r", confidence: 0.9, fields: { carrier: "yamato", number: "335083439530" } },
+          { kind: "task", reason: "r", confidence: 0.8, fields: { title: "荷物を受け取る", due: null, memo: "" } },
+        ],
+      }),
+    );
+    assert.deepEqual(parsed?.suggestions.map((s) => s.kind).sort(), ["task", "tracking"]);
   });
 });
 
