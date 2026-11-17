@@ -2,7 +2,7 @@
 
 import { RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { createContext, useContext, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -51,12 +51,28 @@ export function PullIndicator() {
  */
 export function PullToRefresh({ className, children }: { className?: string; children: ReactNode }) {
   const router = useRouter();
+  const box = useRef<HTMLDivElement>(null);
   const start = useRef<{ x: number; y: number } | null>(null);
   const pulling = useRef(false);
   const [distance, setDistance] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [running, setRunning] = useState(false);
   const [failed, setFailed] = useState(false);
+
+  // 先頭から下へ引く間はiOSのゴムバンド（端の跳ね返り）を止める（#1061）。React の touchmove は passive で preventDefault できず、
+  // 跳ね返りがあると sticky の帯ごと下へずれてヘッダーとの間に隙間が空く。引いた分は PullIndicator だけが受ける。
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    function block(event: TouchEvent) {
+      const origin = start.current;
+      const touch = event.touches[0];
+      if (!origin || !touch || !el || el.scrollTop > 0) return;
+      if (touch.clientY > origin.y && event.cancelable) event.preventDefault();
+    }
+    el.addEventListener("touchmove", block, { passive: false });
+    return () => el.removeEventListener("touchmove", block);
+  }, []);
 
   async function refresh() {
     setRunning(true);
@@ -118,7 +134,8 @@ export function PullToRefresh({ className, children }: { className?: string; chi
   return (
     <PullContext.Provider value={{ distance, dragging, running, failed }}>
       <div
-        className={cn(className, "overscroll-y-contain")}
+        ref={box}
+        className={cn(className, "overscroll-y-none")}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
