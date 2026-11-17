@@ -3,7 +3,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { HEADER_ICON_BUTTON, useHeaderSlot } from "@/components/chat/header-actions";
+import { HEADER_ICON_BUTTON, HEADER_PILL_BUTTON, useHeaderSlot } from "@/components/chat/header-actions";
 
 /**
  * ヘッダー右上のアイコンで開くモーダル（#956。`MailCriteriaDialog`〔#951〕と同じ作りの汎用版）。
@@ -15,6 +15,7 @@ export function HeaderDialog({
   label,
   summary,
   badge,
+  trailing,
   children,
 }: {
   /**
@@ -27,6 +28,8 @@ export function HeaderDialog({
   summary: string;
   /** アイコン右上の数字。0・未指定なら出さない。 */
   badge?: number;
+  /** アイコンの右に出す短い文字（#1037）。指定するとボタンが横長になる。 */
+  trailing?: string;
   children: ReactNode;
 }) {
   const slot = useHeaderSlot();
@@ -41,8 +44,9 @@ export function HeaderDialog({
   }, [open]);
 
   const button = (
-    <button type="button" onClick={() => setOpen(true)} aria-label={label} title={`${label}（${summary}）`} aria-haspopup="dialog" className={HEADER_ICON_BUTTON}>
+    <button type="button" onClick={() => setOpen(true)} aria-label={label} title={`${label}（${summary}）`} aria-haspopup="dialog" className={trailing ? HEADER_PILL_BUTTON : HEADER_ICON_BUTTON}>
       {icon}
+      {trailing && <span className="text-[0.8125rem] font-semibold tabular-nums">{trailing}</span>}
       {badge !== undefined && badge > 0 && (
         <span aria-hidden="true" className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-accent px-1 text-[0.625rem] font-bold leading-4 text-accent-foreground">
           {badge}
