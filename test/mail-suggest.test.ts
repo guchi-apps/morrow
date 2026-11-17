@@ -340,6 +340,21 @@ describe("荷物の受け取りタスク（#1052）", () => {
   });
 });
 
+describe("受け取りタスクと追跡の併存（#1052）", () => {
+  it("tracking と task が両方残る", () => {
+    const parsed = parseSuggestReply(
+      JSON.stringify({
+        recommended: "task",
+        suggestions: [
+          { kind: "tracking", reason: "r", confidence: 0.9, fields: { carrier: "yamato", number: "335083439530" } },
+          { kind: "task", reason: "r", confidence: 0.8, fields: { title: "荷物を受け取る", due: null, memo: "" } },
+        ],
+      }),
+    );
+    assert.deepEqual(parsed?.suggestions.map((s) => s.kind).sort(), ["task", "tracking"]);
+  });
+});
+
 describe("link 提案（#1029）", () => {
   it("紐づけ先を検証して読み、calendarIdの無い予定は落とす", () => {
     const ok = normalizeSuggestion("link", { kind: "task", targetId: "t1", calendarId: null, title: "荷物受け取り", dateText: "2026-11-17" }, "理由", 0.8);
