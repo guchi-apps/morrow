@@ -34,7 +34,7 @@ import { deleteListSummaries } from "@/lib/mail/list-summary";
 import { decorateMailRows } from "@/lib/mail/list-rows";
 import { DEFAULT_MAIL_CRITERIA } from "@/lib/mail/triage-core";
 import { normalizeLearnedRules } from "@/lib/mail/learn-core";
-import { PullToRefresh } from "@/components/mail/pull-to-refresh";
+import { PullIndicator, PullToRefresh } from "@/components/mail/pull-to-refresh";
 import { cn } from "@/lib/utils";
 
 // メールは開くたびにAIDEから取る（Morrowは保存しない）。
@@ -186,7 +186,12 @@ export default async function MailPage({ searchParams }: Props) {
           </div>
           }
           // 「いま確認」のボタンはヘッダーへ。結果のメッセージだけがここ（固定部分の下）に出る
-          below={<MailCheckButton />}
+          below={
+            <>
+              <MailCheckButton />
+              <PullIndicator />
+            </>
+          }
         >
         {!result.ok ? (
           <p role="alert" className="rounded-[10px] border border-danger/30 bg-danger-surface px-3.5 py-2.5 text-xs leading-relaxed text-danger">
