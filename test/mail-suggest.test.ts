@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  SUGGEST_KIND_RULES,
+  SUGGEST_RULES,
   findExistingEvent,
   normalizeSuggestion,
   parseSuggestReply,
@@ -315,6 +317,26 @@ describe("タスクの期限・予定日の時刻（#907）", () => {
     const bad = normalizeSuggestion("task", { title: "a", due: "2026-11-15", dueTime: "25:99" }, "r", 0.5);
     assert.ok(bad && bad.kind === "task");
     assert.equal(bad.fields.dueTime, null);
+  });
+});
+
+describe("荷物の受け取りタスク（#1052）", () => {
+  it("プロンプトの規則に受け取りの扱いがある", () => {
+    assert.ok(SUGGEST_KIND_RULES.some((r) => r.startsWith("task:") && r.includes("荷物の受け取り")));
+    assert.ok(SUGGEST_RULES.some((r) => r.startsWith("荷物の受け取り:") && r.includes("届くのを待つだけ")));
+  });
+
+  it("受け取りタスクの返答を読める（期限は保管期限）", () => {
+    const parsed = parseSuggestReply(
+      JSON.stringify({
+        recommended: "task",
+        suggestions: [{ kind: "task", reason: "再配達の案内", confidence: 0.8, fields: { title: "荷物を受け取る（コンビニ）", due: "2026-11-20", memo: "保管期限あり" } }],
+      }),
+    );
+    const task = parsed?.suggestions[0];
+    assert.ok(task && task.kind === "task");
+    assert.equal(task.fields.title, "荷物を受け取る（コンビニ）");
+    assert.equal(task.fields.due, "2026-11-20");
   });
 });
 
