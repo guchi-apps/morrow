@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { linkAppUrl, taskOpenUrl } from "../src/lib/mail/app-links.ts";
+import { linkAppUrl, taskOpenUrl, taskOpensInApp } from "../src/lib/mail/app-links.ts";
 
 describe("linkAppUrl（#914）", () => {
   it("予定は日付付きでカレンダーを開く", () => {
@@ -28,5 +28,18 @@ describe("taskOpenUrl（#1022）", () => {
   it("予定日が不正なら期限へ、どちらも無ければタスク一覧", () => {
     assert.equal(taskOpenUrl({ planned: "11/17", due: "2026-11-20" }), "https://dayspan.gucchii.com/calendar?date=2026-11-20");
     assert.equal(taskOpenUrl({}), "https://dayspan.gucchii.com/tasks");
+  });
+});
+
+describe("taskOpensInApp（#1030）", () => {
+  it("日付があればアプリで開き、無ければ（/tasksでSafari）開かない", () => {
+    assert.equal(taskOpensInApp({ planned: "2026-11-17" }), true);
+    assert.equal(taskOpensInApp({ due: "2026-11-20" }), true);
+    assert.equal(taskOpensInApp({}), false);
+    assert.equal(taskOpensInApp({ planned: "11/17", due: null }), false);
+  });
+  it("案内の判定は遷移先（taskOpenUrl）と一致する", () => {
+    const cases = [{}, { due: "2026-11-20" }, { planned: "11/17", due: "2026-11-20" }, { planned: "11/17", due: "x" }, { planned: "2026-11-17", due: null }];
+    for (const c of cases) assert.equal(taskOpensInApp(c), taskOpenUrl(c).includes("/calendar?date="));
   });
 });
