@@ -29,3 +29,12 @@ export function linkAppUrl(kind: "task" | "event", dateText: string | null): str
   if (validDate) return `${FLOW_APP_LINKS.event.url}?date=${dateText}`;
   return FLOW_APP_LINKS[kind].url;
 }
+
+/**
+ * 作ったタスクを開く行き先（#1022）。YoteiFlowにタスク個別を開く口は無いので、タスクも出る日のカレンダーを開く。
+ * 日付は予定日→期限の順（どちらも `YYYY-MM-DD` でなければ無いものとして `linkAppUrl()` が `/tasks` へ落とす）。
+ */
+export function taskOpenUrl(fields: { planned?: string | null; due?: string | null }): string {
+  const valid = (d: string | null | undefined) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null);
+  return linkAppUrl("task", valid(fields.planned) ?? valid(fields.due));
+}

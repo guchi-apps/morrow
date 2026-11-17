@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { CalendarChoice } from "@/lib/mail/link-core";
-import { FLOW_APP_LINKS } from "@/lib/mail/app-links";
+import { FLOW_APP_LINKS, taskOpenUrl } from "@/lib/mail/app-links";
 import { RECEIVED_DATE_NOTE, itemsTotal, paymentBlocker } from "@/lib/mail/payment-receipt";
 import type { PaymentFields, Suggestion, SuggestKind } from "@/lib/mail/suggest-core";
 import { ASSET_MANAGER_SUBSCRIPTIONS_URL, subscriptionLink } from "@/lib/mail/subscription-link";
@@ -325,6 +325,14 @@ export function FlowSheet({ card, recommended, outcome, match, calendars, runnin
                 {meta.run}
               </a>
               <p className="text-[0.6875rem] text-muted">入力欄の内容は引き継がれません。Asset Managerのサブスク画面が開くだけなので（iPhoneのMorrowアプリではAsset Managerアプリで開きます）、登録はAsset Manager側で行ってください。</p>
+            </>
+          ) : card.kind === "task" && outcome?.done ? (
+            <>
+              {/* 作成後は「実行済み」ではなくタスクを開く（#1022）。iPhoneの殻はYoteiFlowアプリへ渡す */}
+              <a href={taskOpenUrl(card.fields)} target="_blank" rel="noopener noreferrer" className="rounded-[10px] bg-accent px-3 py-2.5 text-center text-sm font-bold text-accent-foreground">
+                タスクを開く ↗
+              </a>
+              <p className="text-center text-[0.6875rem] text-muted">タスクの日のカレンダーが開きます（iPhoneのMorrowアプリでは予定フローのアプリで開きます）。</p>
             </>
           ) : (
             <>
