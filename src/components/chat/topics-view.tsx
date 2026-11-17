@@ -2,6 +2,7 @@ import { Clock, Newspaper } from "lucide-react";
 
 import { HeaderDialog } from "@/components/chat/header-dialog";
 import { jstTimeLabel } from "@/lib/day-key";
+import { nextScheduledLabel } from "@/lib/scheduled-push-rule";
 import type { TopicBoard } from "@/lib/topics";
 
 import { ScheduledPushSettingsCard, type ScheduleRow } from "@/components/settings/scheduled-push-settings";
@@ -54,7 +55,7 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
         <HeaderDialog
           icon={<Clock className="size-4" aria-hidden="true" />}
           label="通知する時間"
-          badge={schedules.length}
+          trailing={nextScheduledLabel(schedules, now) ?? "未登録"}
           summary={
             schedules.length > 0
               ? hasDevice

@@ -26,11 +26,6 @@ export function MailCriteriaDialog({ learnedCount, custom, children }: { learned
   const button = (
     <button type="button" onClick={() => setOpen(true)} aria-label="お知らせする基準" title={`お知らせする基準（${summary}）`} aria-haspopup="dialog" className={`${HEADER_ICON_BUTTON} order-2`}>
       <SlidersHorizontal className="size-4" aria-hidden="true" />
-      {learnedCount > 0 && (
-        <span aria-hidden="true" className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-accent px-1 text-[0.625rem] font-bold leading-4 text-accent-foreground">
-          {learnedCount}
-        </span>
-      )}
     </button>
   );
 
