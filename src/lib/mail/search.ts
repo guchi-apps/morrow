@@ -33,8 +33,13 @@ const MAX_RUNS = 30;
 const LOCK_WAIT_MS = 1_000;
 const LOCK_WAIT_TRIES = 20;
 
-/** 検索の対象。選んでいる表示切替（受信トレイ・未読など）によらず「すべて」から探す（#1032）。 */
-const SEARCH_VIEW: MailViewKey = "all";
+/**
+ * 検索の対象。受信トレイ・未読・すべての表示からは、アーカイブ済みを含む「すべて」から探す（#1032）。
+ * ゴミ箱の表示だけは従来どおりゴミ箱の中を探す（画面がゴミ箱の行として描くため）。
+ */
+export function searchViewFor(view: MailViewKey): MailViewKey {
+  return view === "trash" ? "trash" : "all";
+}
 
 type Event = SearchEvent<MailListRow>;
 
@@ -71,7 +76,7 @@ export type MailSearchParams = { view: MailViewKey; filter: AccountFilter; accou
 export function subscribeMailSearch(user: MailUser, params: MailSearchParams, listen: (event: Event) => void): () => void {
   const now = Date.now();
   prune(now);
-  const key = JSON.stringify([user.id, user.email ?? "", params.account ?? "", params.q]);
+  const key = JSON.stringify([user.id, user.email ?? "", searchViewFor(params.view), params.account ?? "", params.q]);
   const store = runs();
   let run = store.get(key);
   if (!run) {
@@ -118,13 +123,13 @@ async function acquireWithWait(userId: string, key: string): Promise<(() => void
 }
 
 async function execute(user: MailUser, params: MailSearchParams, emit: (event: Event) => void): Promise<void> {
-  const { filter, q } = params;
+  const { view, filter, q } = params;
   const found = new Map<string, MailSummary>();
 
   /** 1つの条件で1ページ引き、まだ出していない行だけを返す。 */
   async function fetchNew(query: string) {
     // 検索は表示切替に関わらず全メールを対象にする（#1032）
-    const result = await listMailForPage(user, { view: SEARCH_VIEW, labelId: null, filter, q: query, pageToken: null });
+    const result = await listMailForPage(user, { view: searchViewFor(view), labelId: null, filter, q: query, pageToken: null });
     if (!result.ok) return result;
     const fresh = result.value.messages.filter((message) => !found.has(message.id));
     for (const message of fresh) found.set(message.id, message);
