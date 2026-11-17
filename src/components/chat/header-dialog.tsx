@@ -3,7 +3,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { HEADER_ICON_BUTTON, useHeaderSlot } from "@/components/chat/header-actions";
+import { HEADER_ICON_BUTTON, HEADER_PILL_BUTTON, useHeaderSlot } from "@/components/chat/header-actions";
 
 /**
  * ヘッダー右上のアイコンで開くモーダル（#956。`MailCriteriaDialog`〔#951〕と同じ作りの汎用版）。
@@ -15,6 +15,7 @@ export function HeaderDialog({
   label,
   summary,
   badge,
+  trailing,
   children,
 }: {
   /**
@@ -27,6 +28,8 @@ export function HeaderDialog({
   summary: string;
   /** アイコン右上の数字。0・未指定なら出さない。 */
   badge?: number;
+  /** アイコンの右に出す短い文字（#1037）。指定するとボタンが横長になる。 */
+  trailing?: string;
   children: ReactNode;
 }) {
   const slot = useHeaderSlot();
@@ -41,8 +44,9 @@ export function HeaderDialog({
   }, [open]);
 
   const button = (
-    <button type="button" onClick={() => setOpen(true)} aria-label={label} title={`${label}（${summary}）`} aria-haspopup="dialog" className={HEADER_ICON_BUTTON}>
+    <button type="button" onClick={() => setOpen(true)} aria-label={label} title={`${label}（${summary}）`} aria-haspopup="dialog" className={trailing ? HEADER_PILL_BUTTON : HEADER_ICON_BUTTON}>
       {icon}
+      {trailing && <span className="text-[0.8125rem] font-semibold tabular-nums">{trailing}</span>}
       {badge !== undefined && badge > 0 && (
         <span aria-hidden="true" className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-accent px-1 text-[0.625rem] font-bold leading-4 text-accent-foreground">
           {badge}
@@ -59,7 +63,7 @@ export function HeaderDialog({
         aria-label={label}
         onClose={() => setOpen(false)}
         onClick={(e) => e.target === e.currentTarget && ref.current?.close()}
-        className="fixed inset-x-0 bottom-0 top-auto m-0 mx-auto max-h-[85dvh] w-full max-w-[560px] overflow-y-auto rounded-t-[18px] border border-border bg-surface p-0 text-foreground backdrop:bg-black/55 md:inset-y-0 md:my-auto md:h-fit md:rounded-[18px]"
+        className="fixed inset-x-0 bottom-[var(--keyboard-inset)] top-auto m-0 mx-auto max-h-[min(85dvh,calc(var(--app-height)-1rem))] w-full max-w-[560px] overflow-y-auto rounded-t-[18px] border border-border bg-surface p-0 text-foreground backdrop:bg-black/55 md:inset-y-0 md:my-auto md:h-fit md:rounded-[18px]"
       >
         <div className="flex flex-col gap-3.5 px-4 pb-[calc(1.25rem+var(--app-bottom-inset))] pt-3">
           <div className="flex items-center justify-between gap-2">

@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import type { CalendarChoice } from "@/lib/mail/link-core";
-import { FLOW_APP_LINKS } from "@/lib/mail/app-links";
+import { linkTargetLabel, type CalendarChoice } from "@/lib/mail/link-core";
+import { FLOW_APP_LINKS, linkAppUrl, taskOpenUrl, taskOpensInApp } from "@/lib/mail/app-links";
 import { RECEIVED_DATE_NOTE, itemsTotal, paymentBlocker } from "@/lib/mail/payment-receipt";
 import type { PaymentFields, Suggestion, SuggestKind } from "@/lib/mail/suggest-core";
 import { ASSET_MANAGER_SUBSCRIPTIONS_URL, subscriptionLink } from "@/lib/mail/subscription-link";
@@ -27,6 +27,7 @@ export const KIND_META: Record<SuggestKind, { icon: string; title: string; run: 
   task: { icon: "📌", title: "タスクにする", run: "タスクを作る" },
   event: { icon: "📅", title: "予定にする", run: "予定を登録する" },
   tracking: { icon: "📦", title: "発送状況を追跡する", run: "追跡ページを開く ↗" },
+  link: { icon: "🔗", title: "既存の予定・タスクに紐づける", run: "紐づける" },
 };
 
 /** `href` は家計簿だけ: 作った（取り込み済みの）レシートの編集画面。自動で開けなかったときのリンクにする（#781）。 */
@@ -115,6 +116,34 @@ function Field({ label, children, className }: { label: string; children: ReactN
   );
 }
 
+/** 日付＋時刻の任意入力。「未設定にする」で日付と時刻をまとめて空に戻す（#1021） */
+function OptionalDateTime({ label, dateKey, timeKey, fields, onEdit }: { label: string; dateKey: string; timeKey: string; fields: Record<string, unknown>; onEdit: (key: string, value: string) => void }) {
+  const date = String(fields[dateKey] ?? "");
+  const time = String(fields[timeKey] ?? "");
+  return (
+    <div className="col-span-2 flex min-w-0 flex-col gap-1 text-[0.6875rem] text-muted">
+      <div className="flex items-center justify-between">
+        <span>{label}</span>
+        <button
+          type="button"
+          disabled={date === "" && time === ""}
+          onClick={() => {
+            onEdit(dateKey, "");
+            onEdit(timeKey, "");
+          }}
+          className="py-1 text-xs text-accent disabled:text-muted disabled:opacity-60"
+        >
+          未設定にする
+        </button>
+      </div>
+      <div className="grid grid-cols-[3fr_2fr] gap-2">
+        <input type="date" aria-label={`${label}の日付`} className={input} value={date} onChange={(e) => onEdit(dateKey, e.target.value)} />
+        <input type="time" aria-label={`${label}の時刻`} className={cn(input, "disabled:opacity-40")} disabled={date === ""} value={date === "" ? "" : time} onChange={(e) => onEdit(timeKey, e.target.value)} />
+      </div>
+    </div>
+  );
+}
+
 export function FlowSheet({ card, recommended, outcome, match, calendars, running, onEdit, onRun, onOpenSubscription, onClose }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
 
@@ -140,7 +169,7 @@ export function FlowSheet({ card, recommended, outcome, match, calendars, runnin
       onClose={onClose}
       // 背景（::backdrop）を押したら閉じる。中身の上の操作はdialog自身が対象にならない
       onClick={(e) => e.target === e.currentTarget && ref.current?.close()}
-      className="flow-sheet fixed inset-x-0 bottom-0 top-auto m-0 mx-auto max-h-[85dvh] w-full max-w-[560px] overflow-y-auto rounded-t-[18px] border border-border bg-surface p-0 text-foreground backdrop:bg-black/55"
+      className="flow-sheet fixed inset-x-0 bottom-[var(--keyboard-inset)] top-auto m-0 mx-auto max-h-[min(85dvh,calc(var(--app-height)-1rem))] w-full max-w-[560px] overflow-y-auto rounded-t-[18px] border border-border bg-surface p-0 text-foreground backdrop:bg-black/55"
     >
       {card && meta && app && (
         <div className="flex flex-col gap-3 px-4 pb-[calc(1.25rem+var(--app-bottom-inset))] pt-2">
@@ -163,6 +192,8 @@ export function FlowSheet({ card, recommended, outcome, match, calendars, runnin
               ? "Asset Managerに同じ項目が見つかったので、そちらの登録内容を表示しています（読み取った値より優先）。"
               : card.kind === "payment"
               ? "AIが本文から読み取った値です。Asset Managerの画面で直してから確定してください。"
+              : card.kind === "link"
+              ? "AIが、すでにある予定・タスクとこのメールの関連を見つけました。外れることがあるので、確かめてから紐づけてください。"
               : `AIが本文から読み取った値です。外れることがあるので、確かめてから${card.kind === "subscription" || card.kind === "tracking" ? "開いてください" : "登録してください"}。`}
             {card.reason && <>　理由: {card.reason}</>}
           </p>
@@ -171,9 +202,19 @@ export function FlowSheet({ card, recommended, outcome, match, calendars, runnin
 
           {found && card.kind === "payment" && <p className="-mb-1.5 text-xs font-bold text-muted">メールから読み取った値</p>}
           {card.kind === "payment" && <PaymentSummary fields={card.fields} />}
+          {card.kind === "link" && (
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 rounded-[10px] border border-border px-3 py-2.5 text-[0.8125rem]">
+              <dt className="text-xs text-muted">種類</dt>
+              <dd>{card.fields.kind === "task" ? "✅ タスク" : "📅 予定"}</dd>
+              <dt className="text-xs text-muted">題名</dt>
+              <dd className="min-w-0 break-words font-semibold">{card.fields.title}</dd>
+              <dt className="text-xs text-muted">{card.fields.kind === "task" ? "期限・予定日" : "日付"}</dt>
+              <dd>{card.fields.dateText ? card.fields.dateText.replaceAll("-", "/") : "なし"}</dd>
+            </dl>
+          )}
           {card.kind === "subscription" && match?.status === "error" && <p className="text-[0.6875rem] text-muted">Asset Managerとの照合はできませんでした（登録済みかは未確認）。</p>}
 
-          <div className={cn("grid grid-cols-2 gap-2.5", (card.kind === "payment" || found) && "hidden")}>
+          <div className={cn("grid grid-cols-2 gap-2.5", (card.kind === "payment" || card.kind === "link" || found) && "hidden")}>
             {card.kind === "subscription" && (
               <>
                 <Field label="名称" className="col-span-2">
@@ -224,19 +265,9 @@ export function FlowSheet({ card, recommended, outcome, match, calendars, runnin
                 <Field label="タイトル" className="col-span-2">
                   <input className={input} value={String(f.title ?? "")} onChange={(e) => onEdit("task", "title", e.target.value)} />
                 </Field>
-                <Field label="期限" className="col-span-2">
-                  <div className="grid grid-cols-[3fr_2fr] gap-2">
-                    <input type="date" aria-label="期限の日付" className={input} value={String(f.due ?? "")} onChange={(e) => onEdit("task", "due", e.target.value)} />
-                    <input type="time" aria-label="期限の時刻" className={input} value={String(f.dueTime ?? "")} onChange={(e) => onEdit("task", "dueTime", e.target.value)} />
-                  </div>
-                </Field>
-                <Field label="予定日" className="col-span-2">
-                  <div className="grid grid-cols-[3fr_2fr] gap-2">
-                    <input type="date" aria-label="予定日の日付" className={input} value={String(f.planned ?? "")} onChange={(e) => onEdit("task", "planned", e.target.value)} />
-                    <input type="time" aria-label="予定日の時刻" className={input} value={String(f.plannedTime ?? "")} onChange={(e) => onEdit("task", "plannedTime", e.target.value)} />
-                  </div>
-                  <p className="mt-1 text-[0.6875rem] text-muted">時刻は任意です。タスクは日付だけを保持するので、時刻はメモの先頭に記録されます。</p>
-                </Field>
+                <OptionalDateTime label="期限" dateKey="due" timeKey="dueTime" fields={f} onEdit={(key, value) => onEdit("task", key, value)} />
+                <OptionalDateTime label="予定日" dateKey="planned" timeKey="plannedTime" fields={f} onEdit={(key, value) => onEdit("task", key, value)} />
+                <p className="col-span-2 -mt-1 text-[0.6875rem] text-muted">期限・予定日はどちらも空のままで作れます。時刻は日付を選ぶと入力できます。</p>
                 <Field label="メモ" className="col-span-2">
                   <textarea rows={2} className={textarea} value={String(f.memo ?? "")} onChange={(e) => onEdit("task", "memo", e.target.value)} />
                 </Field>
@@ -284,6 +315,18 @@ export function FlowSheet({ card, recommended, outcome, match, calendars, runnin
             <PaymentActions card={card} outcome={outcome} running={running} onRun={onRun} fallback={app} />
           ) : card.kind === "tracking" ? (
             <TrackingActions card={card} />
+          ) : card.kind === "link" ? (
+            <>
+              <button type="button" disabled={running || outcome?.done === true} onClick={() => onRun(card)} className={primary}>
+                {running ? "紐づけています…" : outcome?.done ? "紐づけ済み" : `この${card.fields.kind === "task" ? "タスク" : "予定"}に紐づける`}
+              </button>
+              {outcome?.done && (
+                <a href={linkAppUrl(card.fields.kind, card.fields.dateText)} target="_blank" rel="noopener noreferrer" className="text-center text-xs text-accent hover:underline">
+                  {linkTargetLabel(card.fields)}を開く ↗
+                </a>
+              )}
+              <p className="text-center text-[0.6875rem] text-muted">紐づけはMorrowの控えです。予定・タスクそのものは変わりません。あとから「このメールに紐づけた予定・タスク」で解除できます。</p>
+            </>
           ) : card.kind === "subscription" && found ? (
             <>
               <details className="text-xs text-muted">
@@ -307,6 +350,18 @@ export function FlowSheet({ card, recommended, outcome, match, calendars, runnin
                 {meta.run}
               </a>
               <p className="text-[0.6875rem] text-muted">入力欄の内容は引き継がれません。Asset Managerのサブスク画面が開くだけなので（iPhoneのMorrowアプリではAsset Managerアプリで開きます）、登録はAsset Manager側で行ってください。</p>
+            </>
+          ) : card.kind === "task" && outcome?.done ? (
+            <>
+              {/* 作成後は「実行済み」ではなくタスクを開く（#1022）。iPhoneの殻はYoteiFlowアプリへ渡す */}
+              <a href={taskOpenUrl(card.fields)} target="_blank" rel="noopener noreferrer" className="rounded-[10px] bg-accent px-3 py-2.5 text-center text-sm font-bold text-accent-foreground">
+                タスクを開く ↗
+              </a>
+              <p className="text-center text-[0.6875rem] text-muted">
+                {taskOpensInApp(card.fields)
+                  ? "タスクの日のカレンダーが開きます（iPhoneのMorrowアプリでは予定フローのアプリで開きます）。"
+                  : "日付が無いので、ブラウザでDaySpanのタスク一覧が開きます（アプリでは開きません）。"}
+              </p>
             </>
           ) : (
             <>

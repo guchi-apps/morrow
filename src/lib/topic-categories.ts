@@ -116,3 +116,27 @@ export function validateTopicCategoryInput(
 export function topicCategoryShort(categories: readonly TopicCategory[], id: string): string {
   return categories.find((category) => category.id === id)?.short ?? "その他";
 }
+
+/** 種類を1つ前（-1）／後ろ（+1）へ動かした並びを返す（#1039）。端を越える動きは同じ並びのまま。 */
+export function moveCategory<T>(items: readonly T[], index: number, delta: -1 | 1): T[] {
+  const target = index + delta;
+  const next = [...items];
+  if (index < 0 || index >= items.length || target < 0 || target >= items.length) return next;
+  [next[index], next[target]] = [next[target], next[index]];
+  return next;
+}
+
+/**
+ * 並べ替えの本文（`keys`）を読み、利用者の現在のキーに合わせた並びを返す（#1039）。
+ * 別タブで種類が増減していても失敗させない: 送られたキーのうち存在するものを順に採り、送られなかった既存キーは末尾へ。
+ * 形が違う本文だけnull。
+ */
+export function validateCategoryOrder(body: unknown, currentKeys: readonly string[]): string[] | null {
+  if (typeof body !== "object" || body === null) return null;
+  const keys = (body as { keys?: unknown }).keys;
+  if (!Array.isArray(keys) || keys.some((key) => typeof key !== "string")) return null;
+  const current = new Set(currentKeys);
+  const ordered = [...new Set(keys as string[])].filter((key) => current.has(key));
+  const rest = currentKeys.filter((key) => !ordered.includes(key));
+  return [...ordered, ...rest];
+}

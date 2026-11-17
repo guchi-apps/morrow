@@ -93,3 +93,31 @@ export function scheduledDedupeKey(scheduleId: string, now: Date): string {
 export function composeScheduledBody(titles: readonly string[]): string {
   return titles.slice(0, SCHEDULED_PUSH_TOPIC_LIMIT).map((title) => `・${title}`).join("\n");
 }
+
+/**
+ * 次に迎える定時の時刻のラベル（ニュース画面ヘッダーのボタン用。#1037）。定時のお知らせの直前に仕入れが走るので、
+ * 「次にニュースを取得する時間」として出す。有効な行が無ければ null。
+ * 24時間以内は時刻だけ（`18:00`）、それより先は曜日つき（`水 06:30`）。日本時間は夏時間が無いので分の足し算で足りる。
+ */
+export function nextScheduledLabel(
+  rows: readonly { daysMask: number; hour: number; minute: number; enabled: boolean }[],
+  now: Date,
+): string | null {
+  const today = jstWeekday(now);
+  const nowMinute = jstMinuteOfDayAt(now);
+  let best: { delta: number; weekday: number; hour: number; minute: number } | null = null;
+  for (const row of rows) {
+    if (!row.enabled) continue;
+    for (let d = 0; d <= 7; d++) {
+      const weekday = (today + d) % 7;
+      if ((row.daysMask & (1 << weekday)) === 0) continue;
+      const delta = d * 1440 + row.hour * 60 + row.minute - nowMinute;
+      if (delta <= 0) continue;
+      if (!best || delta < best.delta) best = { delta, weekday, hour: row.hour, minute: row.minute };
+      break;
+    }
+  }
+  if (!best) return null;
+  const time = `${String(best.hour).padStart(2, "0")}:${String(best.minute).padStart(2, "0")}`;
+  return best.delta <= 1440 ? time : `${WEEKDAYS[best.weekday]} ${time}`;
+}

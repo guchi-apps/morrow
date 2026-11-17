@@ -54,6 +54,9 @@ export function summarizeSuggestion(suggestion: Suggestion): string {
     // 追跡は配送会社のページを開くだけで控えを残さない（#972）。ここへは来ない
     case "tracking":
       return "";
+    // 紐づけは `MailLink` が控えを持つので、`MailFlowRecord` へは残さない（#1029）
+    case "link":
+      return "";
   }
 }
 

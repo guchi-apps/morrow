@@ -4,8 +4,6 @@ import { useRouter } from "next/navigation";
 import { Archive, Inbox, Mail, MailOpen } from "lucide-react";
 import { useEffect, useRef } from "react";
 
-import type { MailAction } from "@/lib/mail/contract";
-
 import { MailBackLink } from "./mail-back-link";
 import { MailNotice } from "./mail-notice";
 import { useMailAction } from "./use-mail-action";
@@ -26,12 +24,13 @@ type Props = {
  */
 export function MailDetailActions({ id, unread, inInbox, inTrash, back }: Props) {
   const router = useRouter();
-  const leaves = new Set<MailAction>(["archive"]);
-  const { apply, pending, notice } = useMailAction({
-    after: (action) => {
-      if (leaves.has(action)) router.push(back);
-    },
-  });
+  const { apply, archiveRow, pending, notice } = useMailAction();
+
+  // アーカイブは完了を待たずに一覧へ戻し、裏で流す（#1023）。一覧では記憶（archived-memory）で隠す
+  function archiveAndLeave() {
+    void archiveRow(id, false, true);
+    router.push(back);
+  }
 
   // 開いたら自動で既読にする（#835）。開いたメールごとに1回だけ。あとで「未読に戻す」を押しても
   // 再び既読にしない（refの印はこの画面を開いている間だけ持つ）。失敗は赤字で知らせ、再試行はしない
@@ -66,7 +65,7 @@ export function MailDetailActions({ id, unread, inInbox, inTrash, back }: Props)
           <button
             type="button"
             disabled={pending}
-            onClick={() => apply("archive", [id])}
+            onClick={archiveAndLeave}
             className={`${button} ${primary}`}
             aria-label="アーカイブする"
             title="アーカイブする"

@@ -2,6 +2,7 @@ import { Clock, Newspaper } from "lucide-react";
 
 import { HeaderDialog } from "@/components/chat/header-dialog";
 import { jstTimeLabel } from "@/lib/day-key";
+import { nextScheduledLabel } from "@/lib/scheduled-push-rule";
 import type { TopicBoard } from "@/lib/topics";
 
 import { ScheduledPushSettingsCard, type ScheduleRow } from "@/components/settings/scheduled-push-settings";
@@ -17,7 +18,7 @@ type Props = {
   now: Date;
   /** 前回この画面を開いた時刻（#418）。nullは初回で、全件を既読として出す。 */
   seenAt: Date | null;
-  /** 通知する時間（定時のお知らせ。#344）。設定画面からニュース画面へ移した（#418）。 */
+  /** 取得する時間（定時のお知らせ。#344）。設定画面からニュース画面へ移した（#418）。 */
   schedules: ScheduleRow[];
   hasDevice: boolean;
 };
@@ -53,8 +54,8 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
 
         <HeaderDialog
           icon={<Clock className="size-4" aria-hidden="true" />}
-          label="通知する時間"
-          badge={schedules.length}
+          label="取得する時間"
+          trailing={nextScheduledLabel(schedules, now) ?? "未登録"}
           summary={
             schedules.length > 0
               ? hasDevice
@@ -69,7 +70,7 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
         {topics.length === 0 ? (
           <p className="rounded-xl border border-border bg-surface px-4 py-3 text-xs leading-relaxed text-muted">
             {enabledCategories.length === 0
-              ? "仕入れを止めています。ヘッダーの「通知する内容」で種類を1つ以上チェックしてから「最近の記事を取得する」を押してください。"
+              ? "仕入れを止めています。ヘッダーの「取得する内容」で種類を1つ以上チェックしてから「最近の記事を取得する」を押してください。"
               : "まだニュースがありません。「最近の記事を取得する」を押すと仕入れが始まり、30秒ほどで並びます。"}
           </p>
         ) : (
@@ -78,8 +79,7 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
 
         <HeaderDialog
           icon={<Newspaper className="size-4" aria-hidden="true" />}
-          label="通知する内容"
-          badge={enabledCategories.length}
+          label="取得する内容"
           summary={enabledCategories.length > 0 ? `ニュースを仕入れる種類・${enabledCategories.length}種類を仕入れ中` : "ニュースを仕入れる種類・仕入れを止めています"}
         >
           <p className="text-[0.6875rem] leading-relaxed text-muted">
@@ -90,7 +90,7 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
 
         <p className="text-[0.6875rem] leading-relaxed text-muted">
           <b className="font-medium text-foreground">
-            ニュースはお知らせとは別の場所に溜まり、通知（Push）はヘッダーの「通知する時間」に設定した時刻にだけ届きます。
+            ニュースはお知らせとは別の場所に溜まります。ヘッダーの「取得する時間」に登録した曜日・時刻には、ニュースの取得と見出しの通知（Push）が行われます（24時間より古いものは送らず、届けるニュースが無い日は通知しません）。
           </b>
           ダッシュボードに出るのは新しい{bubbleLimit}件だけで、{lifetimeHours}時間経つと入れ替わります。要点と一言はモデルが
           記事から書いたもので、細部は出典の記事で確かめてください。

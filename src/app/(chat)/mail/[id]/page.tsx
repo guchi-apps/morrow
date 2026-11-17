@@ -97,6 +97,8 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
                   registeredKinds={flowStates.registeredKinds}
                   // 家計簿の確認待ち・取り込み済みは、確定したか分からない。「登録済み」にしない（#821）
                   receiptState={flowStates.receiptState}
+                  // 紐づけ済みの対象（`kind:targetId`）。紐づけの提案の行を「紐づけ済み」にする（#1029）
+                  linkedKeys={mailLinks.map((l) => `${l.kind}:${l.targetId}`)}
                 />
 
                 {/* 紐づけた予定・タスク（#834）。メールから作った直後はrefreshで入れ替わるので、一覧の中身をkeyにする */}

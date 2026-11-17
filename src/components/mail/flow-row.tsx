@@ -6,6 +6,7 @@ import type { ReceiptState } from "@/lib/mail/flow-record-core";
 import type { Suggestion } from "@/lib/mail/suggest-core";
 import { registeredSummary } from "@/lib/mail/subscription-match-view";
 import type { SubscriptionMatch } from "@/lib/mail/subscription-match-core";
+import { linkTargetLabel } from "@/lib/mail/link-core";
 import { CARRIER_LABELS } from "@/lib/mail/tracking-link";
 import { cn } from "@/lib/utils";
 
@@ -32,7 +33,7 @@ export function FlowRowButton({ card, recommended, registered, receipt = null, m
         <span className="flex flex-wrap items-center gap-1.5 font-bold">
           {meta.title}
           {recommended && <span className="rounded-full bg-accent px-2 py-0.5 text-[0.625rem] font-bold text-accent-foreground">おすすめ</span>}
-          {registered && <span className="rounded-full bg-fair-surface px-2 py-0.5 text-[0.625rem] font-bold text-fair">登録済み</span>}
+          {registered && <span className="rounded-full bg-fair-surface px-2 py-0.5 text-[0.625rem] font-bold text-fair">{card.kind === "link" ? "紐づけ済み" : "登録済み"}</span>}
           {found && (
             <span className="rounded-full bg-fair-surface px-2 py-0.5 text-[0.625rem] font-bold text-fair">
               {found.length === 1 ? "Asset Managerに登録済み" : `Asset Managerに候補${found.length}件`}
@@ -74,6 +75,8 @@ function cardPreview(card: Suggestion): string {
           ? [card.fields.title, card.fields.due ? `期限 ${day(card.fields.due)}${card.fields.dueTime ? ` ${card.fields.dueTime}` : ""}` : null]
           : card.kind === "tracking"
             ? [card.fields.carrier ? CARRIER_LABELS[card.fields.carrier] : null, card.fields.number]
-            : [card.fields.title, day(card.fields.date), card.fields.startTime ? `${card.fields.startTime}〜${card.fields.endTime ?? ""}` : null];
+            : card.kind === "link"
+              ? [linkTargetLabel(card.fields)]
+              : [card.fields.title, day(card.fields.date), card.fields.startTime ? `${card.fields.startTime}〜${card.fields.endTime ?? ""}` : null];
   return parts.filter((part): part is string => Boolean(part)).join("・");
 }

@@ -202,3 +202,9 @@ export function linkKey(kind: LinkKind, targetId: string): string {
 export function mailBadgeLabel(count: number): string {
   return count <= 1 ? "✉" : `✉ ${count}通`;
 }
+
+/** 画面に出す紐づけ先の見出し（「✅ タスク・荷物受け取り・11/17」）。 */
+export function linkTargetLabel(target: { kind: "event" | "task"; title: string; dateText: string | null }): string {
+  const day = target.dateText ? `${Number(target.dateText.slice(5, 7))}/${Number(target.dateText.slice(8, 10))}` : null;
+  return [`${LINK_KIND_META[target.kind].icon} ${LINK_KIND_META[target.kind].label}`, target.title, day].filter(Boolean).join("・");
+}

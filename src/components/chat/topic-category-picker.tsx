@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, CircleAlert, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, CircleAlert, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -9,6 +9,7 @@ import {
   TOPIC_LABEL_MAX,
   TOPIC_SCOPE_MAX,
   TOPIC_SHORT_MAX,
+  moveCategory,
   type TopicCategory,
 } from "@/lib/topic-categories";
 import { cn } from "@/lib/utils";
@@ -72,6 +73,21 @@ export function TopicCategoryPicker({ initial }: Props) {
       const next = categories.map((item) => (item.id === category.id ? { ...item, enabled } : item));
       setCategories(next);
       return next.some((item) => item.enabled) ? "保存しました。次の仕入れから反映されます" : "仕入れを止めました";
+    });
+
+  const move = (index: number, delta: -1 | 1) =>
+    run(async () => {
+      const next = moveCategory(categories, index, delta);
+      const previous = categories;
+      setCategories(next);
+      try {
+        const data = await request("/api/settings/topics/order", "PUT", { keys: next.map((item) => item.id) });
+        if (Array.isArray(data.categories)) setCategories(data.categories as TopicCategory[]);
+      } catch (error) {
+        setCategories(previous);
+        throw error;
+      }
+      return "並び順を保存しました";
     });
 
   const remove = (category: TopicCategory) => {
@@ -147,7 +163,7 @@ export function TopicCategoryPicker({ initial }: Props) {
       )}
 
       <ul className="m-0 grid list-none grid-cols-1 gap-2.5 p-0 md:grid-cols-3">
-        {categories.map((category) => (
+        {categories.map((category, index) => (
           <li
             key={category.id}
             className={cn(
@@ -171,7 +187,25 @@ export function TopicCategoryPicker({ initial }: Props) {
               <b className="block break-words text-[0.8125rem] font-semibold">{category.label}</b>
               <span className="block break-words text-[0.6875rem] leading-relaxed text-muted">{category.scope}</span>
             </span>
-            <span className="flex shrink-0 gap-0.5">
+            <span className="flex shrink-0 items-center gap-0.5">
+              <span className="mr-1 flex flex-col gap-0.5">
+                {([-1, 1] as const).map((delta) => {
+                  const Icon = delta === -1 ? ChevronUp : ChevronDown;
+                  const edge = delta === -1 ? index === 0 : index === categories.length - 1;
+                  return (
+                    <button
+                      key={delta}
+                      type="button"
+                      aria-label={`${category.label}を${delta === -1 ? "上" : "下"}へ移動`}
+                      disabled={busy || edge}
+                      onClick={() => void move(index, delta)}
+                      className="grid h-[22px] w-7 place-items-center rounded-md border border-border text-muted hover:bg-rail-active hover:text-foreground focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-25"
+                    >
+                      <Icon className="size-3.5" aria-hidden="true" />
+                    </button>
+                  );
+                })}
+              </span>
               <button
                 type="button"
                 aria-label={`${category.label}を編集`}

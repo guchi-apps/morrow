@@ -7,6 +7,8 @@ import {
   TOPIC_SCOPE_MAX,
   TOPIC_SHORT_MAX,
   initialTopicCategories,
+  moveCategory,
+  validateCategoryOrder,
   newTopicCategoryId,
   topicCategoryShort,
   validateTopicCategoryInput,
@@ -55,4 +57,20 @@ test("チップの名前: 削除された種類は「その他」", () => {
   const categories = initialTopicCategories(null);
   assert.equal(topicCategoryShort(categories, "life"), "暮らし");
   assert.equal(topicCategoryShort(categories, "c_deleted"), "その他");
+});
+
+test("並べ替え: 1つ動かす・端は動かない", () => {
+  assert.deepEqual(moveCategory(["a", "b", "c"], 1, -1), ["b", "a", "c"]);
+  assert.deepEqual(moveCategory(["a", "b", "c"], 1, 1), ["a", "c", "b"]);
+  assert.deepEqual(moveCategory(["a", "b"], 0, -1), ["a", "b"]);
+  assert.deepEqual(moveCategory(["a", "b"], 1, 1), ["a", "b"]);
+});
+
+test("並びの検証: 存在しないキーは捨て、送られなかったキーは末尾へ", () => {
+  assert.deepEqual(validateCategoryOrder({ keys: ["b", "a"] }, ["a", "b"]), ["b", "a"]);
+  assert.deepEqual(validateCategoryOrder({ keys: ["b"] }, ["a", "b", "c"]), ["b", "a", "c"]);
+  assert.deepEqual(validateCategoryOrder({ keys: ["b", "b", "x", "a"] }, ["a", "b"]), ["b", "a"]);
+  assert.equal(validateCategoryOrder({ keys: [1, 2] }, ["a", "b"]), null);
+  assert.equal(validateCategoryOrder({}, ["a"]), null);
+  assert.equal(validateCategoryOrder(null, ["a"]), null);
 });

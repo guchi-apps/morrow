@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { jstDayKey, jstTimeLabel } from "@/lib/day-key";
 import { buildTimeline, unreadCount } from "@/lib/topic-timeline";
@@ -65,6 +65,27 @@ export function TopicTabs({ categories, allTopics, byCategory, mergedCount, seen
   );
   const active = tabs[activeIndex] ?? tabs[0];
 
+  const tabListRef = useRef<HTMLDivElement>(null);
+  const firstRender = useRef(true);
+
+  // 選択が変わったら、選択中のチップがタブ列の表示領域に収まるよう横だけ動かす（#1036）。
+  // `scrollIntoView` は縦のページ位置まで動かしうるので使わず、タブ列の `scrollLeft` だけを触る。
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    const list = tabListRef.current;
+    const chip = list?.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(active.id)}"]`);
+    if (!list || !chip) return;
+    // offsetLeft は位置指定の祖先が基準になるので、タブ列からの相対位置は矩形の差で求める。
+    const chipLeft = chip.getBoundingClientRect().left - list.getBoundingClientRect().left + list.scrollLeft;
+    const target = chipLeft - (list.clientWidth - chip.offsetWidth) / 2;
+    const left = Math.max(0, Math.min(target, list.scrollWidth - list.clientWidth));
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    list.scrollTo({ left, behavior: reduce ? "auto" : "smooth" });
+  }, [active.id]);
+
   const touch = useRef<{ x: number; y: number; deciding: boolean; horizontal: boolean } | null>(null);
 
   const onTouchStart = (event: React.TouchEvent) => {
@@ -100,6 +121,7 @@ export function TopicTabs({ categories, allTopics, byCategory, mergedCount, seen
   return (
     <div className="flex flex-col gap-2.5">
       <div
+        ref={tabListRef}
         role="tablist"
         aria-label="ニュースのテーマ"
         className="flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
@@ -109,6 +131,7 @@ export function TopicTabs({ categories, allTopics, byCategory, mergedCount, seen
             key={tab.id}
             type="button"
             role="tab"
+            data-tab-id={tab.id}
             aria-selected={tab.id === active.id}
             onClick={() => setActiveId(tab.id)}
             className={cn(

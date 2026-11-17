@@ -26,11 +26,6 @@ export function MailCriteriaDialog({ learnedCount, custom, children }: { learned
   const button = (
     <button type="button" onClick={() => setOpen(true)} aria-label="お知らせする基準" title={`お知らせする基準（${summary}）`} aria-haspopup="dialog" className={`${HEADER_ICON_BUTTON} order-2`}>
       <SlidersHorizontal className="size-4" aria-hidden="true" />
-      {learnedCount > 0 && (
-        <span aria-hidden="true" className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-accent px-1 text-[0.625rem] font-bold leading-4 text-accent-foreground">
-          {learnedCount}
-        </span>
-      )}
     </button>
   );
 
@@ -42,7 +37,7 @@ export function MailCriteriaDialog({ learnedCount, custom, children }: { learned
         aria-label="お知らせする基準"
         onClose={() => setOpen(false)}
         onClick={(e) => e.target === e.currentTarget && ref.current?.close()}
-        className="fixed inset-x-0 bottom-0 top-auto m-0 mx-auto max-h-[85dvh] w-full max-w-[560px] overflow-y-auto rounded-t-[18px] border border-border bg-surface p-0 text-foreground backdrop:bg-black/55 md:inset-y-0 md:my-auto md:h-fit md:rounded-[18px]"
+        className="fixed inset-x-0 bottom-[var(--keyboard-inset)] top-auto m-0 mx-auto max-h-[min(85dvh,calc(var(--app-height)-1rem))] w-full max-w-[560px] overflow-y-auto rounded-t-[18px] border border-border bg-surface p-0 text-foreground backdrop:bg-black/55 md:inset-y-0 md:my-auto md:h-fit md:rounded-[18px]"
       >
         <div className="flex flex-col gap-3.5 px-4 pb-[calc(1.25rem+var(--app-bottom-inset))] pt-3">
           <div className="flex items-center justify-between gap-2">
