@@ -53,7 +53,7 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
 
         <HeaderDialog
           icon={<Clock className="size-4" aria-hidden="true" />}
-          label="通知する時間"
+          label="取得する時間"
           badge={schedules.length}
           summary={
             schedules.length > 0
@@ -69,7 +69,7 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
         {topics.length === 0 ? (
           <p className="rounded-xl border border-border bg-surface px-4 py-3 text-xs leading-relaxed text-muted">
             {enabledCategories.length === 0
-              ? "仕入れを止めています。ヘッダーの「通知する内容」で種類を1つ以上チェックしてから「最近の記事を取得する」を押してください。"
+              ? "仕入れを止めています。ヘッダーの「取得する内容」で種類を1つ以上チェックしてから「最近の記事を取得する」を押してください。"
               : "まだニュースがありません。「最近の記事を取得する」を押すと仕入れが始まり、30秒ほどで並びます。"}
           </p>
         ) : (
@@ -78,7 +78,7 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
 
         <HeaderDialog
           icon={<Newspaper className="size-4" aria-hidden="true" />}
-          label="通知する内容"
+          label="取得する内容"
           badge={enabledCategories.length}
           summary={enabledCategories.length > 0 ? `ニュースを仕入れる種類・${enabledCategories.length}種類を仕入れ中` : "ニュースを仕入れる種類・仕入れを止めています"}
         >
@@ -90,7 +90,7 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
 
         <p className="text-[0.6875rem] leading-relaxed text-muted">
           <b className="font-medium text-foreground">
-            ニュースはお知らせとは別の場所に溜まり、通知（Push）はヘッダーの「通知する時間」に設定した時刻にだけ届きます。
+            ニュースはお知らせとは別の場所に溜まり、通知（Push）はヘッダーの「取得する時間」に設定した時刻にだけ届きます。
           </b>
           ダッシュボードに出るのは新しい{bubbleLimit}件だけで、{lifetimeHours}時間経つと入れ替わります。要点と一言はモデルが
           記事から書いたもので、細部は出典の記事で確かめてください。
