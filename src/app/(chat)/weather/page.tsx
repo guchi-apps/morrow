@@ -84,11 +84,12 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
     ).then((entries) => new Map<string, Forecast | null>(entries)),
   ]);
 
-  // 現在地が自宅・登録地点と同じ場所なら、別行にせずその行へまとめる（#1067）。
-  // 現在地はGPSの座標、自宅はAIDEの座標で約1kmずれうるので、座標が違っても市町村名が同じなら同じ場所とみなす。
-  const sameAsHere = (place: WeatherPlaceInput) =>
-    selected !== null && isHere && (sameSpot(selected, place) || (hereName !== null && place.name === hereName));
-  const hereMergedWith = selected && isHere ? (home && sameAsHere(home) ? "home" : (stored.find(sameAsHere)?.id ?? null)) : null;
+  // 現在地が自宅・登録地点と同じ場所なら、別行にせずその行へまとめる（#1067）。GPSとAIDEの座標は約1kmずれうるので、
+  // 丸め座標の一致に加え、同名（現在地の市町村名が引けた場合のみ）で近接する地点も同じ場所とみなす（findRegisteredPlace）。
+  const hereMergedWith =
+    selected && isHere
+      ? (findRegisteredPlace(selected, [...(home ? [{ ...home, id: "home" }] : []), ...stored])?.id ?? null)
+      : null;
   const entries: { place: WeatherPlaceInput; home: boolean; id: string; here: boolean }[] = [
     ...(selected && isHere && hereMergedWith === null ? [{ place: selected, home: false, id: "here", here: true }] : []),
     ...(home ? [{ place: home, home: true, id: "home", here: hereMergedWith === "home" }] : []),
@@ -104,7 +105,7 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
   let detail: { cells: PlaceDay["cells"]; byDate: Map<string, PlaceDay> } | null = null;
   const selectedForecast = selected ? (forecasts.get(keyOf(selected)) ?? null) : null;
   if (selected && selectedForecast) {
-    const byDate = new Map(days.map((day) => [day, placeDayFrom(selectedForecast, selected, day, isHome ? "home" : "away")] as const));
+    const byDate = new Map(days.map((day) => [day, placeDayFrom(selectedForecast, selected, day, isHome || hereMergedWith === "home" ? "home" : "away")] as const));
     detail = { cells: [...byDate.values()].flatMap((d) => d.cells), byDate };
   }
   const nowIndex = DAY_RANGE * 24 + Number(jstTimeLabel(now).slice(0, 2));
