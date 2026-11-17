@@ -10,7 +10,7 @@ import type { FlowOutcome } from "@/lib/mail/suggest-core";
 
 export type FlowRecordStatus = "done" | "pending" | "duplicate" | "opened";
 
-export { registeredKeyOf, summarizeSuggestion } from "@/lib/mail/flow-summary";
+export { FLOW_KIND_META, registeredKeyOf, summarizeSuggestion } from "@/lib/mail/flow-summary";
 
 export function contentKeyOf(summary: string): string {
   return createHash("sha1").update(summary).digest("hex");
@@ -21,14 +21,6 @@ export function recordStatusOf(outcome: FlowOutcome): FlowRecordStatus | null {
   return outcome.status === "failed" ? null : outcome.status;
 }
 
-export const FLOW_KIND_META = {
-  payment: { icon: "🧾", label: "家計簿" },
-  subscription: { icon: "🔁", label: "サブスク" },
-  task: { icon: "📌", label: "タスク" },
-  event: { icon: "📅", label: "予定" },
-  /** 一覧を開いただけ。登録済みに見せない（Morrowは登録できず、押したかどうかしか分からない） */
-  subscription_opened: { icon: "🔁", label: "サブスク一覧を開いた" },
-} as const;
 
 export const FLOW_STATUS_LABELS: Record<FlowRecordStatus, string> = {
   done: "登録済み",

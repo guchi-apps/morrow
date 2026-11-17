@@ -60,3 +60,13 @@ export function summarizeSuggestion(suggestion: Suggestion): string {
 export function registeredKeyOf(kind: string, summary: string): string {
   return `${kind}\n${summary}`;
 }
+
+/** 控えの種類の見た目。クライアント（一覧の行など）から値で使うので、`node:crypto` を引く `flow-record-core.ts` から移した（#1051の計画レビュー）。 */
+export const FLOW_KIND_META = {
+  payment: { icon: "🧾", label: "家計簿" },
+  subscription: { icon: "🔁", label: "サブスク" },
+  task: { icon: "📌", label: "タスク" },
+  event: { icon: "📅", label: "予定" },
+  /** 一覧を開いただけ。登録済みに見せない（Morrowは登録できず、押したかどうかしか分からない） */
+  subscription_opened: { icon: "🔁", label: "サブスク一覧を開いた" },
+} as const;

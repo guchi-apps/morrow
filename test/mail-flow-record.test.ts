@@ -83,3 +83,15 @@ test("登録済みの内容の鍵は種類と要約から作る（#1051）", () 
   ]);
   assert.deepEqual(states.registeredKeys, ["task\n受け取る / 期限 11/18"]);
 });
+
+test("シートで値を直して登録した行は、元の提案の内容とは一致しない（#1051の計画レビュー。印は付かず未登録に倒れる）", async () => {
+  const { isRegisteredByRecord } = await import("@/lib/mail/flow-group");
+  const original = normalizeSuggestion("task", { title: "受け取る（1点目）", planned: "2026-11-18" });
+  const other = normalizeSuggestion("task", { title: "受け取る（2点目）", planned: "2026-11-19" });
+  const edited = normalizeSuggestion("task", { title: "受け取る（1点目・直した）", planned: "2026-11-18" });
+  assert.ok(original && other && edited);
+  const { registeredKinds, registeredKeys } = flowRowStates([{ kind: "task", status: "done", summary: summarizeSuggestion(edited) }]);
+  assert.equal(isRegisteredByRecord(original, [original, other], registeredKinds, registeredKeys), false);
+  // 同じ種類が1行だけなら従来どおり種類で見るので、直して登録しても印が付く
+  assert.equal(isRegisteredByRecord(original, [original], registeredKinds, registeredKeys), true);
+});
