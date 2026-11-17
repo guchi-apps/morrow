@@ -1,7 +1,7 @@
 "use client";
 
 import { Search, Sparkles, X } from "lucide-react";
-import { useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 
 import type { MailLabel } from "@/lib/mail/contract";
 import type { MailListRow } from "@/lib/mail/list-rows";
@@ -199,6 +199,8 @@ type State = {
   error: string | null;
   partial: boolean;
   done: boolean;
+  /** 利用者が×で中断した（#1062）。見つかった候補は残し、並べ替えはしない。 */
+  cancelled: boolean;
 };
 
 const initialState: State = {
@@ -212,9 +214,10 @@ const initialState: State = {
   error: null,
   partial: false,
   done: false,
+  cancelled: false,
 };
 
-type Action = SearchEvent<MailListRow> | { type: "connection_lost" };
+type Action = SearchEvent<MailListRow> | { type: "connection_lost" } | { type: "cancel" };
 
 function addRows(rows: MailListRow[], more: MailListRow[]): MailListRow[] {
   const seen = new Set(rows.map((row) => row.id));
@@ -252,6 +255,8 @@ function reduce(state: State, action: Action): State {
       return { ...state, error: action.message };
     case "done":
       return { ...state, ranking: false, done: true };
+    case "cancel":
+      return state.done ? state : { ...state, ranking: false, done: true, cancelled: true };
     case "connection_lost":
       return state.done ? state : { ...state, ranking: false, done: true, error: state.error ?? "通信が途切れました。もう一度検索してください。" };
   }
@@ -279,9 +284,11 @@ function MailSearchResults({
   nowMs: number;
 }) {
   const [state, dispatch] = useReducer(reduce, initialState);
+  const controllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
+    controllerRef.current = controller;
     const params = new URLSearchParams({ q });
     if (view !== "inbox") params.set("view", view);
     if (account) params.set("acct", account);
@@ -357,7 +364,14 @@ function MailSearchResults({
 
   return (
     <div className="flex flex-col gap-2.5">
-      <SearchProgress state={state} total={state.rows.length} />
+      <SearchProgress
+        state={state}
+        total={state.rows.length}
+        onCancel={() => {
+          dispatch({ type: "cancel" });
+          controllerRef.current?.abort();
+        }}
+      />
       {state.error && (
         <p role="alert" className="rounded-[10px] border border-danger/30 bg-danger-surface px-3.5 py-2.5 text-xs leading-relaxed text-danger">
           {state.error}
@@ -369,7 +383,7 @@ function MailSearchResults({
         </p>
       )}
       {shown.length > 0 && <MailRows {...rowsProps} messages={shown} />}
-      {state.done && !state.error && state.rows.length === 0 && (
+      {state.done && !state.cancelled && !state.error && state.rows.length === 0 && (
         <p className="rounded-xl border border-border bg-surface px-4 py-3 text-xs text-muted">
           {state.notice ? "キーワードに一致するメールはありませんでした。" : "近いメールは見つかりませんでした。"}
         </p>
@@ -392,7 +406,7 @@ function MailSearchResults({
   );
 }
 
-function SearchProgress({ state, total }: { state: State; total: number }) {
+function SearchProgress({ state, total, onCancel }: { state: State; total: number; onCancel: () => void }) {
   if (state.error && total === 0) return null;
   const running = !state.done;
   const doneQueries = state.queries?.filter((item) => item.status !== "run").length ?? 0;
@@ -402,7 +416,9 @@ function SearchProgress({ state, total }: { state: State; total: number }) {
   const passed = (state.keywordDone ? 1 : 0) + (state.queries ? 1 : 0) + doneQueries + (state.ranks || state.done ? 1 : 0);
   const percent = state.done ? 100 : Math.max(8, Math.round((passed / steps) * 100));
 
-  const title = state.done
+  const title = state.cancelled
+    ? "検索を中断しました"
+    : state.done
     ? state.ranks
       ? "AIが近い順に並べました"
       : state.notice
@@ -421,9 +437,19 @@ function SearchProgress({ state, total }: { state: State; total: number }) {
     <div
       role="status"
       aria-live="polite"
-      className={cn("rounded-[10px] border border-border px-3 py-2.5 text-xs leading-relaxed", running ? "bg-topic-surface" : "bg-surface")}
+      className={cn("relative rounded-[10px] border border-border px-3 py-2.5 text-xs leading-relaxed", running ? "bg-topic-surface" : "bg-surface")}
     >
-      <p className={cn("flex items-center gap-2 font-bold", running ? "text-topic" : "text-foreground")}>
+      {running && (
+        <button
+          type="button"
+          aria-label="検索を中断する"
+          onClick={onCancel}
+          className="absolute right-1.5 top-1.5 grid size-7 place-items-center rounded-md text-topic hover:bg-rail-active"
+        >
+          <X className="size-4" aria-hidden="true" />
+        </button>
+      )}
+      <p className={cn("flex items-center gap-2 font-bold", running ? "pr-8 text-topic" : "text-foreground")}>
         {running ? (
           <span aria-hidden className="size-3 shrink-0 animate-spin rounded-full border-2 border-topic border-r-transparent" />
         ) : (
@@ -432,7 +458,8 @@ function SearchProgress({ state, total }: { state: State; total: number }) {
         {title}
         {state.done && total > 0 && (
           <span className="font-normal text-muted">
-            ・候補 {total}通{allQueries > 0 ? `・${allQueries + 1}つの語で検索` : ""}
+            ・候補 {total}通
+            {state.cancelled ? "（近い順には並べていません）" : allQueries > 0 ? `・${allQueries + 1}つの語で検索` : ""}
           </span>
         )}
       </p>
