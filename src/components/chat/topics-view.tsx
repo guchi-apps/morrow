@@ -90,7 +90,7 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
 
         <p className="text-[0.6875rem] leading-relaxed text-muted">
           <b className="font-medium text-foreground">
-            ニュースはお知らせとは別の場所に溜まり、通知（Push）はヘッダーの「取得する時間」に設定した時刻にだけ届きます。
+            ニュースはお知らせとは別の場所に溜まります。ヘッダーの「取得する時間」に登録した曜日・時刻には、ニュースの取得と見出しの通知（Push）が行われます（24時間より古いものは送らず、届けるニュースが無い日は通知しません）。
           </b>
           ダッシュボードに出るのは新しい{bubbleLimit}件だけで、{lifetimeHours}時間経つと入れ替わります。要点と一言はモデルが
           記事から書いたもので、細部は出典の記事で確かめてください。
