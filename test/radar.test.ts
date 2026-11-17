@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
-  baseTileUrl,
   buildFrames,
   carryFrameIndex,
   clampZoom,
@@ -115,8 +114,7 @@ describe("tilesFor", () => {
 });
 
 describe("URL", () => {
-  it("地図と雨雲のタイルを組み立てる", () => {
-    assert.equal(baseTileUrl(10, { x: 898, y: 405 }), "https://cyberjapandata.gsi.go.jp/xyz/blank/10/898/405.png");
+  it("雨雲のタイルを組み立てる", () => {
     assert.equal(
       rainTileUrl(time("1240", "1230"), 10, { x: 898, y: 405 }),
       "https://www.jma.go.jp/bosai/jmatile/data/nowc/20261102123000/none/20261102124000/surf/hrpns/10/898/405.png",

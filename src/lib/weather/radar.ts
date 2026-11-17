@@ -168,10 +168,6 @@ export function tilesFor(latitude: number, longitude: number, zoom: number, widt
   return tiles;
 }
 
-export function baseTileUrl(zoom: number, tile: Pick<RadarTile, "x" | "y">): string {
-  return `https://cyberjapandata.gsi.go.jp/xyz/blank/${zoom}/${tile.x}/${tile.y}.png`;
-}
-
 export function rainTileUrl(frame: RadarTime, zoom: number, tile: Pick<RadarTile, "x" | "y">): string {
   if (frame.member) return `${JMA_RASRF}/${frame.basetime}/${frame.member}/${frame.validtime}/surf/rasrf/${zoom}/${tile.x}/${tile.y}.png`;
   return `${JMA_NOWC}/${frame.basetime}/none/${frame.validtime}/surf/hrpns/${zoom}/${tile.x}/${tile.y}.png`;

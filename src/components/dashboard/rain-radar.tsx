@@ -15,7 +15,6 @@ import {
   type RadarFrame,
   type RadarTime,
   type RadarTile,
-  baseTileUrl,
   buildFrames,
   carryFrameIndex,
   clampZoom,
@@ -30,16 +29,25 @@ import {
   tilesFor,
   viewWidthKm,
 } from "@/lib/weather/radar";
+import {
+  type Boundaries,
+  DARK_PALETTE,
+  LIGHT_PALETTE,
+  basemapView,
+  drawBasemap,
+  parseBoundaries,
+} from "@/lib/weather/radar-basemap";
 
 /**
  * 現在地の雨雲レーダー（#654）。「現在地」を開いたときだけ描かれ、そのときに初めて読み込む。
  *
- * - **タイルはブラウザから気象庁・国土地理院へ直接取りに行く。** 相手に見えるのはIPとタイル番号（約30km単位）で、正確な座標は
- *   渡さず、リファラも送らない。サーバー経由にしないのは、middlewareがタイル1枚ごとにSupabaseへ往復するため（認証を外せば公開プロキシになる）
+ * - **雨雲タイルはブラウザから気象庁へ直接取りに行く。** 相手に見えるのはIPとタイル番号（約30km単位）で、正確な座標は
+ *   渡さず、リファラも送らない。**背景地図（#1068）は同梱の境界データ（`public/radar/japan-boundaries.json`）をCanvasで描く**（外へは取りに行かない）。サーバー経由にしないのは、middlewareがタイル1枚ごとにSupabaseへ往復するため（認証を外せば公開プロキシになる）
  * - **取れなかったタイルを「雨なし」に見せない**（#214）。雨雲タイルが失敗したコマは、地図の下に赤で知らせる
  * - 雨雲のコマは開いた時点では「今」だけを読み、動かしたときに読む。再生は表示中のコマが出揃ってから次へ進むので、遅い回線でも飛ばない
  */
 
+const BOUNDARIES_URL = "/radar/japan-boundaries.json";
 const FRAME_MS = 500;
 /** 枠の外へ余分に読むタイルの幅（動かした直後に地図が欠けないように）。 */
 const TILE_MARGIN_PX = 128;
@@ -127,7 +135,12 @@ export function RainRadar({
   const [settled, setSettled] = useState<ReadonlySet<string>>(new Set());
   const [failed, setFailed] = useState<ReadonlySet<string>>(new Set());
   const [shownTime, setShownTime] = useState<string | null>(null);
+  const [boundaries, setBoundaries] = useState<Boundaries | null>(null);
+  const [baseFailed, setBaseFailed] = useState(false);
+  const [dark, setDark] = useState(false);
+  const [dpr, setDpr] = useState(1);
   const mapRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
   const viewRef = useRef({ latitude, longitude, zoom: RADAR_ZOOM_DEFAULT });
@@ -180,6 +193,46 @@ export function RainRadar({
     };
   }, [retry]);
 
+  // 背景地図の境界データ（同梱。約1.3MB・gzipで約450KB）。開いたときに1回だけ読む
+  useEffect(() => {
+    let cancelled = false;
+    fetch(BOUNDARIES_URL, { signal: AbortSignal.timeout(TIMES_TIMEOUT_MS * 3) })
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      })
+      .then((json) => {
+        if (cancelled) return;
+        const parsed = parseBoundaries(json);
+        if (parsed) setBoundaries(parsed);
+        else setBaseFailed(true);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error("[aide-bot] 背景地図のデータを取得できなかった", error);
+        setBaseFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ダークモードと画面の細かさ（Retinaでもくっきり描くため）。描画中に読むとサーバーとずれるのでeffectで取る
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-color-scheme: dark)");
+    const update = () => {
+      setDark(query.matches);
+      setDpr(window.devicePixelRatio || 1);
+    };
+    update();
+    query.addEventListener("change", update);
+    window.addEventListener("resize", update);
+    return () => {
+      query.removeEventListener("change", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
   // 枠の大きさに掛かるタイルだけを読む。
   useLayoutEffect(() => {
     const node = mapRef.current;
@@ -201,6 +254,19 @@ export function RainRadar({
     () => tilesFor(centerLat, centerLon, tileZoom, innerWidth, innerHeight),
     [centerLat, centerLon, tileZoom, innerWidth, innerHeight],
   );
+  // 背景地図の描画。ズームは連続値のまま描く（CSSの拡大でぼかさない）
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !boundaries || size.width === 0 || size.height === 0) return;
+    const ratio = Math.min(dpr, 3);
+    canvas.width = Math.round(size.width * ratio);
+    canvas.height = Math.round(size.height * ratio);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    drawBasemap(ctx, boundaries, basemapView(centerLat, centerLon, zoom, size.width, size.height), dark ? DARK_PALETTE : LIGHT_PALETTE);
+  }, [boundaries, centerLat, centerLon, zoom, size.width, size.height, dpr, dark, frames === null]); // eslint-disable-line react-hooks/exhaustive-deps -- 地図の枠は一覧が届いてから現れる
+
   useEffect(() => {
     viewRef.current = { latitude: centerLat, longitude: centerLon, zoom };
   }, [centerLat, centerLon, zoom]);
@@ -378,6 +444,7 @@ export function RainRadar({
         onKeyDown={onKeyDown}
         className="relative aspect-[4/3] w-full max-w-[512px] cursor-grab touch-none self-center overflow-hidden rounded-[10px] border border-border bg-border active:cursor-grabbing focus-visible:outline-2 focus-visible:outline-accent"
       >
+        <canvas ref={canvasRef} aria-hidden className="absolute inset-0 size-full" />
         <div
           className="absolute top-1/2 left-1/2"
           style={{
@@ -386,11 +453,6 @@ export function RainRadar({
             transform: `translate(-50%, -50%) scale(${scale})`,
           }}
         >
-          <div className="absolute inset-0 dark:[filter:invert(1)_hue-rotate(180deg)_brightness(0.82)_contrast(0.9)]">
-            {tiles.map((tile) => (
-              <TileImage key={`${tileZoom}/${tile.x}/${tile.y}`} src={baseTileUrl(tileZoom, tile)} tile={tile} onDone={() => {}} />
-            ))}
-          </div>
           {layers.map((frame) => (
             <div
               key={frame.validtime}
@@ -461,6 +523,12 @@ export function RainRadar({
         </div>
       </div>
 
+      {baseFailed && (
+        <p role="status" className="text-[0.75rem] text-danger">
+          背景の地図を読み込めませんでした。雨雲だけを表示しています。
+        </p>
+      )}
+
       {/* スライダーの横の動きで日がめくれないように、日めくりの対象から外す（day-swipe.tsx） */}
       <div className="flex items-center gap-2.5" data-no-day-swipe>
         <button
@@ -520,7 +588,7 @@ export function RainRadar({
           </span>
         ))}
       </div>
-      <p className="text-[0.6875rem] text-muted">雨雲: 気象庁 高解像度降水ナウキャスト・降水短時間予報（1時間より先）／地図: 地理院タイル</p>
+      <p className="text-[0.6875rem] text-muted">雨雲: 気象庁 高解像度降水ナウキャスト・降水短時間予報（1時間より先）／地図: 国土交通省 国土数値情報（行政区域）を加工して作成</p>
     </Section>
   );
 }
