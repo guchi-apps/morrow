@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import type { CalendarChoice } from "@/lib/mail/link-core";
-import { FLOW_APP_LINKS, taskOpenUrl, taskOpensInApp } from "@/lib/mail/app-links";
+import { linkTargetLabel, type CalendarChoice } from "@/lib/mail/link-core";
+import { FLOW_APP_LINKS, linkAppUrl, taskOpenUrl, taskOpensInApp } from "@/lib/mail/app-links";
 import { RECEIVED_DATE_NOTE, itemsTotal, paymentBlocker } from "@/lib/mail/payment-receipt";
 import type { PaymentFields, Suggestion, SuggestKind } from "@/lib/mail/suggest-core";
 import { ASSET_MANAGER_SUBSCRIPTIONS_URL, subscriptionLink } from "@/lib/mail/subscription-link";
@@ -27,6 +27,7 @@ export const KIND_META: Record<SuggestKind, { icon: string; title: string; run: 
   task: { icon: "📌", title: "タスクにする", run: "タスクを作る" },
   event: { icon: "📅", title: "予定にする", run: "予定を登録する" },
   tracking: { icon: "📦", title: "発送状況を追跡する", run: "追跡ページを開く ↗" },
+  link: { icon: "🔗", title: "既存の予定・タスクに紐づける", run: "紐づける" },
 };
 
 /** `href` は家計簿だけ: 作った（取り込み済みの）レシートの編集画面。自動で開けなかったときのリンクにする（#781）。 */
@@ -191,6 +192,8 @@ export function FlowSheet({ card, recommended, outcome, match, calendars, runnin
               ? "Asset Managerに同じ項目が見つかったので、そちらの登録内容を表示しています（読み取った値より優先）。"
               : card.kind === "payment"
               ? "AIが本文から読み取った値です。Asset Managerの画面で直してから確定してください。"
+              : card.kind === "link"
+              ? "AIが、すでにある予定・タスクとこのメールの関連を見つけました。外れることがあるので、確かめてから紐づけてください。"
               : `AIが本文から読み取った値です。外れることがあるので、確かめてから${card.kind === "subscription" || card.kind === "tracking" ? "開いてください" : "登録してください"}。`}
             {card.reason && <>　理由: {card.reason}</>}
           </p>
@@ -199,9 +202,19 @@ export function FlowSheet({ card, recommended, outcome, match, calendars, runnin
 
           {found && card.kind === "payment" && <p className="-mb-1.5 text-xs font-bold text-muted">メールから読み取った値</p>}
           {card.kind === "payment" && <PaymentSummary fields={card.fields} />}
+          {card.kind === "link" && (
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 rounded-[10px] border border-border px-3 py-2.5 text-[0.8125rem]">
+              <dt className="text-xs text-muted">種類</dt>
+              <dd>{card.fields.kind === "task" ? "✅ タスク" : "📅 予定"}</dd>
+              <dt className="text-xs text-muted">題名</dt>
+              <dd className="min-w-0 break-words font-semibold">{card.fields.title}</dd>
+              <dt className="text-xs text-muted">{card.fields.kind === "task" ? "期限・予定日" : "日付"}</dt>
+              <dd>{card.fields.dateText ? card.fields.dateText.replaceAll("-", "/") : "なし"}</dd>
+            </dl>
+          )}
           {card.kind === "subscription" && match?.status === "error" && <p className="text-[0.6875rem] text-muted">Asset Managerとの照合はできませんでした（登録済みかは未確認）。</p>}
 
-          <div className={cn("grid grid-cols-2 gap-2.5", (card.kind === "payment" || found) && "hidden")}>
+          <div className={cn("grid grid-cols-2 gap-2.5", (card.kind === "payment" || card.kind === "link" || found) && "hidden")}>
             {card.kind === "subscription" && (
               <>
                 <Field label="名称" className="col-span-2">
@@ -302,6 +315,18 @@ export function FlowSheet({ card, recommended, outcome, match, calendars, runnin
             <PaymentActions card={card} outcome={outcome} running={running} onRun={onRun} fallback={app} />
           ) : card.kind === "tracking" ? (
             <TrackingActions card={card} />
+          ) : card.kind === "link" ? (
+            <>
+              <button type="button" disabled={running || outcome?.done === true} onClick={() => onRun(card)} className={primary}>
+                {running ? "紐づけています…" : outcome?.done ? "紐づけ済み" : `この${card.fields.kind === "task" ? "タスク" : "予定"}に紐づける`}
+              </button>
+              {outcome?.done && (
+                <a href={linkAppUrl(card.fields.kind, card.fields.dateText)} target="_blank" rel="noopener noreferrer" className="text-center text-xs text-accent hover:underline">
+                  {linkTargetLabel(card.fields)}を開く ↗
+                </a>
+              )}
+              <p className="text-center text-[0.6875rem] text-muted">紐づけはMorrowの控えです。予定・タスクそのものは変わりません。あとから「このメールに紐づけた予定・タスク」で解除できます。</p>
+            </>
           ) : card.kind === "subscription" && found ? (
             <>
               <details className="text-xs text-muted">

@@ -4,8 +4,8 @@ import { applyMailAction, getMail, listMail, type MailUser } from "@/lib/mail/ai
 import type { MailFailureKind } from "@/lib/mail/contract";
 import { recordStatusOf } from "@/lib/mail/flow-record-core";
 import { saveFlowRecord } from "@/lib/mail/flow-record";
-import { addMailLink, taskCandidates } from "@/lib/mail/link";
-import { createdIdFrom, findCreatedEvent, findCreatedTask, type LinkTarget } from "@/lib/mail/link-core";
+import { addMailLink, eventCandidates, linksForMessage, taskCandidates } from "@/lib/mail/link";
+import { createdIdFrom, findCreatedEvent, findCreatedTask, linkKey, type LinkTarget } from "@/lib/mail/link-core";
 import type { ConnectedServer } from "@/lib/mcp/connections";
 import {
   findExistingEvent,
@@ -38,6 +38,9 @@ export async function applyFlow(user: MailUser, messageId: string, suggestion: S
   const mail = await getMail(user, messageId);
   if (!mail.ok) return { ok: false, kind: mail.kind, message: mail.message ?? "メールを読めませんでした。" };
   const { message } = mail.value;
+
+  // 既存の予定・タスクへの紐づけ（#1029）。台帳は変えず、Morrowの控え（`MailLink`）に保存するだけ
+  if (suggestion.kind === "link") return applyLink(user.id, messageId, suggestion.fields);
 
   const call = toolCallFor(suggestion, { messageId, subject: message.subject, from: message.from, receivedAt: message.receivedAt }, user.id);
   if (!call.ok) return { ok: false, kind: "invalid", message: call.reason };
@@ -100,6 +103,26 @@ export async function applyFlow(user: MailUser, messageId: string, suggestion: S
   }
 
   return { ok: true, outcome, labeled: await markDone(user, messageId, message.labelIds) };
+}
+
+/**
+ * 紐づけの提案を実行する（#1029）。提案の値は信じず、紐づけ先が**いまも候補にあるか**を引き直して確かめ、題名・日付も候補の値を使う
+ * （完了・削除された予定・タスクや、画面から書き換えられたidへは紐づけない）。同じ紐づけがすでにあれば `duplicate`。
+ */
+async function applyLink(userId: string, messageId: string, target: LinkTarget): Promise<ApplyOutcome> {
+  const existing = await linksForMessage(userId, messageId);
+  if (existing.some((l) => linkKey(l.kind, l.targetId) === linkKey(target.kind, target.targetId))) {
+    return { ok: true, outcome: { status: "duplicate", message: "すでに紐づけ済みです。" }, labeled: false };
+  }
+  const candidates = target.kind === "task" ? await taskCandidates(userId) : await eventCandidates(userId);
+  if (!candidates.ok) return { ok: false, kind: candidates.kind === "unconfigured" ? "unconfigured" : "failed", message: candidates.message };
+  const hit = candidates.items.find((c) => c.targetId === target.targetId && (c.kind === "task" || c.calendarId === target.calendarId));
+  if (!hit) {
+    return { ok: false, kind: "failed", message: `${target.kind === "task" ? "タスク" : "予定"}が見つかりませんでした（完了・削除された可能性があります）。分析し直してください。` };
+  }
+  const saved = await addMailLink(userId, messageId, { kind: hit.kind, targetId: hit.targetId, calendarId: hit.calendarId, title: hit.title, dateText: hit.dateText }, "manual");
+  if (!saved) return { ok: false, kind: "failed", message: "紐づけを保存できませんでした。時間をおいて試してください。" };
+  return { ok: true, outcome: { status: "done", message: `${target.kind === "task" ? "タスク" : "予定"}に紐づけました。` }, labeled: false };
 }
 
 /**
