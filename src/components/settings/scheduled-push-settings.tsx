@@ -121,14 +121,6 @@ export function ScheduledPushSettingsCard({ initial, hasDevice, categories }: Pr
 
   return (
     <section className="flex flex-col gap-5">
-      <header>
-        <h3 className="text-sm font-medium">定時のお知らせ</h3>
-        <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-muted">
-          決めた曜日・時刻に、溜めてあるニュースの見出しを通知でお届けします。ニュースは「ニュース」ページで
-          選んだ種類から仕入れたものを使い、24時間より古いものは送りません。届けるニュースが無い日は通知しません。
-        </p>
-      </header>
-
       <div className="flex flex-col gap-4 rounded-xl border border-border bg-surface px-5 py-4">
         <div className="flex items-center gap-3">
           <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-accent-surface text-accent">

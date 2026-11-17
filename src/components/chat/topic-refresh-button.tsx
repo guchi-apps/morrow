@@ -35,7 +35,7 @@ export function TopicRefreshButton() {
           setState({ kind: "done", message: "すでに取得中です。しばらくしてから読み込み直してください。", error: false });
           return;
         case "disabled":
-          setState({ kind: "done", message: "仕入れる種類が1つも選ばれていません。ヘッダーの「通知する内容」で選んでください。", error: true });
+          setState({ kind: "done", message: "仕入れる種類が1つも選ばれていません。ヘッダーの「取得する内容」で選んでください。", error: true });
           return;
         default:
           setState({ kind: "done", message: "取得できませんでした。時間をおいてもう一度試してください。", error: true });

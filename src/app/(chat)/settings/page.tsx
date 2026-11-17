@@ -57,7 +57,7 @@ export default async function SettingsPage({ searchParams }: Props) {
         <p className="text-[0.8125rem] leading-relaxed text-muted">
           ニュースを届ける曜日・時刻は、
           <Link href="/topics" className="font-medium text-accent underline underline-offset-4">
-            ニュースの画面の「通知する時間」
+            ニュースの画面の「取得する時間」
           </Link>
           で決められます。
         </p>
