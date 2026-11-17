@@ -47,19 +47,26 @@ export function MailListSkeleton() {
           </div>
           <Bar className="h-[30px] w-full rounded-[9px]" />
         </div>
-        <ul className="overflow-hidden rounded-xl border border-border bg-surface" aria-hidden="true">
-          {ROW_WIDTHS.map((width, index) => (
-            <li key={index} className="flex items-center gap-2.5 border-t border-border px-3 py-3 first:border-t-0 md:px-3.5">
-              <Bar className="size-4 shrink-0 rounded" />
-              <div className="grid min-w-0 flex-1 gap-1.5 md:grid-cols-[170px_1fr_auto] md:items-center md:gap-3">
-                <Bar className="h-3.5 w-[60%] md:w-[120px]" />
-                <Bar className={`h-3 ${width}`} />
-                <Bar className="hidden h-3 w-10 md:block" />
-              </div>
-            </li>
-          ))}
-        </ul>
+        <MailRowsSkeleton />
       </div>
     </div>
+  );
+}
+
+/** 一覧の行だけのスケルトン。表示切替を押した直後に、固定部分は残して一覧だけへ差し込む（#1053）。 */
+export function MailRowsSkeleton() {
+  return (
+    <ul className="overflow-hidden rounded-xl border border-border bg-surface" aria-hidden="true">
+      {ROW_WIDTHS.map((width, index) => (
+        <li key={index} className="flex items-center gap-2.5 border-t border-border px-3 py-3 first:border-t-0 md:px-3.5">
+          <Bar className="size-4 shrink-0 rounded" />
+          <div className="grid min-w-0 flex-1 gap-1.5 md:grid-cols-[170px_1fr_auto] md:items-center md:gap-3">
+            <Bar className="h-3.5 w-[60%] md:w-[120px]" />
+            <Bar className={`h-3 ${width}`} />
+            <Bar className="hidden h-3 w-10 md:block" />
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
