@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import {
   MAX_TOPIC_CATEGORIES,
   initialTopicCategories,
+  validateCategoryOrder,
   newTopicCategoryId,
   type TopicCategory,
   type TopicCategoryFields,
@@ -104,4 +105,21 @@ export async function updateTopicCategory(
 export async function deleteTopicCategory(userId: string, key: string): Promise<boolean> {
   const result = await db.topicCategory.deleteMany({ where: { userId, key } });
   return result.count > 0;
+}
+
+/** 種類の並びを保存する（#1039）。`keys` は画面の並び（別タブの増減は合わせて直す）。形が違う本文はnull。 */
+export async function reorderTopicCategories(userId: string, body: unknown): Promise<TopicCategory[] | null> {
+  const current = await listTopicCategories(userId);
+  const keys = validateCategoryOrder(
+    body,
+    current.map((category) => category.id),
+  );
+  if (!keys) return null;
+
+  await db.$transaction(
+    keys.map((key, index) =>
+      db.topicCategory.updateMany({ where: { userId, key }, data: { sortOrder: index } }),
+    ),
+  );
+  return listTopicCategories(userId);
 }

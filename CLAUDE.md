@@ -733,6 +733,7 @@ ops-dashboardの「アプリ別のAI利用」（ops-dashboard#325）が、`GET /
   **「集める内容」（`scope`）はプロンプトへそのまま入る**ので、`validateTopicCategoryInput()` が
   改行・制御文字を畳み長さ（200字）を制限する。型・検証は `src/lib/topic-categories.ts`
   （クライアントからもimportするのでPrismaを持ち込まない）、DBは `topic-category-store.ts`
+- **種類の並び順は「通知する内容」の▲▼で変える**（#1039。`PUT /api/settings/topics/order` の `{ keys }`。存在するキーを順に採って末尾へ足し、`TopicCategory.sortOrder` を振り直す。タブ・通知設定の種類の並びも同じ順）。ヘッダーアイコンの件数バッジは出さない（「通知する時間」の件数は残す）
 - **説明文の「試しに検索」**（`POST /api/settings/topics/preview`）は、その1種類だけを仕入れと同じ
   プロンプトで検索して記事を返す。**何も保存しない**。サブスク枠を1回ぶん使い20〜30秒かかるので、
   利用者ごとに同時実行は1つ・終わってから1分あける（プロセス内の記録。`maxDuration` は180秒）。未保存の種類には `key` が無いので仮のid（`preview`）でプロンプトと `parseTopics()` を通す
