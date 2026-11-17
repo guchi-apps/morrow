@@ -38,4 +38,8 @@ describe("taskOpensInApp（#1030）", () => {
     assert.equal(taskOpensInApp({}), false);
     assert.equal(taskOpensInApp({ planned: "11/17", due: null }), false);
   });
+  it("案内の判定は遷移先（taskOpenUrl）と一致する", () => {
+    const cases = [{}, { due: "2026-11-20" }, { planned: "11/17", due: "2026-11-20" }, { planned: "11/17", due: "x" }, { planned: "2026-11-17", due: null }];
+    for (const c of cases) assert.equal(taskOpensInApp(c), taskOpenUrl(c).includes("/calendar?date="));
+  });
 });
