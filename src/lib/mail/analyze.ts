@@ -74,12 +74,33 @@ function withReceived(analysis: MailAnalysis, receivedAt: number | null): MailAn
  */
 async function linkCandidatesFor(userId: string, messageId: string): Promise<LinkCandidate[]> {
   try {
-    const [tasks, events, links] = await Promise.all([taskCandidates(userId), eventCandidates(userId), linksForMessage(userId, messageId)]);
+    const [all, links] = await Promise.all([sharedCandidates(userId), linksForMessage(userId, messageId)]);
     const linked = new Set(links.map((l) => linkKey(l.kind, l.targetId)));
-    return [...(tasks.ok ? tasks.items : []), ...(events.ok ? events.items : [])].filter((c) => !linked.has(linkKey(c.kind, c.targetId)));
+    return all.filter((c) => !linked.has(linkKey(c.kind, c.targetId)));
   } catch {
     return [];
   }
+}
+
+/** 候補の取得を利用者ごとに短く共有する（受信時の先回りが最大50通を続けて分析するため、AIDEへの呼び出しを繰り返さない）。失敗は覚えない。 */
+const CANDIDATE_TTL_MS = 30_000;
+const candidateCache = new Map<string, { at: number; promise: Promise<{ items: LinkCandidate[]; complete: boolean }> }>();
+
+async function sharedCandidates(userId: string): Promise<LinkCandidate[]> {
+  const now = Date.now();
+  let entry = candidateCache.get(userId);
+  if (!entry || now - entry.at >= CANDIDATE_TTL_MS) {
+    const promise = Promise.all([taskCandidates(userId), eventCandidates(userId)])
+      .then(([tasks, events]) => ({ items: [...(tasks.ok ? tasks.items : []), ...(events.ok ? events.items : [])], complete: tasks.ok && events.ok }))
+      .catch(() => ({ items: [] as LinkCandidate[], complete: false }));
+    entry = { at: now, promise };
+    candidateCache.set(userId, entry);
+    // 一部でも取れなかった回は覚えない（次の分析で取り直す）
+    void promise.then((value) => {
+      if (!value.complete && candidateCache.get(userId) === entry) candidateCache.delete(userId);
+    });
+  }
+  return (await entry.promise).items;
 }
 
 async function run(user: MailUser, messageId: string, key: string, refresh: boolean): Promise<AnalyzeOutcome> {
