@@ -1,12 +1,13 @@
 "use client";
 
-import { Bell, Star } from "lucide-react";
+import { Bell, Inbox, Star } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { hideArchived, readArchived, subscribeArchived, type ArchivedMap } from "@/lib/mail/archived-memory";
 import { mailAccountKeyOf, mailAccountTone, senderName, type MailAction, type MailLabel, type MailSummary } from "@/lib/mail/contract";
+import { isInboxRow, showInboxMark } from "@/lib/mail/inbox-mark";
 import { cn } from "@/lib/utils";
 
 import { FLOW_KIND_META } from "@/lib/mail/flow-record-core";
@@ -172,6 +173,10 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
           const tone = ACCOUNT_TONE_CLASS[rowAccountKey ? mailAccountTone(rowAccountKey) : "coral"];
           const href = `/mail/${encodeURIComponent(message.id)}?back=${encodeURIComponent(back)}`;
           const annotation = annotations?.[message.id];
+          // 「すべて」表示だけ、受信トレイの行にアイコン・アーカイブ済みの行は淡く（#1033）
+          const markInbox = showInboxMark(listQuery.view);
+          const inInbox = markInbox && isInboxRow(message.labelIds);
+          const dimmed = markInbox && !inInbox;
           return (
             <SwipeArchiveRow
               key={message.id}
@@ -181,6 +186,7 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
                 "flex items-start gap-2.5 px-3 py-2.5 transition-colors md:items-center md:px-3.5",
                 opening === message.id ? "bg-accent-surface" : "bg-surface hover:bg-rail",
                 locked && "opacity-45",
+                dimmed && "text-muted",
               )}
             >
               <input
@@ -206,7 +212,15 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
                 className="grid min-w-0 flex-1 gap-0.5 md:grid-cols-[170px_1fr_auto] md:items-center md:gap-3">
                 <span className="flex min-w-0 items-baseline justify-between gap-2 md:contents">
                   <span className="flex min-w-0 items-center gap-1.5">
-                    <span className={cn("truncate text-[0.8125rem]", message.unread && "font-bold")}>{senderName(message.from)}</span>
+                    {markInbox &&
+                      (inInbox ? (
+                        <Inbox role="img" aria-label="受信トレイ" className="size-4 shrink-0 text-accent">
+                          <title>受信トレイ</title>
+                        </Inbox>
+                      ) : (
+                        <span aria-hidden className="size-4 shrink-0" />
+                      ))}
+                    <span className={cn("truncate text-[0.8125rem]", message.unread && "font-bold", dimmed && "font-normal text-muted")}>{senderName(message.from)}</span>
                     {annotation?.badge && (
                       <span
                         className={cn(
@@ -238,7 +252,7 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
                       </Chip>
                     ) : null;
                   })}
-                  <span className={cn("text-foreground", message.unread ? "font-bold" : "font-medium")}>
+                  <span className={cn(dimmed ? "text-muted" : "text-foreground", message.unread ? "font-bold" : "font-medium")}>
                     {message.subject || "（件名なし）"}
                   </span>
                   {message.snippet && <> — {message.snippet}</>}
