@@ -10,6 +10,8 @@ import { SEARCH_LEVEL_LABELS, SEARCH_LEVEL_SHOWN, orderByRank, type SearchLevel,
 import { cn } from "@/lib/utils";
 
 import { MailRows, type MailRowAnnotation } from "./mail-rows";
+import { MailRowsSkeleton } from "./mail-skeleton";
+import { MailViewPendingContext } from "./mail-view-tabs";
 
 /** 入力の上限（文字）。`search-core.ts` の `SEARCH_TEXT_LIMIT` と同じ（プロンプトの文面をクライアントへ持ち込まないため値だけ揃える）。 */
 const TEXT_LIMIT = 200;
@@ -73,8 +75,18 @@ export function MailSearch({ initialQuery, view, account, labels, supportsLabels
     return `/mail${params.size > 0 ? `?${params}` : ""}`;
   }, [view, account, active]);
 
+  // 表示切替を押した直後（#1053）。新しいviewで描き直されると `key` ごと作り直されて消える。
+  // 遷移が失敗・中断して届かない場合に更新中のまま残らないよう、一定時間で戻す
+  const [pendingView, setPendingView] = useState<string | null>(null);
+  useEffect(() => {
+    if (pendingView === null) return;
+    const timer = setTimeout(() => setPendingView(null), 20000);
+    return () => clearTimeout(timer);
+  }, [pendingView]);
+  const switching = pendingView !== null && pendingView !== view;
+
   return (
-    <>
+    <MailViewPendingContext.Provider value={{ pending: pendingView, setPending: setPendingView }}>
       <div className={stickyClassName}>
         {top}
         <form
@@ -121,7 +133,9 @@ export function MailSearch({ initialQuery, view, account, labels, supportsLabels
       </div>
       {below}
 
-      {active ? (
+      {switching ? (
+        <MailRowsSkeleton />
+      ) : active ? (
         <MailSearchResults
           key={`${view}\u0000${account ?? ""}\u0000${active}\u0000${nonce}`}
           q={active}
@@ -137,7 +151,7 @@ export function MailSearch({ initialQuery, view, account, labels, supportsLabels
       ) : (
         children
       )}
-    </>
+    </MailViewPendingContext.Provider>
   );
 }
 

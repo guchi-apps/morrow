@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { after } from "next/server";
 import { redirect } from "next/navigation";
 
@@ -10,6 +9,7 @@ import { MailLearnedRules } from "@/components/mail/mail-learned-rules";
 import { elapsedLabel } from "@/components/mail/mail-format";
 import { MailRows } from "@/components/mail/mail-rows";
 import { MailSearch } from "@/components/mail/mail-search";
+import { MailViewTabs } from "@/components/mail/mail-view-tabs";
 import { getCurrentUser } from "@/lib/auth-user";
 import { jstDayKey, jstTimeLabel } from "@/lib/day-key";
 import { listMailForPage } from "@/lib/mail/aide-client";
@@ -35,7 +35,6 @@ import { decorateMailRows } from "@/lib/mail/list-rows";
 import { DEFAULT_MAIL_CRITERIA } from "@/lib/mail/triage-core";
 import { normalizeLearnedRules } from "@/lib/mail/learn-core";
 import { PullIndicator, PullToRefresh } from "@/components/mail/pull-to-refresh";
-import { cn } from "@/lib/utils";
 
 // メールは開くたびにAIDEから取る（Morrowは保存しない）。
 export const dynamic = "force-dynamic";
@@ -149,24 +148,7 @@ export default async function MailPage({ searchParams }: Props) {
           stickyClassName="sticky top-0 z-10 -mx-3.5 flex flex-col gap-2 border-b border-border bg-background px-3.5 pb-2.5 pt-3 md:-mx-7 md:px-7 md:pt-5"
           top={
           <div className="flex items-center gap-2">
-            <nav aria-label="表示するメール" className="flex shrink-0 flex-nowrap gap-1 text-xs sm:gap-1.5">
-              {MAIL_VIEWS.map((item) => {
-                const on = item.key === view;
-                return (
-                  <Link
-                    key={item.key}
-                    href={viewHref(item.key)}
-                    aria-current={on ? "page" : undefined}
-                    className={cn(
-                      "whitespace-nowrap rounded-full border px-2.5 py-1.5 transition-colors sm:px-3",
-                      on ? "border-foreground bg-foreground text-background" : "border-border bg-surface hover:bg-rail-active",
-                    )}
-                  >
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </nav>
+            <MailViewTabs view={view} items={MAIL_VIEWS.map((item) => ({ key: item.key, label: item.label, href: viewHref(item.key) }))} />
             <p className="ml-auto min-w-0 text-right text-[0.625rem] leading-snug text-muted sm:text-[0.6875rem]">
               {checkedAt ? (
                 <>
