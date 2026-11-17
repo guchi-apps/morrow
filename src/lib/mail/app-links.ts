@@ -35,6 +35,18 @@ export function linkAppUrl(kind: "task" | "event", dateText: string | null): str
  * 日付は予定日→期限の順（どちらも `YYYY-MM-DD` でなければ無いものとして `linkAppUrl()` が `/tasks` へ落とす）。
  */
 export function taskOpenUrl(fields: { planned?: string | null; due?: string | null }): string {
+  return linkAppUrl("task", taskOpenDate(fields));
+}
+
+function taskOpenDate(fields: { planned?: string | null; due?: string | null }): string | null {
   const valid = (d: string | null | undefined) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null);
-  return linkAppUrl("task", valid(fields.planned) ?? valid(fields.due));
+  return valid(fields.planned) ?? valid(fields.due);
+}
+
+/**
+ * 「タスクを開く」が予定フローのアプリで開くか（#1030）。日付があれば `/calendar?date=`（Universal Link対象）でアプリへ渡る。
+ * 日付が無いと `/tasks` でSafariが開くので、画面はアプリで開くと案内しない。
+ */
+export function taskOpensInApp(fields: { planned?: string | null; due?: string | null }): boolean {
+  return taskOpenDate(fields) !== null;
 }
