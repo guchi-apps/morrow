@@ -15,6 +15,8 @@ export const FLOW_APP_LINKS: Record<SuggestKind, { label: string; url: string }>
   event: { label: "詳細をDaySpanで開く（繰り返し・通知など）", url: "https://dayspan.gucchii.com/calendar" },
   // 追跡は番号入りのURL（`trackingUrl()`）を主ボタンに使う。ここは使わない（型を揃えるだけ）
   tracking: { label: "日本郵便の追跡サービスを開く", url: "https://trackings.post.japanpost.jp/services/srv/search/" },
+  // 紐づけ先を開く行き先は `linkAppUrl()`（日付つき）を使う。ここは型を揃えるだけ（#1029）
+  link: { label: "DaySpanのカレンダーを開く", url: "https://dayspan.gucchii.com/calendar" },
 };
 
 /**

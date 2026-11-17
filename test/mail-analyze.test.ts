@@ -7,6 +7,7 @@ import {
   buildAnalyzePrompt,
   freshValue,
   parseAnalyzeReply,
+  sanitizeLinkSuggestions,
   putCache,
   type CacheEntry,
 } from "@/lib/mail/analyze-core";
@@ -78,5 +79,64 @@ describe("分析の記憶", () => {
     assert.deepEqual([...cache.keys()], ["a", "c"]);
     putCache(cache, "d", 5, 30 + ANALYSIS_TTL_MS, 10);
     assert.deepEqual([...cache.keys()], ["d"]);
+  });
+});
+
+describe("紐づけの提案（#1029）", () => {
+  const task = { kind: "task" as const, targetId: "t1", calendarId: null, title: "荷物受け取り", dateText: "2026-11-17", time: null };
+  const event = { kind: "event" as const, targetId: "e1", calendarId: "cal-1", title: "再配達", dateText: "2026-11-17", time: "10:00" };
+  const linkReply = (fields: Record<string, unknown>, recommended = "link") =>
+    JSON.stringify({
+      summary: "要約",
+      points: ["要点"],
+      recommended,
+      suggestions: [{ kind: "link", reason: "同じ用件", confidence: 0.9, fields }],
+    });
+
+  it("候補があるときだけ、プロンプトに候補と紐づけの決まりごとが入る", () => {
+    const base = { from: "a", subject: "b", body: "c", receivedDate: null, today: "2026-11-17" };
+    assert.ok(!buildAnalyzePrompt(base).includes("既存の予定・タスク"));
+    const prompt = buildAnalyzePrompt({ ...base, candidates: [task] });
+    assert.match(prompt, /既存の予定・タスク（1行1件のJSON/);
+    assert.match(prompt, /"targetId":"t1"/);
+    assert.match(prompt, /link: 既存の予定・タスクに紐づける/);
+  });
+
+  it("候補にあるidは通し、題名・日付は候補の値で置き換える", () => {
+    const reply = sanitizeLinkSuggestions(linkReply({ kind: "task", targetId: "t1", calendarId: null, title: "でたらめ", dateText: "2020-01-01" }), [task]);
+    const parsed = parseAnalyzeReply(reply);
+    assert.equal(parsed?.suggest.recommended, "link");
+    const link = parsed?.suggest.suggestions[0];
+    assert.ok(link && link.kind === "link");
+    assert.deepEqual(link.fields, { kind: "task", targetId: "t1", calendarId: null, title: "荷物受け取り", dateText: "2026-11-17" });
+  });
+
+  it("候補に無いid・別のカレンダーの予定は落とし、推奨も外す", () => {
+    const unknown = parseAnalyzeReply(sanitizeLinkSuggestions(linkReply({ kind: "task", targetId: "zzz", calendarId: null, title: "x" }), [task]));
+    assert.deepEqual(unknown?.suggest.suggestions, []);
+    assert.equal(unknown?.suggest.recommended, null);
+    const otherCalendar = parseAnalyzeReply(sanitizeLinkSuggestions(linkReply({ kind: "event", targetId: "e1", calendarId: "cal-2", title: "x" }), [event]));
+    assert.deepEqual(otherCalendar?.suggest.suggestions, []);
+    const ok = parseAnalyzeReply(sanitizeLinkSuggestions(linkReply({ kind: "event", targetId: "e1", calendarId: "cal-1", title: "x" }), [event]));
+    assert.equal(ok?.suggest.suggestions.length, 1);
+  });
+
+  it("候補が無いときは紐づけの提案を残さない（他の提案は残る）", () => {
+    const reply = JSON.stringify({
+      summary: "要約",
+      points: [],
+      recommended: "link",
+      suggestions: [
+        { kind: "link", reason: "r", confidence: 0.9, fields: { kind: "task", targetId: "t1", calendarId: null, title: "x" } },
+        { kind: "tracking", reason: "r", confidence: 0.9, fields: { carrier: "yamato", number: "335083439530" } },
+      ],
+    });
+    const parsed = parseAnalyzeReply(sanitizeLinkSuggestions(reply, []));
+    assert.deepEqual(parsed?.suggest.suggestions.map((s) => s.kind), ["tracking"]);
+    assert.equal(parsed?.suggest.recommended, "tracking");
+  });
+
+  it("読めない返答はそのまま返す", () => {
+    assert.equal(sanitizeLinkSuggestions("not json", [task]), "not json");
   });
 });

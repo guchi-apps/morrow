@@ -5,8 +5,10 @@ import { jstDayKey } from "@/lib/day-key";
 import { getMail, type MailUser } from "@/lib/mail/aide-client";
 import { getStoredAnalysis, saveAnalysis, storedAnalysisIds } from "@/lib/mail/analysis-store";
 import { acquireMailCodex, currentMailCodex, someoneWaitsForMailCodex } from "@/lib/mail/codex-lock";
-import { analysisCacheKey, buildAnalyzePrompt, freshValue, parseAnalyzeReply, putCache, type CacheEntry, type MailAnalysis } from "@/lib/mail/analyze-core";
+import { analysisCacheKey, buildAnalyzePrompt, freshValue, parseAnalyzeReply, putCache, sanitizeLinkSuggestions, type CacheEntry, type MailAnalysis } from "@/lib/mail/analyze-core";
 import type { MailFailureKind } from "@/lib/mail/contract";
+import { eventCandidates, linksForMessage, taskCandidates } from "@/lib/mail/link";
+import { linkKey, type LinkCandidate } from "@/lib/mail/link-core";
 import { plainBody, withReceivedDate } from "@/lib/mail/suggest-core";
 import { checkCardWithdrawal, checkWithdrawal, confirmCardWithdrawal, type CardConfirmOutcome } from "@/lib/mail/withdrawal";
 import type { BalanceCheck, CardCheck } from "@/lib/mail/withdrawal-core";
@@ -66,6 +68,41 @@ function withReceived(analysis: MailAnalysis, receivedAt: number | null): MailAn
   return { ...analysis, suggest: withReceivedDate(analysis.suggest, receivedAt) };
 }
 
+/**
+ * 紐づけの候補（#1029）: 未完了のタスクと前後の予定（紐づけ画面の候補と同じ取り方）のうち、このメールにまだ紐づけていないもの。
+ * 取れなかった・未接続のときは空（分析は従来どおり進める）。
+ */
+async function linkCandidatesFor(userId: string, messageId: string): Promise<LinkCandidate[]> {
+  try {
+    const [all, links] = await Promise.all([sharedCandidates(userId), linksForMessage(userId, messageId)]);
+    const linked = new Set(links.map((l) => linkKey(l.kind, l.targetId)));
+    return all.filter((c) => !linked.has(linkKey(c.kind, c.targetId)));
+  } catch {
+    return [];
+  }
+}
+
+/** 候補の取得を利用者ごとに短く共有する（受信時の先回りが最大50通を続けて分析するため、AIDEへの呼び出しを繰り返さない）。失敗は覚えない。 */
+const CANDIDATE_TTL_MS = 30_000;
+const candidateCache = new Map<string, { at: number; promise: Promise<{ items: LinkCandidate[]; complete: boolean }> }>();
+
+async function sharedCandidates(userId: string): Promise<LinkCandidate[]> {
+  const now = Date.now();
+  let entry = candidateCache.get(userId);
+  if (!entry || now - entry.at >= CANDIDATE_TTL_MS) {
+    const promise = Promise.all([taskCandidates(userId), eventCandidates(userId)])
+      .then(([tasks, events]) => ({ items: [...(tasks.ok ? tasks.items : []), ...(events.ok ? events.items : [])], complete: tasks.ok && events.ok }))
+      .catch(() => ({ items: [] as LinkCandidate[], complete: false }));
+    entry = { at: now, promise };
+    candidateCache.set(userId, entry);
+    // 一部でも取れなかった回は覚えない（次の分析で取り直す）
+    void promise.then((value) => {
+      if (!value.complete && candidateCache.get(userId) === entry) candidateCache.delete(userId);
+    });
+  }
+  return (await entry.promise).items;
+}
+
 async function run(user: MailUser, messageId: string, key: string, refresh: boolean): Promise<AnalyzeOutcome> {
   try {
     const mail = await getMail(user, messageId);
@@ -85,6 +122,7 @@ async function run(user: MailUser, messageId: string, key: string, refresh: bool
     const { message } = mail.value;
     const now = new Date();
     const startedAt = now.getTime();
+    const candidates = await linkCandidatesFor(user.id, messageId);
     const result = await runCodexRecorded({
       userId: user.id,
       feature: "mail_suggest",
@@ -96,10 +134,12 @@ async function run(user: MailUser, messageId: string, key: string, refresh: bool
         body: plainBody(message.text, message.html),
         receivedDate: message.receivedAt ? jstDayKey(new Date(message.receivedAt)) : null,
         today: jstDayKey(now),
+        candidates,
       }),
       timeoutMs: ANALYZE_TIMEOUT_MS,
     });
-    const reply = result.messages.at(-1) ?? result.text;
+    // 紐づけの提案は渡した候補で検証し、題名などを候補の値へ置き換えたものを保存する（読み直すときは候補が無い。#1029）
+    const reply = sanitizeLinkSuggestions(result.messages.at(-1) ?? result.text, candidates);
     const parsed = parseAnalyzeReply(reply);
     if (!parsed) {
       console.error("[aide-bot] メールの分析の返答を読めなかった");

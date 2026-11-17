@@ -21,7 +21,7 @@ import { type BalanceCheck, type CardCheck } from "@/lib/mail/withdrawal-core";
  */
 
 
-export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id: string; registeredKinds: string[]; receiptState?: ReceiptState | null }) {
+export function MailAnalysis({ id, registeredKinds, receiptState = null, linkedKeys = [] }: { id: string; registeredKinds: string[]; receiptState?: ReceiptState | null; linkedKeys?: string[] }) {
   const [loading, setLoading] = useState(true);
   const [waiting, setWaiting] = useState<"busy" | "network" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -228,7 +228,7 @@ export function MailAnalysis({ id, registeredKinds, receiptState = null }: { id:
                       <FlowRowButton
                         card={row.card}
                         recommended={row.recommended}
-                        registered={(flow.outcomes[rowId]?.done === true && !flow.outcomes[rowId]?.receipt) || registeredKinds.includes(row.card.kind)}
+                        registered={(flow.outcomes[rowId]?.done === true && !flow.outcomes[rowId]?.receipt) || (row.card.kind === "link" ? linkedKeys.includes(`${row.card.fields.kind}:${row.card.fields.targetId}`) : registeredKinds.includes(row.card.kind))}
                         receipt={flow.outcomes[rowId]?.receipt ?? (row.card.kind === "payment" ? receiptState : null)}
                         match={flow.matches[rowId]}
                         onOpen={() => flow.setOpen(rowId)}
