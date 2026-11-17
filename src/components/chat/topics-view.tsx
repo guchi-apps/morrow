@@ -80,7 +80,6 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
         <HeaderDialog
           icon={<Newspaper className="size-4" aria-hidden="true" />}
           label="取得する内容"
-          badge={enabledCategories.length}
           summary={enabledCategories.length > 0 ? `ニュースを仕入れる種類・${enabledCategories.length}種類を仕入れ中` : "ニュースを仕入れる種類・仕入れを止めています"}
         >
           <p className="text-[0.6875rem] leading-relaxed text-muted">
