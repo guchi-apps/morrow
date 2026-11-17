@@ -1,4 +1,4 @@
-import { Search } from "lucide-react";
+import { MapPin, Search } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -30,6 +30,12 @@ const first = (value: string | string[] | undefined) => (Array.isArray(value) ? 
 // 厳密一致だと自宅だけ一致せず、一覧の強調・「自宅」表示が外れるので、丸めてから比べる。
 const sameSpot = (a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) =>
   roundCoordinate(a.latitude) === roundCoordinate(b.latitude) && roundCoordinate(a.longitude) === roundCoordinate(b.longitude);
+/** 現在地を示すピン。文字の代わりに出すので、読み上げ用の名前を付ける（#1067） */
+const HerePin = ({ className }: { className?: string }) => (
+  <span role="img" aria-label="現在地" title="現在地" className={cn("inline-flex text-accent", className)}>
+    <MapPin className="size-3.5" aria-hidden="true" />
+  </span>
+);
 const temp = (value: number | null) => (value === null ? "—" : `${Math.round(value)}°`);
 
 /**
@@ -78,10 +84,15 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
     ).then((entries) => new Map<string, Forecast | null>(entries)),
   ]);
 
-  const entries: { place: WeatherPlaceInput; home: boolean; id: string }[] = [
-    ...(selected && isHere ? [{ place: selected, home: false, id: "here" }] : []),
-    ...(home ? [{ place: home, home: true, id: "home" }] : []),
-    ...stored.map((place) => ({ place, home: false, id: place.id })),
+  // 現在地が自宅・登録地点と同じ場所なら、別行にせずその行へまとめる（#1067）。
+  // 現在地はGPSの座標、自宅はAIDEの座標で約1kmずれうるので、座標が違っても市町村名が同じなら同じ場所とみなす。
+  const sameAsHere = (place: WeatherPlaceInput) =>
+    selected !== null && isHere && (sameSpot(selected, place) || (hereName !== null && place.name === hereName));
+  const hereMergedWith = selected && isHere ? (home && sameAsHere(home) ? "home" : (stored.find(sameAsHere)?.id ?? null)) : null;
+  const entries: { place: WeatherPlaceInput; home: boolean; id: string; here: boolean }[] = [
+    ...(selected && isHere && hereMergedWith === null ? [{ place: selected, home: false, id: "here", here: true }] : []),
+    ...(home ? [{ place: home, home: true, id: "home", here: hereMergedWith === "home" }] : []),
+    ...stored.map((place) => ({ place, home: false, id: place.id, here: hereMergedWith === place.id })),
   ];
   const keyOf = (place: { latitude: number; longitude: number }) => `${place.latitude},${place.longitude}`;
   const isHome = !isHere && selected && home ? sameSpot(selected, home) : false;
@@ -173,9 +184,8 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
               <p className="px-1 text-[0.8125rem] text-muted">まだありません。上の検索から市町村を探して、登録してください。</p>
             )}
             <ul className="flex flex-col">
-              {entries.map(({ place, home: isHomeEntry, id }) => {
+              {entries.map(({ place, home: isHomeEntry, id, here: isHereEntry }) => {
                 const daily = forecasts.get(keyOf(place))?.daily.find((day) => day.date === date) ?? null;
-                const isHereEntry = id === "here";
                 const on = selected
                   ? isHereEntry
                     ? isHere
@@ -186,7 +196,7 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
                 return (
                   <li key={id}>
                     <Link
-                      href={isHereEntry ? hereHref(place, date === today ? undefined : date) : weatherHref(place, date === today ? undefined : date)}
+                      href={isHereEntry ? hereHref(id === "here" ? place : { latitude: hereSpot!.latitude, longitude: hereSpot!.longitude }, date === today ? undefined : date) : weatherHref(place, date === today ? undefined : date)}
                       aria-current={on ? "page" : undefined}
                       className={cn(
                         "flex items-center justify-between gap-2 rounded-lg px-2 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
@@ -195,8 +205,8 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
                     >
                       <span className="flex min-w-0 items-center gap-1.5">
                         <WeatherIcon code={daily?.code ?? null} className="size-3.5 shrink-0 text-topic" />
-                        {isHereEntry && <span className="shrink-0 text-xs font-bold text-accent">現在地</span>}
-                        {!(isHereEntry && place.name === HERE_NAME) && <span className="truncate">{place.name}</span>}
+                        {isHereEntry && <HerePin className="shrink-0" />}
+                        {!(id === "here" && place.name === HERE_NAME) && <span className="truncate">{place.name}</span>}
                         {isHomeEntry && <span className="shrink-0 text-xs font-normal text-muted">・自宅</span>}
                       </span>
                       <span className="shrink-0 text-xs tabular-nums text-muted">
@@ -224,8 +234,8 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="flex items-baseline gap-2 text-base font-bold">
                     {selected.name}
-                    {isHere && <span className="text-xs font-normal text-muted">・現在地</span>}
-                    {isHome && <span className="text-xs font-normal text-muted">・自宅</span>}
+                    {isHere && <HerePin />}
+                    {(isHome || hereMergedWith === "home") && <span className="text-xs font-normal text-muted">・自宅</span>}
                   </h3>
                   {!isHome && !isHere && (
                     <PlaceActions
