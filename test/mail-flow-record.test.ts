@@ -54,14 +54,14 @@ test("同じ要約は同じ鍵", () => {
 });
 
 test("家計簿の確認待ち・取り込み済みの控えは登録済みの印にしない（#821）", () => {
-  assert.deepEqual(flowRowStates([{ kind: "payment", status: "pending" }]), { registeredKinds: [], receiptState: "pending" });
-  assert.deepEqual(flowRowStates([{ kind: "payment", status: "duplicate" }]), { registeredKinds: [], receiptState: "duplicate" });
+  assert.deepEqual(flowRowStates([{ kind: "payment", status: "pending" }]), { registeredKinds: [], registeredKeys: [], receiptState: "pending" });
+  assert.deepEqual(flowRowStates([{ kind: "payment", status: "duplicate" }]), { registeredKinds: [], registeredKeys: [], receiptState: "duplicate" });
   // 確認待ちが残っていれば、重複の控えが並んでも確認待ちのまま
   assert.equal(flowRowStates([{ kind: "payment", status: "duplicate" }, { kind: "payment", status: "pending" }]).receiptState, "pending");
   // 完了の控えがあれば登録済み
-  assert.deepEqual(flowRowStates([{ kind: "payment", status: "pending" }, { kind: "payment", status: "done" }]), { registeredKinds: ["payment"], receiptState: null });
+  assert.deepEqual(flowRowStates([{ kind: "payment", status: "pending" }, { kind: "payment", status: "done" }]), { registeredKinds: ["payment"], registeredKeys: [], receiptState: null });
   // ほかの種類の重複は従来どおり登録済み。サブスクの「開いた」は含めない
-  assert.deepEqual(flowRowStates([{ kind: "task", status: "duplicate" }, { kind: "subscription", status: "opened" }]), { registeredKinds: ["task"], receiptState: null });
+  assert.deepEqual(flowRowStates([{ kind: "task", status: "duplicate" }, { kind: "subscription", status: "opened" }]), { registeredKinds: ["task"], registeredKeys: [], receiptState: null });
 });
 
 test("家計簿の重複の控えは「登録済み」と書かない（#821）", () => {
@@ -74,4 +74,12 @@ test("受信日で補った購入日は控えで「（受信日）」と区別�
   assert.match(summarizeSuggestion(s), /11\/14（受信日）/);
   const t = normalizeSuggestion("payment", { place: "KDDI", name: "料金", amount: 2, date: "2026-11-14" })!;
   assert.doesNotMatch(summarizeSuggestion(t), /受信日/);
+});
+
+test("登録済みの内容の鍵は種類と要約から作る（#1051）", () => {
+  const states = flowRowStates([
+    { kind: "task", status: "done", summary: "受け取る / 期限 11/18" },
+    { kind: "subscription", status: "opened", summary: "会員 / 500円 / 毎月" },
+  ]);
+  assert.deepEqual(states.registeredKeys, ["task\n受け取る / 期限 11/18"]);
 });

@@ -57,19 +57,22 @@ describe("提案としての読み取り", () => {
     assert.deepEqual(result?.suggestions[0]?.fields, { carrier: "yamato", number: "335082908392" });
   });
 
-  it("有効な候補が4件以上でtrackingが4件目でも、追跡提案は上限内に残る（#983）", () => {
+  it("有効な候補が上限を超えtrackingが上限の外でも、追跡提案は上限内に残る（#983。上限は#1051で6件）", () => {
     const reply = JSON.stringify({
       recommended: "payment",
       suggestions: [
         { kind: "payment", confidence: 0.9, fields: { name: "通販", amount: 1000, date: "2026-11-05" } },
         { kind: "subscription", confidence: 0.8, fields: { name: "会員", amount: 500 } },
         { kind: "task", confidence: 0.7, fields: { title: "受け取る" } },
+        { kind: "task", confidence: 0.7, fields: { title: "受け取る2" } },
+        { kind: "event", confidence: 0.7, fields: { title: "来店", date: "2026-11-20" } },
+        { kind: "task", confidence: 0.7, fields: { title: "受け取る3" } },
         { kind: "tracking", confidence: 0.6, fields: { carrier: "yamato", number: "335082908392" } },
       ],
     });
     const result = parseSuggestReply(reply);
-    assert.equal(result?.suggestions.length, 3);
-    assert.deepEqual(result?.suggestions.map((s) => s.kind), ["payment", "subscription", "tracking"]);
+    assert.equal(result?.suggestions.length, 6);
+    assert.deepEqual(result?.suggestions.map((s) => s.kind), ["payment", "subscription", "task", "task", "event", "tracking"]);
     assert.equal(result?.recommended, "payment");
   });
 

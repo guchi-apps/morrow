@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
-import { itemsTotal } from "@/lib/mail/payment-receipt";
-import type { FlowOutcome, Suggestion } from "@/lib/mail/suggest-core";
+import { registeredKeyOf } from "@/lib/mail/flow-summary";
+import type { FlowOutcome } from "@/lib/mail/suggest-core";
 
 /**
  * メールから登録した内容の控え（#750）のうち、DBに触れない部分。`test/mail-flow-record.test.ts` が固定する。
@@ -10,55 +10,7 @@ import type { FlowOutcome, Suggestion } from "@/lib/mail/suggest-core";
 
 export type FlowRecordStatus = "done" | "pending" | "duplicate" | "opened";
 
-const SUMMARY_LIMIT = 300;
-
-function md(date: string | null): string | null {
-  const m = date ? /^\d{4}-(\d{2})-(\d{2})$/.exec(date) : null;
-  return m ? `${Number(m[1])}/${Number(m[2])}` : null;
-}
-
-/** 購入日の控え。受信日で補った日付は購入日と区別する（#903）。 */
-function dayLabel(f: { date: string | null; dateEstimated?: boolean }): string | null {
-  const day = md(f.date);
-  return day && f.dateEstimated ? `${day}（受信日）` : day;
-}
-
-function join(parts: (string | null | undefined)[]): string {
-  return parts.filter((p): p is string => Boolean(p)).join(" / ").slice(0, SUMMARY_LIMIT);
-}
-
-/** 登録した内容を1行にまとめる。 */
-export function summarizeSuggestion(suggestion: Suggestion): string {
-  switch (suggestion.kind) {
-    case "payment": {
-      const f = suggestion.fields;
-      // 品目に分かれていれば、品名の代わりに先頭の品目と件数（#781）。金額が無ければ品目の合計
-      const label = f.items.length > 0 ? `${f.items[0]!.name}${f.items.length > 1 ? ` ほか${f.items.length - 1}件` : ""}` : f.name || null;
-      const total = f.amount ?? itemsTotal(f.items);
-      return join([f.place ?? label, f.place ? label : null, total !== null ? `${total.toLocaleString("ja-JP")}円` : null, dayLabel(f)]);
-    }
-    case "subscription": {
-      const f = suggestion.fields;
-      const unit = f.currency === "USD" ? "ドル" : "円";
-      return join([f.name, f.amount !== null ? `${f.amount.toLocaleString("ja-JP")}${unit}` : null, f.cycle === "YEARLY" ? "毎年" : "毎月"]);
-    }
-    case "task": {
-      const f = suggestion.fields;
-      return join([f.title, f.due ? `期限 ${md(f.due)}${f.dueTime ? ` ${f.dueTime}` : ""}` : null]);
-    }
-    case "event": {
-      const f = suggestion.fields;
-      const time = f.startTime ? `${f.startTime}${f.endTime ? `–${f.endTime}` : ""}` : null;
-      return join([f.title, [md(f.date), time].filter(Boolean).join(" ") || null]);
-    }
-    // 追跡は配送会社のページを開くだけで控えを残さない（#972）。ここへは来ない
-    case "tracking":
-      return "";
-    // 紐づけは `MailLink` が控えを持つので、`MailFlowRecord` へは残さない（#1029）
-    case "link":
-      return "";
-  }
-}
+export { registeredKeyOf, summarizeSuggestion } from "@/lib/mail/flow-summary";
 
 export function contentKeyOf(summary: string): string {
   return createHash("sha1").update(summary).digest("hex");
@@ -92,8 +44,10 @@ export const FLOW_STATUS_LABELS: Record<FlowRecordStatus, string> = {
  */
 export type ReceiptState = "pending" | "duplicate";
 
-export function flowRowStates(records: { kind: string; status: string }[]): { registeredKinds: string[]; receiptState: ReceiptState | null } {
+export function flowRowStates(records: { kind: string; status: string; summary?: string }[]): { registeredKinds: string[]; registeredKeys: string[]; receiptState: ReceiptState | null } {
   const registeredKinds = new Set<string>();
+  // 内容（種類＋要約）ごとの登録済み（#1051）。同じ種類の提案が複数並ぶとき、種類だけでは1件の登録で全部が登録済みに見える
+  const registeredKeys = new Set<string>();
   let receiptState: ReceiptState | null = null;
   for (const r of records) {
     if (r.status === "opened") continue;
@@ -103,8 +57,9 @@ export function flowRowStates(records: { kind: string; status: string }[]): { re
     }
     if (r.status === "pending") continue;
     registeredKinds.add(r.kind);
+    if (r.summary) registeredKeys.add(registeredKeyOf(r.kind, r.summary));
   }
-  return { registeredKinds: [...registeredKinds], receiptState: registeredKinds.has("payment") ? null : receiptState };
+  return { registeredKinds: [...registeredKinds], registeredKeys: [...registeredKeys], receiptState: registeredKinds.has("payment") ? null : receiptState };
 }
 
 /** 控えの一覧に出す状態の文。家計簿の重複は確定済みとは限らないので「登録済み」と書かない。 */

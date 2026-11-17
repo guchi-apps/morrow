@@ -38,7 +38,8 @@ const MEMO_LIMIT = 500;
 const LOCATION_LIMIT = 100;
 const CALENDAR_ID_LIMIT = 200;
 const PLACE_LIMIT = 100;
-export const SUGGEST_MAX = 3;
+/** 候補の上限（#1051で3→6。同じ種類を複数出せるようにしたため）。 */
+export const SUGGEST_MAX = 6;
 /** 品目の件数の上限（Asset Managerは100件まで受ける。メール1通の明細として現実的な範囲に絞る）。 */
 export const PAYMENT_ITEMS_MAX = 30;
 
@@ -142,6 +143,7 @@ export const SUGGEST_KIND_RULES: readonly string[] = [
 /** 提案の決まりごと（プロンプト用）。 */
 export const SUGGEST_RULES: readonly string[] = [
   `候補は多くても${SUGGEST_MAX}件。当てはまらない種類は出さない。何もしなくてよいメールなら suggestions を空にし、recommended を null にする`,
+  "日付・用件が分かれるときは、同じ種類を複数出してよい（例: 受け取り日が2日に分かれる注文は task を2件、開催日と支払期限があれば event と task を1件ずつ）。同じ内容を重ねて出さない",
   "recommended は、いちばん先にやるとよい1件の kind。suggestions に含まれる kind だけ",
   "reason は候補の理由を日本語で80文字以内",
   "confidence は 0〜1。本文から確かに読み取れたものだけ高くする",
@@ -378,7 +380,7 @@ export function normalizeSuggestion(kind: unknown, rawFields: unknown, reason = 
   return fields ? { kind, ...base, fields } : null;
 }
 
-/** 返答を読む。オブジェクトとして読めなければnull。壊れた候補・同じ種類の重複は落とす。 */
+/** 返答を読む。オブジェクトとして読めなければnull。壊れた候補・同じ内容の重複は落とす（同じ種類の別の内容は残す。#1051）。 */
 export function parseSuggestReply(answer: string): SuggestResult | null {
   const start = answer.indexOf("{");
   const end = answer.lastIndexOf("}");
@@ -393,13 +395,16 @@ export function parseSuggestReply(answer: string): SuggestResult | null {
   if (!top) return null;
 
   const all: Suggestion[] = [];
-  const seenAll = new Set<SuggestKind>();
+  // 同じ種類の候補も複数受ける（#1051。受け取り日が2日に分かれる注文のタスク2件など）。まったく同じ内容の重なりだけ落とす
+  const seenAll = new Set<string>();
   for (const item of Array.isArray(top.suggestions) ? top.suggestions : []) {
     const entry = record(item);
-    if (!entry || !isKind(entry.kind) || seenAll.has(entry.kind)) continue;
+    if (!entry || !isKind(entry.kind)) continue;
     const suggestion = normalizeSuggestion(entry.kind, entry.fields, text(entry.reason, REASON_LIMIT), entry.confidence);
     if (!suggestion) continue;
-    seenAll.add(suggestion.kind);
+    const key = `${suggestion.kind}:${JSON.stringify(suggestion.fields)}`;
+    if (seenAll.has(key)) continue;
+    seenAll.add(key);
     all.push(suggestion);
   }
   // 上限を超えるときも、追跡番号が読めた追跡提案は必ず残す（#983。上限内の最後の候補と入れ替える）
