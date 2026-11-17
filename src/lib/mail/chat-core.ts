@@ -122,6 +122,9 @@ export function parseChatReply(answer: string): MailChatReply | null {
   if (typeof reply !== "string") return null;
   const text = cleanMultiline(reply, CHAT_REPLY_LIMIT);
   if (text === "") return null;
-  const suggest = parseSuggestReply(answer) ?? { recommended: null, suggestions: [] };
+  const parsed = parseSuggestReply(answer) ?? { recommended: null, suggestions: [] };
+  // 紐づけは分析が渡した候補で検証して出す提案（#1029）。指示の返事には候補が無いので受けない
+  const suggestions = parsed.suggestions.filter((s) => s.kind !== "link");
+  const suggest = { recommended: parsed.recommended === "link" ? (suggestions[0]?.kind ?? null) : parsed.recommended, suggestions };
   return { reply: text, suggest };
 }

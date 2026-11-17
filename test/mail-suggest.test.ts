@@ -317,3 +317,21 @@ describe("タスクの期限・予定日の時刻（#907）", () => {
     assert.equal(bad.fields.dueTime, null);
   });
 });
+
+describe("link 提案（#1029）", () => {
+  it("紐づけ先を検証して読み、calendarIdの無い予定は落とす", () => {
+    const ok = normalizeSuggestion("link", { kind: "task", targetId: "t1", calendarId: null, title: "荷物受け取り", dateText: "2026-11-17" }, "理由", 0.8);
+    assert.ok(ok && ok.kind === "link");
+    assert.equal(ok.fields.targetId, "t1");
+    assert.equal(normalizeSuggestion("link", { kind: "event", targetId: "e1", title: "予定" }), null);
+    assert.equal(normalizeSuggestion("link", { kind: "task", targetId: "t 1", title: "x" }), null);
+    assert.equal(normalizeSuggestion("link", { kind: "other", targetId: "t1", title: "x" }), null);
+  });
+
+  it("AIDEの道具は呼ばない（toolCallFor は断る）", () => {
+    const s = normalizeSuggestion("link", { kind: "task", targetId: "t1", title: "x" });
+    assert.ok(s);
+    const call = toolCallFor(s, { messageId: "m", subject: "s", from: "f", receivedAt: null }, "u");
+    assert.equal(call.ok, false);
+  });
+});

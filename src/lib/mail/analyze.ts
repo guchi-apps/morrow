@@ -5,8 +5,10 @@ import { jstDayKey } from "@/lib/day-key";
 import { getMail, type MailUser } from "@/lib/mail/aide-client";
 import { getStoredAnalysis, saveAnalysis, storedAnalysisIds } from "@/lib/mail/analysis-store";
 import { acquireMailCodex, currentMailCodex, someoneWaitsForMailCodex } from "@/lib/mail/codex-lock";
-import { analysisCacheKey, buildAnalyzePrompt, freshValue, parseAnalyzeReply, putCache, type CacheEntry, type MailAnalysis } from "@/lib/mail/analyze-core";
+import { analysisCacheKey, buildAnalyzePrompt, freshValue, parseAnalyzeReply, putCache, sanitizeLinkSuggestions, type CacheEntry, type MailAnalysis } from "@/lib/mail/analyze-core";
 import type { MailFailureKind } from "@/lib/mail/contract";
+import { eventCandidates, linksForMessage, taskCandidates } from "@/lib/mail/link";
+import { linkKey, type LinkCandidate } from "@/lib/mail/link-core";
 import { plainBody, withReceivedDate } from "@/lib/mail/suggest-core";
 import { checkCardWithdrawal, checkWithdrawal, confirmCardWithdrawal, type CardConfirmOutcome } from "@/lib/mail/withdrawal";
 import type { BalanceCheck, CardCheck } from "@/lib/mail/withdrawal-core";
@@ -66,6 +68,20 @@ function withReceived(analysis: MailAnalysis, receivedAt: number | null): MailAn
   return { ...analysis, suggest: withReceivedDate(analysis.suggest, receivedAt) };
 }
 
+/**
+ * 紐づけの候補（#1029）: 未完了のタスクと前後の予定（紐づけ画面の候補と同じ取り方）のうち、このメールにまだ紐づけていないもの。
+ * 取れなかった・未接続のときは空（分析は従来どおり進める）。
+ */
+async function linkCandidatesFor(userId: string, messageId: string): Promise<LinkCandidate[]> {
+  try {
+    const [tasks, events, links] = await Promise.all([taskCandidates(userId), eventCandidates(userId), linksForMessage(userId, messageId)]);
+    const linked = new Set(links.map((l) => linkKey(l.kind, l.targetId)));
+    return [...(tasks.ok ? tasks.items : []), ...(events.ok ? events.items : [])].filter((c) => !linked.has(linkKey(c.kind, c.targetId)));
+  } catch {
+    return [];
+  }
+}
+
 async function run(user: MailUser, messageId: string, key: string, refresh: boolean): Promise<AnalyzeOutcome> {
   try {
     const mail = await getMail(user, messageId);
@@ -85,6 +101,7 @@ async function run(user: MailUser, messageId: string, key: string, refresh: bool
     const { message } = mail.value;
     const now = new Date();
     const startedAt = now.getTime();
+    const candidates = await linkCandidatesFor(user.id, messageId);
     const result = await runCodexRecorded({
       userId: user.id,
       feature: "mail_suggest",
@@ -96,10 +113,12 @@ async function run(user: MailUser, messageId: string, key: string, refresh: bool
         body: plainBody(message.text, message.html),
         receivedDate: message.receivedAt ? jstDayKey(new Date(message.receivedAt)) : null,
         today: jstDayKey(now),
+        candidates,
       }),
       timeoutMs: ANALYZE_TIMEOUT_MS,
     });
-    const reply = result.messages.at(-1) ?? result.text;
+    // 紐づけの提案は渡した候補で検証し、題名などを候補の値へ置き換えたものを保存する（読み直すときは候補が無い。#1029）
+    const reply = sanitizeLinkSuggestions(result.messages.at(-1) ?? result.text, candidates);
     const parsed = parseAnalyzeReply(reply);
     if (!parsed) {
       console.error("[aide-bot] メールの分析の返答を読めなかった");
