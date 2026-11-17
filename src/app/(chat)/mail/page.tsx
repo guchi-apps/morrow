@@ -9,7 +9,6 @@ import { MailLearnedRules } from "@/components/mail/mail-learned-rules";
 import { elapsedLabel } from "@/components/mail/mail-format";
 import { MailRows } from "@/components/mail/mail-rows";
 import { MailSearch } from "@/components/mail/mail-search";
-import { MailViewTabs } from "@/components/mail/mail-view-tabs";
 import { getCurrentUser } from "@/lib/auth-user";
 import { jstDayKey, jstTimeLabel } from "@/lib/day-key";
 import { listMailForPage } from "@/lib/mail/aide-client";
@@ -146,9 +145,8 @@ export default async function MailPage({ searchParams }: Props) {
           showAccount={showAccounts && selected.length > 1}
           nowMs={now.getTime()}
           stickyClassName="sticky top-0 z-10 -mx-3.5 flex flex-col gap-2 border-b border-border bg-background px-3.5 pb-2.5 pt-3 md:-mx-7 md:px-7 md:pt-5"
+          tabs={MAIL_VIEWS.map((item) => ({ key: item.key, label: item.label, href: viewHref(item.key) }))}
           top={
-          <div className="flex items-center gap-2">
-            <MailViewTabs view={view} items={MAIL_VIEWS.map((item) => ({ key: item.key, label: item.label, href: viewHref(item.key) }))} />
             <p className="ml-auto min-w-0 text-right text-[0.625rem] leading-snug text-muted sm:text-[0.6875rem]">
               {checkedAt ? (
                 <>
@@ -165,7 +163,6 @@ export default async function MailPage({ searchParams }: Props) {
                 "まだ新着を確認していません"
               )}
             </p>
-          </div>
           }
           // 「いま確認」のボタンはヘッダーへ。結果のメッセージだけがここ（固定部分の下）に出る
           below={

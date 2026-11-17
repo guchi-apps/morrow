@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 
 import { hideArchived, readArchived, subscribeArchived, type ArchivedMap } from "@/lib/mail/archived-memory";
 import { mailAccountKeyOf, mailAccountTone, senderName, type MailAction, type MailLabel, type MailSummary } from "@/lib/mail/contract";
-import { isInboxRow, showInboxMark } from "@/lib/mail/inbox-mark";
+import { dimArchivedRows, isInboxRow, showInboxMark } from "@/lib/mail/inbox-mark";
 import { cn } from "@/lib/utils";
 
 import { FLOW_KIND_META } from "@/lib/mail/flow-summary";
@@ -174,9 +174,10 @@ export function MailRows({ messages: listed, labels, supportsLabels, inTrash, sh
           const href = `/mail/${encodeURIComponent(message.id)}?back=${encodeURIComponent(back)}`;
           const annotation = annotations?.[message.id];
           // 「すべて」表示だけ、受信トレイの行にアイコン・アーカイブ済みの行は淡く（#1033）
-          const markInbox = showInboxMark(listQuery.view);
+          const searching = listQuery.q !== "";
+          const markInbox = showInboxMark(listQuery.view, searching);
           const inInbox = markInbox && isInboxRow(message.labelIds);
-          const dimmed = markInbox && !inInbox;
+          const dimmed = dimArchivedRows(listQuery.view, searching) && !inInbox;
           return (
             <SwipeArchiveRow
               key={message.id}
