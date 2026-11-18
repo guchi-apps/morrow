@@ -15,7 +15,7 @@ export function ScrollToNow({ className, resetKey, children }: { className?: str
     box.scrollLeft = now ? Math.max(0, now.offsetLeft - 46) : 0;
   }, [resetKey]);
   return (
-    <div ref={ref} className={className}>
+    <div ref={ref} className={className} data-strip-scroll="">
       {children}
     </div>
   );

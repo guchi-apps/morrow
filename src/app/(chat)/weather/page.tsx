@@ -5,7 +5,8 @@ import { redirect } from "next/navigation";
 import { RainRadar } from "@/components/dashboard/rain-radar";
 import { AutoLocate } from "@/components/weather/auto-locate";
 import { PlaceActions } from "@/components/weather/place-actions";
-import { HourlyStrip, WeatherIcon, YesterdayNote } from "@/components/weather/hourly-strip";
+import { DaySummaryPanel } from "@/components/weather/day-summary";
+import { HourlyStrip, WeatherIcon } from "@/components/weather/hourly-strip";
 import { getCurrentUser } from "@/lib/auth-user";
 import { addDays, DAY_RANGE, dayDiff } from "@/lib/dashboard/day-offset";
 import { dashboardHomePlace } from "@/lib/dashboard/places";
@@ -13,6 +14,7 @@ import { dayLabel, jstDayKey, jstTimeLabel } from "@/lib/day-key";
 import { cn } from "@/lib/utils";
 import { municipalityAt, searchMunicipalities } from "@/lib/weather/geocode";
 import { OPEN_METEO_ATTRIBUTION, forecastAt } from "@/lib/weather/open-meteo";
+import { summarizeDay, type DaySummary } from "@/lib/weather/day-summary";
 import { placeDayFrom, type PlaceDay } from "@/lib/weather/place-day";
 import { HERE_NAME, MAX_WEATHER_PLACES, findRegisteredPlace, hereFromQuery, hereHref, placeFromQuery, shouldAutoLocate, weatherHref, type WeatherPlaceInput } from "@/lib/weather/place-input";
 import { listWeatherPlaces } from "@/lib/weather/places-store";
@@ -120,7 +122,18 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
     : null;
   // ダッシュボードの地点名から今日以外の日で開いたときは、その日の0時から見せる
   const focusIndex = offset === 0 ? undefined : (days.indexOf(date) as number) * 24;
-  const todayDaily = detail?.byDate.get(today)?.daily ?? null;
+  const dayName = (day: string) => (day === today ? "今日" : day === addDays(today, 1) ? "明日" : day === addDays(today, -1) ? "昨日" : "");
+  const summaries: Record<string, DaySummary> = {};
+  if (detail && selectedForecast) {
+    for (const day of days) {
+      const previous = addDays(day, -1);
+      summaries[day] = summarizeDay(
+        detail.byDate.get(day)?.daily ?? null,
+        selectedForecast.daily.find((point) => point.date === previous) ?? null,
+        { date: day, label: `${dayName(day)} ${dayLabel(day)}`.trim(), condition: describeWeatherCode(detail.byDate.get(day)?.daily?.code ?? null) },
+      );
+    }
+  }
 
   return (
     <div className="mobile-tab-pad min-h-0 flex-1 overflow-y-auto">
@@ -254,26 +267,15 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
                   </p>
                 ) : (
                   <>
-                    {todayDaily && (
-                      <p className="flex flex-wrap items-center gap-x-3 text-[0.8125rem]">
-                        <span className="flex items-center gap-1.5 font-bold">
-                          <WeatherIcon code={todayDaily.code} className="size-4 text-topic" />
-                          {describeWeatherCode(todayDaily.code)}
-                        </span>
-                        <span className="tabular-nums">
-                          最高 <b className="text-accent">{temp(todayDaily.max)}</b> / 最低 <b className="text-topic">{temp(todayDaily.min)}</b>
-                        </span>
-                        {todayDaily.pop !== null && <span className="text-muted">降水 {todayDaily.pop}%</span>}
-                      </p>
-                    )}
-                    <YesterdayNote cells={detail.cells} nowIndex={nowIndex} />
-                    <HourlyStrip
-                      cells={detail.cells}
-                      nowIndex={nowIndex}
-                      resetKey={`${keyOf(selected)}:${date}`}
-                      dateBands={dateBands ?? undefined}
-                      focusIndex={focusIndex}
-                    />
+                    <DaySummaryPanel summaries={summaries} days={days} initialDate={date} resetKey={`${keyOf(selected)}:${date}`}>
+                      <HourlyStrip
+                        cells={detail.cells}
+                        nowIndex={nowIndex}
+                        resetKey={`${keyOf(selected)}:${date}`}
+                        dateBands={dateBands ?? undefined}
+                        focusIndex={focusIndex}
+                      />
+                    </DaySummaryPanel>
                     <p className="text-[0.6875rem] text-muted">
                       青い地は降水確率50%以上。灰色は過ぎた時間。左右にスクロールすると前後の日も続けて見られます。{OPEN_METEO_ATTRIBUTION}
                     </p>
