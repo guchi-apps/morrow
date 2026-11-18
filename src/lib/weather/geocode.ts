@@ -1,3 +1,4 @@
+import { parseMuniEntries, type MuniEntry } from "@/lib/weather/area-picker";
 import {
   addressQueryOf,
   municipalityCandidates,
@@ -87,6 +88,19 @@ export async function resolvePlace(placeText: string, near: Coordinates | null):
   }
   places.set(key, { value: place, expiresAt: Date.now() + TTL_MS });
   return place;
+}
+
+let muniEntries: Entry<MuniEntry[]> | null = null;
+
+/** 「エリアから選ぶ」（#1079）用の、都道府県つきの市町村一覧。通信の失敗は投げる。 */
+export async function municipalityEntries(): Promise<MuniEntry[]> {
+  if (muniEntries && muniEntries.expiresAt > Date.now()) return muniEntries.value;
+  const response = await fetch(MUNI_URL, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+  if (!response.ok) throw new Error(`市町村コード表の取得が ${response.status} で失敗しました`);
+  const value = parseMuniEntries(await response.text());
+  if (value.length === 0) throw new Error("市町村コード表を読めませんでした");
+  muniEntries = { value, expiresAt: Date.now() + TTL_MS };
+  return value;
 }
 
 const searches = new Map<string, Entry<MunicipalityCandidate[]>>();
