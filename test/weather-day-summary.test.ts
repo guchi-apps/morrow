@@ -1,21 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { dayAtColumn, diffFromPrevious, formatDiff, summarizeDay } from "../src/lib/weather/day-summary.ts";
+import { dayAtColumn, summarizeDay } from "../src/lib/weather/day-summary.ts";
 
 const day = (date: string, max: number | null, min: number | null) => ({ date, code: 61, max, min, pop: 80 });
 
-test("前日との差は四捨五入した値どうしで出す", () => {
-  assert.equal(diffFromPrevious(19.4, 17.6), 1);
-  assert.equal(diffFromPrevious(11, 19), -8);
-  assert.equal(diffFromPrevious(null, 19), null);
-  assert.equal(diffFromPrevious(11, null), null);
-});
-
-test("差の表記", () => {
-  assert.equal(formatDiff(2), "+2°");
-  assert.equal(formatDiff(-1), "−1°");
-  assert.equal(formatDiff(0), "±0°");
+test("前日比は天気カードと同じ表記（小数1桁）", () => {
+  const meta = { date: "2026-11-13", label: "11月13日", condition: "雨" };
+  const got = summarizeDay(day("2026-11-13", 19.4, 11), day("2026-11-12", 16.2, 12), meta);
+  assert.equal(got.maxDiff, "(＋3.2)");
+  assert.equal(got.minDiff, "(−1.0)");
 });
 
 test("前日が無いときは差を出さず、予報が無い日は「予報なし」", () => {

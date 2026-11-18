@@ -111,15 +111,8 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
     detail = { cells: [...byDate.values()].flatMap((d) => d.cells), byDate };
   }
   const nowIndex = DAY_RANGE * 24 + Number(jstTimeLabel(now).slice(0, 2));
-  // 日付のラベル（日付・天気・最高/最低）。最上段に出す
-  const dateBands = detail
-    ? Object.fromEntries(
-        [...detail.byDate].map(([day, d]) => [
-          day,
-          d.daily ? `${dayLabel(day)}　${describeWeatherCode(d.daily.code)} ${temp(d.daily.max)}/${temp(d.daily.min)}` : dayLabel(day),
-        ]),
-      )
-    : null;
+  // 日付のラベル。最上段に出す（天気・最高/最低は上部の DaySummaryPanel が出す。#1078）
+  const dateBands = detail ? Object.fromEntries([...detail.byDate.keys()].map((day) => [day, dayLabel(day)])) : null;
   // ダッシュボードの地点名から今日以外の日で開いたときは、その日の0時から見せる
   const focusIndex = offset === 0 ? undefined : (days.indexOf(date) as number) * 24;
   const dayName = (day: string) => (day === today ? "今日" : day === addDays(today, 1) ? "明日" : day === addDays(today, -1) ? "昨日" : "");

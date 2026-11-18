@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { WeatherIcon } from "@/components/weather/hourly-strip";
-import { dayAtColumn, formatDiff, type DaySummary } from "@/lib/weather/day-summary";
+import { dayAtColumn, type DaySummary } from "@/lib/weather/day-summary";
 
 const COLUMN_W = 46;
 /** 「今」の位置からこれ以上離れたら「今の時間に戻る」を出す（px）。 */
@@ -11,9 +11,9 @@ const AWAY_PX = COLUMN_W;
 
 const temp = (value: number | null) => (value === null ? "—" : `${Math.round(value)}°`);
 
-function Diff({ diff }: { diff: number | null }) {
+function Diff({ diff }: { diff: string | null }) {
   if (diff === null) return null;
-  return <span className="ml-1 text-xs font-normal text-muted">昨日比 {formatDiff(diff)}</span>;
+  return <span className="ml-1 text-xs font-normal text-muted">昨日比 {diff}</span>;
 }
 
 /**

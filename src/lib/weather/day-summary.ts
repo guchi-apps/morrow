@@ -1,3 +1,4 @@
+import { tempDelta } from "@/lib/dashboard/temp-delta";
 import type { DailyPoint } from "@/lib/weather/rain-check";
 
 /**
@@ -12,21 +13,10 @@ export type DaySummary = {
   pop: number | null;
   max: number | null;
   min: number | null;
-  maxDiff: number | null;
-  minDiff: number | null;
+  /** 前日比の表記（天気カードと同じ `tempDelta()`。「(＋3.2)」）。出せなければnull */
+  maxDiff: string | null;
+  minDiff: string | null;
 };
-
-/** 前日との差（四捨五入した℃）。どちらかが欠けていればnull。 */
-export function diffFromPrevious(current: number | null, previous: number | null): number | null {
-  if (current === null || previous === null) return null;
-  return Math.round(current) - Math.round(previous);
-}
-
-/** 差の表記。「+2°」「−1°」「±0°」。 */
-export function formatDiff(diff: number): string {
-  if (diff === 0) return "±0°";
-  return `${diff > 0 ? "+" : "−"}${Math.abs(diff)}°`;
-}
 
 export function summarizeDay(
   daily: DailyPoint | null,
@@ -41,8 +31,8 @@ export function summarizeDay(
     pop: daily?.pop ?? null,
     max: daily?.max ?? null,
     min: daily?.min ?? null,
-    maxDiff: diffFromPrevious(daily?.max ?? null, previous?.max ?? null),
-    minDiff: diffFromPrevious(daily?.min ?? null, previous?.min ?? null),
+    maxDiff: tempDelta(daily?.max ?? null, previous?.max ?? null)?.text ?? null,
+    minDiff: tempDelta(daily?.min ?? null, previous?.min ?? null)?.text ?? null,
   };
 }
 
