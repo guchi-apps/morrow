@@ -16,7 +16,9 @@ export const RADAR_LONG_TIMES_URL = `${JMA_RASRF}/targetTimes.json`;
 
 /** 地図のズームの範囲（#872）。初期は従来の「周辺」（約45km四方）。タイルは整数ズームで読み、間はCSSの拡大率でつなぐ。 */
 export const RADAR_ZOOM_MIN = 6;
-export const RADAR_ZOOM_MAX = 10;
+/** 約10km四方まで拡大できる（#1073）。気象庁の雨雲タイルはズーム10までなので、それより先はCSSの拡大率で補う。 */
+export const RADAR_ZOOM_MAX = 12;
+export const RADAR_TILE_ZOOM_MAX = 10;
 export const RADAR_ZOOM_DEFAULT = 10;
 
 const TILE_PX = 256;
@@ -29,7 +31,7 @@ export function clampZoom(zoom: number): number {
 /** 小数のズームを、読むタイルの整数ズームと、CSSで掛ける拡大率に分ける。 */
 export function splitZoom(zoom: number): { tileZoom: number; scale: number } {
   const clamped = clampZoom(zoom);
-  const tileZoom = Math.min(RADAR_ZOOM_MAX, Math.max(RADAR_ZOOM_MIN, Math.round(clamped)));
+  const tileZoom = Math.min(RADAR_TILE_ZOOM_MAX, Math.max(RADAR_ZOOM_MIN, Math.round(clamped)));
   return { tileZoom, scale: 2 ** (clamped - tileZoom) };
 }
 
