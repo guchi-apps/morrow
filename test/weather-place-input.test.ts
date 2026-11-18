@@ -109,4 +109,9 @@ describe("shouldAutoLocate（#882）", () => {
     assert.equal(shouldAutoLocate({ lat: "abc" }), false);
     assert.equal(shouldAutoLocate({ here: "1", lat: "34", lon: "135" }), false);
   });
+  it("エリアから選んでいる間は取りに行かない（#1085。取ると選択画面が消える）", () => {
+    assert.equal(shouldAutoLocate({ picker: "1" }), false);
+    assert.equal(shouldAutoLocate({ picker: "1", area: "kinki", pref: "25" }), false);
+    assert.equal(shouldAutoLocate({ picker: "1", area: "kinki", pref: "25", city: "栗東市" }), false);
+  });
 });
