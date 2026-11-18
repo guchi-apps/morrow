@@ -1,6 +1,6 @@
 "use client";
 
-import { Crosshair, Minus, Pause, Play, Plus } from "lucide-react";
+import { Crosshair, LocateFixed, Minus, Pause, Play, Plus } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { jstTimeLabel } from "@/lib/day-key";
@@ -20,6 +20,7 @@ import {
   clampZoom,
   frameDate,
   hoursAfter,
+  isInRadarArea,
   panCenter,
   parseLongRangeTimes,
   parseTargetTimes,
@@ -34,7 +35,9 @@ import {
   DARK_PALETTE,
   LIGHT_PALETTE,
   basemapView,
+  drawAreaHighlight,
   drawBasemap,
+  findAreaRing,
   parseBoundaries,
 } from "@/lib/weather/radar-basemap";
 
@@ -52,6 +55,10 @@ const FRAME_MS = 500;
 /** 枠の外へ余分に読むタイルの幅（動かした直後に地図が欠けないように）。 */
 const TILE_MARGIN_PX = 128;
 const KEY_PAN_PX = 64;
+/** 選んだ地区の塗りと縁取り（#1073）。雨雲の上に重ねるので半透明。 */
+const AREA_FILL = "rgba(224, 96, 62, 0.22)";
+const AREA_STROKE = "#e0603e";
+const GEO_TIMEOUT_MS = 8_000;
 const TIMES_TIMEOUT_MS = 10_000;
 /** 開いている間に一覧を取り直す間隔（実況は5分ごとに増える）。 */
 const REFRESH_MS = 5 * 60_000;
@@ -141,6 +148,11 @@ export function RainRadar({
   const [dpr, setDpr] = useState(1);
   const mapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const areaCanvasRef = useRef<HTMLCanvasElement>(null);
+  // 端末の現在地（#1073）。端末の中だけで使い、保存も送信もしない。null＝未取得
+  const [here, setHere] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locateError, setLocateError] = useState<string | null>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
   const viewRef = useRef({ latitude, longitude, zoom: RADAR_ZOOM_DEFAULT });
@@ -283,6 +295,77 @@ export function RainRadar({
     return { x: target.x - center.x, y: target.y - center.y };
   })();
   const markerVisible = Math.abs(markerOffset.x) < size.width / 2 && Math.abs(markerOffset.y) < size.height / 2;
+
+  // 選んだ地点を含む市区町村。見つからない（海上・データ未読込）ときは点で出す
+  const areaRing = useMemo(() => (boundaries ? findAreaRing(boundaries, latitude, longitude) : null), [boundaries, latitude, longitude]);
+  useEffect(() => {
+    const canvas = areaCanvasRef.current;
+    if (!canvas || size.width === 0 || size.height === 0) return;
+    const ratio = Math.min(dpr, 3);
+    canvas.width = Math.round(size.width * ratio);
+    canvas.height = Math.round(size.height * ratio);
+    const ctx = canvas.getContext("2d");
+    if (!ctx || !boundaries || !areaRing) return;
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    drawAreaHighlight(ctx, boundaries, areaRing, basemapView(centerLat, centerLon, zoom, size.width, size.height), AREA_FILL, AREA_STROKE);
+  }, [boundaries, areaRing, centerLat, centerLon, zoom, size.width, size.height, dpr, frames === null]); // eslint-disable-line react-hooks/exhaustive-deps -- 地図の枠は一覧が届いてから現れる
+
+  // 現在地。位置は1回だけ取り、追跡しない。許可済みなら開いたときに点だけ出す（地図は動かさない）
+  const locate = (recenter: boolean) => {
+    if (!("geolocation" in navigator)) {
+      setLocateError("この端末では現在地を取得できません。");
+      return;
+    }
+    setLocating(true);
+    setLocateError(null);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLocating(false);
+        const next = { latitude: position.coords.latitude, longitude: position.coords.longitude };
+        if (!isInRadarArea(next.latitude, next.longitude)) {
+          setLocateError("現在地がレーダーの範囲の外です。");
+          return;
+        }
+        setHere(next);
+        if (recenter) {
+          setPanned(next);
+          const now = currentRef.current;
+          if (now) setRequested(new Set([now.validtime]));
+          setPlaying(false);
+        }
+      },
+      () => {
+        setLocating(false);
+        setLocateError("現在地を取得できませんでした。位置情報の許可を確認してください。");
+      },
+      { enableHighAccuracy: false, timeout: GEO_TIMEOUT_MS, maximumAge: 60_000 },
+    );
+  };
+  useEffect(() => {
+    let cancelled = false;
+    navigator.permissions
+      ?.query({ name: "geolocation" })
+      .then((status) => {
+        if (!cancelled && status.state === "granted") locate(false);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const hereOffset = (() => {
+    if (!here) return null;
+    const world = 2 ** zoom * 256;
+    const at = (lat: number, lon: number) => {
+      const sin = Math.sin((lat * Math.PI) / 180);
+      return { x: ((lon + 180) / 360) * world, y: (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * world };
+    };
+    const target = at(here.latitude, here.longitude);
+    const center = at(centerLat, centerLon);
+    return { x: target.x - center.x, y: target.y - center.y };
+  })();
+  const hereVisible = !!hereOffset && Math.abs(hereOffset.x) < size.width / 2 && Math.abs(hereOffset.y) < size.height / 2;
 
   // 動かす・拡大縮小するときは再生を止め、読むコマを表示中の1つへ絞る（全コマ×新しい範囲のタイルを一度に要求しない）
   const stopForMove = () => {
@@ -474,11 +557,20 @@ export function RainRadar({
             </div>
           ))}
         </div>
-        {markerVisible && (
+        <canvas ref={areaCanvasRef} aria-hidden className="pointer-events-none absolute inset-0 size-full" />
+        {areaRing && <span className="sr-only">{centerLabel}</span>}
+        {markerVisible && !areaRing && (
           <span
             aria-label={centerLabel}
             className="absolute top-1/2 left-1/2 size-3.5 rounded-full border-[2.5px] border-white bg-accent shadow-[0_0_0_1px_rgba(0,0,0,0.25),0_1px_4px_rgba(0,0,0,0.4)]"
             style={{ transform: `translate(calc(-50% + ${markerOffset.x}px), calc(-50% + ${markerOffset.y}px))` }}
+          />
+        )}
+        {hereVisible && hereOffset && (
+          <span
+            aria-label="現在地"
+            className="absolute top-1/2 left-1/2 size-3.5 rounded-full border-[2.5px] border-white bg-[#3b82f6] shadow-[0_0_0_5px_rgba(59,130,246,0.25),0_1px_4px_rgba(0,0,0,0.4)]"
+            style={{ transform: `translate(calc(-50% + ${hereOffset.x}px), calc(-50% + ${hereOffset.y}px))` }}
           />
         )}
         <span
@@ -492,6 +584,15 @@ export function RainRadar({
         <span className="absolute top-2 right-2 rounded-lg bg-slate-900/80 px-2 py-0.5 text-xs tabular-nums text-white">
           {scaleLabel(viewWidthKm(centerLat, zoom, size.width))}
         </span>
+        <button
+          type="button"
+          onClick={() => locate(true)}
+          disabled={locating}
+          className="absolute top-10 left-2 inline-flex h-8 items-center gap-1 rounded-[10px] bg-white/95 px-2.5 text-xs font-semibold text-slate-700 shadow-[0_1px_3px_rgba(0,0,0,0.25)] disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-accent"
+        >
+          <LocateFixed className="size-3.5" aria-hidden="true" />
+          {locating ? "取得中…" : "現在地"}
+        </button>
         {moved && (
           <button
             type="button"
@@ -523,6 +624,11 @@ export function RainRadar({
         </div>
       </div>
 
+      {locateError && (
+        <p role="status" className="text-xs text-danger">
+          {locateError}
+        </p>
+      )}
       {baseFailed && (
         <p role="status" className="text-[0.75rem] text-danger">
           背景の地図を読み込めませんでした。雨雲だけを表示しています。
