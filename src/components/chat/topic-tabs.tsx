@@ -237,11 +237,15 @@ function TopicArticle({ topic, categories, unread }: { topic: TopicRow; categori
     <article
       className={cn(
         "flex flex-col gap-1 border-b border-border py-2.5 last:border-b-0 last:pb-0",
-        unread && "-mx-2 rounded-md bg-accent-surface/60 px-2 shadow-[inset_3px_0_0_var(--accent)]",
       )}
     >
       <div className="flex flex-wrap items-center gap-2">
-        {unread && <span className="shrink-0 text-[0.625rem] font-bold tracking-wider text-accent">NEW</span>}
+        {unread && (
+          <span className="inline-flex shrink-0 items-center gap-1.5 text-[0.625rem] font-bold tracking-wider">
+            <span aria-hidden="true" className="size-2 rounded-full bg-accent" />
+            NEW
+          </span>
+        )}
         <span className="shrink-0 rounded-full bg-topic-surface px-2 py-0.5 text-[0.625rem] font-bold tracking-wider text-topic">
           {topicCategoryShort(categories, topic.category)}
         </span>
@@ -253,8 +257,20 @@ function TopicArticle({ topic, categories, unread }: { topic: TopicRow; categori
             aria-label={`${topic.title}の記事を開く`}
             className="inline-flex flex-wrap items-center gap-1.5 no-underline"
           >
-            <span className="text-sm font-semibold underline decoration-accent/55 underline-offset-4">{topic.title}</span>
-            <span className="inline-flex shrink-0 items-center gap-1 text-[0.6875rem] font-bold text-accent">
+            <span
+              className={cn(
+                "text-sm font-semibold underline underline-offset-4",
+                unread ? "decoration-accent/70" : "text-foreground/80 decoration-muted/60",
+              )}
+            >
+              {topic.title}
+            </span>
+            <span
+              className={cn(
+                "inline-flex shrink-0 items-center gap-1 text-[0.6875rem] font-bold",
+                unread ? "text-accent" : "text-muted",
+              )}
+            >
               開く
               <svg
                 viewBox="0 0 24 24"
@@ -281,7 +297,7 @@ function TopicArticle({ topic, categories, unread }: { topic: TopicRow; categori
       </div>
       <p className="m-0 text-[0.8125rem] leading-relaxed">{topic.summary}</p>
       {/* 吹き出しに出る一言。要約と見分けるため、引用の形にする。 */}
-      <p className="m-0 border-l-2 border-topic/60 pl-2.5 text-[0.8125rem] leading-relaxed">
+      <p className="m-0 rounded-lg bg-foreground/5 px-2.5 py-1.5 text-[0.8125rem] leading-relaxed">
         <span className="mr-1.5 text-[0.625rem] tracking-wider text-muted">秘書の一言</span>
         {topic.lead}
       </p>
