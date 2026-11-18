@@ -9,7 +9,9 @@ import {
   MUNI_MIN_ZOOM,
   basemapView,
   boxVisible,
+  drawAreaHighlight,
   drawBasemap,
+  findAreaRing,
   parseBoundaries,
   worldPx,
 } from "../src/lib/weather/radar-basemap.ts";
@@ -88,5 +90,31 @@ describe("drawBasemap", () => {
     drawBasemap(far.ctx, data, basemapView(34.85, 135.62, MUNI_MIN_ZOOM - 1, 512, 384), DARK_PALETTE);
     assert.ok(!far.strokes.some((s) => s.color === DARK_PALETTE.muni));
     assert.equal(far.strokes[0].color, DARK_PALETTE.pref);
+  });
+});
+
+describe("選んだ地区の強調（#1073）", () => {
+  it("点を含む市区町村の面を返す（県全体ではなく小さい面）", () => {
+    assert.ok(data);
+    const ring = findAreaRing(data, 35.0, 135.99); // 滋賀県栗東市あたり
+    assert.ok(ring);
+    assert.ok(ring.maxLon - ring.minLon < 0.4 && ring.maxLat - ring.minLat < 0.4);
+    assert.ok(ring.minLon <= 135.99 && ring.maxLon >= 135.99 && ring.minLat <= 35.0 && ring.maxLat >= 35.0);
+  });
+
+  it("海の上ではnull", () => {
+    assert.ok(data);
+    assert.equal(findAreaRing(data, 30, 140), null);
+  });
+
+  it("強調は塗りと縁取りだけを描き、海の塗りつぶしをしない", () => {
+    assert.ok(data);
+    const ring = findAreaRing(data, 35.0, 135.99);
+    assert.ok(ring);
+    const { ctx, calls, strokes } = fakeContext();
+    drawAreaHighlight(ctx, data, ring, basemapView(35.0, 135.99, 11, 400, 300), "rgba(1,2,3,0.3)", "#e0603e");
+    assert.ok(!calls.includes("fillRect"));
+    assert.ok(calls.includes("fill:undefined"));
+    assert.deepEqual(strokes.map((s) => s.color), ["#e0603e"]);
   });
 });

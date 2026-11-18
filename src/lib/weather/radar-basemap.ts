@@ -246,3 +246,70 @@ export function drawBasemap(ctx: BasemapContext, data: Boundaries, view: Basemap
 
   strokeArcs(data.coast, palette.coast, 1);
 }
+
+/** 点が輪（弧の参照の列）の内側か。偶奇規則の射影なしの経緯度でよい（輪は小さく、境界の近似で足りる）。 */
+function ringContains(data: Boundaries, ring: Boundaries["rings"][number], latitude: number, longitude: number): boolean {
+  if (longitude < ring.minLon || longitude > ring.maxLon || latitude < ring.minLat || latitude > ring.maxLat) return false;
+  let inside = false;
+  let prev: [number, number] | null = null;
+  const visit = (lon: number, lat: number) => {
+    if (prev) {
+      const [x1, y1] = prev;
+      if (y1 > latitude !== lat > latitude && longitude < ((lon - x1) * (latitude - y1)) / (lat - y1) + x1) inside = !inside;
+    }
+    prev = [lon, lat];
+  };
+  for (const ref of ring.refs) {
+    const reverse = ref < 0;
+    const arc = data.arcs[reverse ? ~ref : ref];
+    const count = arc.points.length / 2;
+    for (let n = 0; n < count; n++) {
+      const i = reverse ? count - 1 - n : n;
+      visit(arc.points[i * 2], arc.points[i * 2 + 1]);
+    }
+  }
+  return inside;
+}
+
+/**
+ * 点を含む行政区域の面（市区町村）。湖や飛び地の穴は別の輪なので、含む輪のうち最も小さいものを選ぶ。
+ * 海上など、どの輪にも入らなければnull（呼び出し側は点で表示する）。
+ */
+export function findAreaRing(data: Boundaries, latitude: number, longitude: number): Boundaries["rings"][number] | null {
+  let best: Boundaries["rings"][number] | null = null;
+  let bestSize = Infinity;
+  for (const ring of data.rings) {
+    const size = (ring.maxLon - ring.minLon) * (ring.maxLat - ring.minLat);
+    if (size >= bestSize) continue;
+    if (ringContains(data, ring, latitude, longitude)) {
+      best = ring;
+      bestSize = size;
+    }
+  }
+  return best;
+}
+
+/** 選んだ地区を塗り・縁取りで強調する（雨雲の上に重ねる専用のCanvas用。海は透明のまま）。 */
+export function drawAreaHighlight(
+  ctx: BasemapContext,
+  data: Boundaries,
+  ring: Boundaries["rings"][number],
+  view: BasemapView,
+  fill: string,
+  stroke: string,
+): void {
+  ctx.beginPath();
+  let first = true;
+  for (const ref of ring.refs) {
+    const reverse = ref < 0;
+    tracePoints(ctx, data.arcs[reverse ? ~ref : ref], view, reverse, !first, first);
+    first = false;
+  }
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+}

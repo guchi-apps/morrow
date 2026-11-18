@@ -177,10 +177,14 @@ describe("降水短時間予報（#666）", () => {
 describe("地図の移動と拡大縮小（#872）", () => {
   it("ズームは範囲に丸め、整数ズームと拡大率に分ける", () => {
     assert.equal(clampZoom(3), 6);
-    assert.equal(clampZoom(12), 10);
+    assert.equal(clampZoom(12), 12);
+    assert.equal(clampZoom(14), 12);
     assert.equal(clampZoom(Number.NaN), 10);
     assert.deepEqual(splitZoom(10), { tileZoom: 10, scale: 1 });
     assert.deepEqual(splitZoom(9), { tileZoom: 9, scale: 1 });
+    // 10kmまでの拡大は、タイルをズーム10のまま拡大率で補う（#1073）
+    assert.deepEqual(splitZoom(12), { tileZoom: 10, scale: 4 });
+    assert.deepEqual(splitZoom(11), { tileZoom: 10, scale: 2 });
     const half = splitZoom(9.5);
     assert.ok(half.tileZoom === 9 || half.tileZoom === 10);
     assert.ok(Math.abs(half.scale * 2 ** half.tileZoom - 2 ** 9.5) < 1e-9);
