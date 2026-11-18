@@ -94,7 +94,8 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
   if (muni && pickerCity && Number.isInteger(pickerPref)) {
     const entry = municipalitiesOf(pickerPref, muni).find((item) => item.name === pickerCity);
     const found = entry ? await searchMunicipalities(`${entry.prefecture}${entry.name}`).catch(() => []) : [];
-    const hit = found.find((item) => item.name === pickerCity) ?? found[0];
+    // 同名の市（府中市など）で別の県を拾わないよう、題が選んだ県で始まるものだけを採る
+    const hit = entry ? found.find((item) => item.name === pickerCity && item.title.startsWith(entry.prefecture)) : undefined;
     if (hit) redirect(weatherHref({ name: hit.name, latitude: hit.latitude, longitude: hit.longitude }));
     pickerError = true;
   }
