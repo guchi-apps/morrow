@@ -1,18 +1,21 @@
-import { MapPin, Search } from "lucide-react";
+import { Check, MapPin, Search } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { RainRadar } from "@/components/dashboard/rain-radar";
 import { AutoLocate } from "@/components/weather/auto-locate";
 import { PlaceActions } from "@/components/weather/place-actions";
-import { HourlyStrip, WeatherIcon, YesterdayNote } from "@/components/weather/hourly-strip";
+import { DaySummaryPanel } from "@/components/weather/day-summary";
+import { HourlyStrip, WeatherIcon } from "@/components/weather/hourly-strip";
 import { getCurrentUser } from "@/lib/auth-user";
 import { addDays, DAY_RANGE, dayDiff } from "@/lib/dashboard/day-offset";
 import { dashboardHomePlace } from "@/lib/dashboard/places";
 import { dayLabel, jstDayKey, jstTimeLabel } from "@/lib/day-key";
 import { cn } from "@/lib/utils";
-import { municipalityAt, searchMunicipalities } from "@/lib/weather/geocode";
+import { AREAS, areaById, areaHref, municipalitiesOf, prefecturesOf, type MuniEntry } from "@/lib/weather/area-picker";
+import { municipalityAt, municipalityEntries, searchMunicipalities } from "@/lib/weather/geocode";
 import { OPEN_METEO_ATTRIBUTION, forecastAt } from "@/lib/weather/open-meteo";
+import { summarizeDay, type DaySummary } from "@/lib/weather/day-summary";
 import { placeDayFrom, type PlaceDay } from "@/lib/weather/place-day";
 import { HERE_NAME, MAX_WEATHER_PLACES, findRegisteredPlace, hereFromQuery, hereHref, placeFromQuery, shouldAutoLocate, weatherHref, type WeatherPlaceInput } from "@/lib/weather/place-input";
 import { listWeatherPlaces } from "@/lib/weather/places-store";
@@ -36,6 +39,24 @@ const HerePin = ({ className }: { className?: string }) => (
     <MapPin className="size-3.5" aria-hidden="true" />
   </span>
 );
+const PickerChips = ({ label, children }: { label: string; children: React.ReactNode }) => (
+  <div className="flex flex-col gap-1.5">
+    <span className="text-[0.6875rem] text-muted">{label}</span>
+    <div className="flex flex-wrap gap-1.5">{children}</div>
+  </div>
+);
+const PickerChip = ({ href, on, children }: { href: string; on: boolean; children: React.ReactNode }) => (
+  <Link
+    href={href}
+    aria-current={on ? "true" : undefined}
+    className={cn(
+      "rounded-full border border-border bg-background px-3 py-1 text-xs hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+      on && "border-foreground bg-foreground font-bold text-background hover:bg-foreground",
+    )}
+  >
+    {children}
+  </Link>
+);
 const temp = (value: number | null) => (value === null ? "—" : `${Math.round(value)}°`);
 
 /**
@@ -57,6 +78,29 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
   const offset = diff === null ? 0 : Math.max(-DAY_RANGE, Math.min(DAY_RANGE, diff));
   const date = addDays(today, offset);
   const q = (first(query.q) ?? "").trim().slice(0, 40);
+
+  // 「エリアから選ぶ」（#1079）。エリア→都道府県→市町村。市町村を押したら座標へ解決して詳細へ移す
+  const pickerOpen = first(query.picker) === "1";
+  const pickerArea = areaById(first(query.area));
+  const pickerPref = Number(first(query.pref));
+  const pickerCity = (first(query.city) ?? "").slice(0, 30);
+  let muni: MuniEntry[] | null = null;
+  let pickerError = false;
+  if (pickerOpen) {
+    try {
+      muni = await municipalityEntries();
+    } catch {
+      pickerError = true;
+    }
+  }
+  if (muni && pickerCity && Number.isInteger(pickerPref)) {
+    const entry = municipalitiesOf(pickerPref, muni).find((item) => item.name === pickerCity);
+    const found = entry ? await searchMunicipalities(`${entry.prefecture}${entry.name}`).catch(() => []) : [];
+    // 同名の市（府中市など）で別の県を拾わないよう、題が選んだ県で始まるものだけを採る
+    const hit = entry ? found.find((item) => item.name === pickerCity && item.title.startsWith(entry.prefecture)) : undefined;
+    if (hit) redirect(weatherHref({ name: hit.name, latitude: hit.latitude, longitude: hit.longitude }));
+    pickerError = true;
+  }
 
   const [home, stored] = await Promise.all([dashboardHomePlace(user.id, now), listWeatherPlaces(user.id)]);
   // 現在地（#882）。座標はブラウザが取ってURLへ載せたもので、市町村名だけサーバーで引く（引けなくても予報は出す）
@@ -109,18 +153,22 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
     detail = { cells: [...byDate.values()].flatMap((d) => d.cells), byDate };
   }
   const nowIndex = DAY_RANGE * 24 + Number(jstTimeLabel(now).slice(0, 2));
-  // 日付のラベル（日付・天気・最高/最低）。最上段に出す
-  const dateBands = detail
-    ? Object.fromEntries(
-        [...detail.byDate].map(([day, d]) => [
-          day,
-          d.daily ? `${dayLabel(day)}　${describeWeatherCode(d.daily.code)} ${temp(d.daily.max)}/${temp(d.daily.min)}` : dayLabel(day),
-        ]),
-      )
-    : null;
+  // 日付のラベル。最上段に出す（天気・最高/最低は上部の DaySummaryPanel が出す。#1078）
+  const dateBands = detail ? Object.fromEntries([...detail.byDate.keys()].map((day) => [day, dayLabel(day)])) : null;
   // ダッシュボードの地点名から今日以外の日で開いたときは、その日の0時から見せる
   const focusIndex = offset === 0 ? undefined : (days.indexOf(date) as number) * 24;
-  const todayDaily = detail?.byDate.get(today)?.daily ?? null;
+  const dayName = (day: string) => (day === today ? "今日" : day === addDays(today, 1) ? "明日" : day === addDays(today, -1) ? "昨日" : "");
+  const summaries: Record<string, DaySummary> = {};
+  if (detail && selectedForecast) {
+    for (const day of days) {
+      const previous = addDays(day, -1);
+      summaries[day] = summarizeDay(
+        detail.byDate.get(day)?.daily ?? null,
+        selectedForecast.daily.find((point) => point.date === previous) ?? null,
+        { date: day, label: `${dayName(day)} ${dayLabel(day)}`.trim(), condition: describeWeatherCode(detail.byDate.get(day)?.daily?.code ?? null) },
+      );
+    }
+  }
 
   return (
     <div className="mobile-tab-pad min-h-0 flex-1 overflow-y-auto">
@@ -138,7 +186,7 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
               name="q"
               defaultValue={q}
               maxLength={40}
-              placeholder="市町村名で地点を探す（例：三条、草津）"
+              placeholder="市町村名で地点を探す"
               aria-label="地名で検索"
               className="min-w-0 flex-1 bg-transparent py-2 text-[0.8125rem] outline-none placeholder:text-muted"
             />
@@ -149,7 +197,53 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
           >
             検索
           </button>
+          <Link
+            href={pickerOpen ? "/weather" : areaHref({})}
+            aria-expanded={pickerOpen}
+            className="rounded-[9px] border border-border bg-surface px-3 py-2 text-xs font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            エリアから選ぶ
+          </Link>
         </form>
+
+        {pickerOpen && (
+          <section aria-label="エリアから選ぶ" className="flex flex-col gap-2.5 rounded-xl border border-border bg-surface px-4 py-3">
+            <h3 className="text-xs font-bold tracking-[0.06em] text-muted">エリアから選ぶ</h3>
+            {pickerError || !muni ? (
+              <p role="status" className="rounded-[10px] bg-danger-surface px-3 py-2 text-[0.8125rem] text-danger">
+                市町村の一覧を取得できませんでした。時間をおいてやり直してください。
+              </p>
+            ) : (
+              <>
+                <PickerChips label="エリア">
+                  {AREAS.map((area) => (
+                    <PickerChip key={area.id} href={areaHref({ area: area.id })} on={pickerArea?.id === area.id}>
+                      {area.label}
+                    </PickerChip>
+                  ))}
+                </PickerChips>
+                {pickerArea && (
+                  <PickerChips label="都道府県">
+                    {prefecturesOf(pickerArea, muni).map((pref) => (
+                      <PickerChip key={pref.code} href={areaHref({ area: pickerArea.id, pref: pref.code })} on={pickerPref === pref.code}>
+                        {pref.name}
+                      </PickerChip>
+                    ))}
+                  </PickerChips>
+                )}
+                {pickerArea && pickerArea.prefectures.includes(pickerPref) && (
+                  <PickerChips label="市町村（押すとその地点の天気を開きます）">
+                    {municipalitiesOf(pickerPref, muni).map((item) => (
+                      <PickerChip key={item.name} href={areaHref({ area: pickerArea.id, pref: pickerPref, city: item.name })} on={false}>
+                        {item.name}
+                      </PickerChip>
+                    ))}
+                  </PickerChips>
+                )}
+              </>
+            )}
+          </section>
+        )}
 
         {search && (
           <section aria-label="検索結果" className="flex flex-col gap-1 rounded-xl border border-border bg-surface px-4 py-3">
@@ -201,14 +295,14 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
                       aria-current={on ? "page" : undefined}
                       className={cn(
                         "flex items-center justify-between gap-2 rounded-lg px-2 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
-                        on && "bg-rail-active font-bold shadow-[inset_2px_0_0_var(--accent)]",
+                        on && "bg-rail-active font-bold outline-1 outline-foreground/45 -outline-offset-1",
                       )}
                     >
                       <span className="flex min-w-0 items-center gap-1.5">
+                        {on && <Check className="size-3.5 shrink-0" aria-hidden="true" />}
                         <WeatherIcon code={daily?.code ?? null} className="size-3.5 shrink-0 text-topic" />
                         {isHereEntry && <HerePin className="shrink-0" />}
                         {!(id === "here" && place.name === HERE_NAME) && <span className="truncate">{place.name}</span>}
-                        {isHomeEntry && <span className="shrink-0 text-xs font-normal text-muted">・自宅</span>}
                       </span>
                       <span className="shrink-0 text-xs tabular-nums text-muted">
                         {daily ? `${temp(daily.max)} / ${temp(daily.min)}` : "—"}
@@ -236,7 +330,6 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
                   <h3 className="flex items-baseline gap-2 text-base font-bold">
                     {selected.name}
                     {isHere && <HerePin />}
-                    {(isHome || hereMergedWith === "home") && <span className="text-xs font-normal text-muted">・自宅</span>}
                   </h3>
                   {!isHome && !isHere && (
                     <PlaceActions
@@ -254,26 +347,15 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
                   </p>
                 ) : (
                   <>
-                    {todayDaily && (
-                      <p className="flex flex-wrap items-center gap-x-3 text-[0.8125rem]">
-                        <span className="flex items-center gap-1.5 font-bold">
-                          <WeatherIcon code={todayDaily.code} className="size-4 text-topic" />
-                          {describeWeatherCode(todayDaily.code)}
-                        </span>
-                        <span className="tabular-nums">
-                          最高 <b className="text-accent">{temp(todayDaily.max)}</b> / 最低 <b className="text-topic">{temp(todayDaily.min)}</b>
-                        </span>
-                        {todayDaily.pop !== null && <span className="text-muted">降水 {todayDaily.pop}%</span>}
-                      </p>
-                    )}
-                    <YesterdayNote cells={detail.cells} nowIndex={nowIndex} />
-                    <HourlyStrip
-                      cells={detail.cells}
-                      nowIndex={nowIndex}
-                      resetKey={`${keyOf(selected)}:${date}`}
-                      dateBands={dateBands ?? undefined}
-                      focusIndex={focusIndex}
-                    />
+                    <DaySummaryPanel summaries={summaries} days={days} initialDate={date} resetKey={`${keyOf(selected)}:${date}`}>
+                      <HourlyStrip
+                        cells={detail.cells}
+                        nowIndex={nowIndex}
+                        resetKey={`${keyOf(selected)}:${date}`}
+                        dateBands={dateBands ?? undefined}
+                        focusIndex={focusIndex}
+                      />
+                    </DaySummaryPanel>
                     <p className="text-[0.6875rem] text-muted">
                       青い地は降水確率50%以上。灰色は過ぎた時間。左右にスクロールすると前後の日も続けて見られます。{OPEN_METEO_ATTRIBUTION}
                     </p>

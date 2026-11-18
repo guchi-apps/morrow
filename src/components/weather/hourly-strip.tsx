@@ -49,22 +49,12 @@ const BAND_CLASS: Record<HourCell["placeKind"], string> = {
   move: "border border-dashed border-border font-normal text-muted",
 };
 
-/** 気温グラフの凡例と昨日との差の一行（#651）。昨日の値が1つも無ければ何も出さない。 */
+/** 昨日との差の一行（#651）。「いま」がある日（今日）だけ出し、昨日の値が無ければ何も出さない。凡例は無い（#1078）。 */
 export function YesterdayNote({ cells, nowIndex }: { cells: HourCell[]; nowIndex: number }) {
-  if (!cells.some((cell) => cell.yesterday !== null)) return null;
-  // 差の一行は「いま」がある日（今日）だけ。ほかの日は凡例だけ出す。
-  const diff = nowIndex >= 0 ? compareWithYesterday(cells.map((cell, index) => (index === nowIndex ? cell : { ...cell, yesterday: null })), nowIndex) : null;
-  return (
-    <div className="flex flex-wrap items-center gap-x-3 text-xs text-muted">
-      {diff && <span className="font-bold text-foreground">{describeDiff(diff, true)}</span>}
-      <span className="inline-flex items-center gap-1">
-        <i className="inline-block w-5 border-t-2 border-topic" aria-hidden="true" />今日
-      </span>
-      <span className="inline-flex items-center gap-1">
-        <i className="inline-block w-5 border-t-2 border-topic/25" aria-hidden="true" />昨日
-      </span>
-    </div>
-  );
+  if (nowIndex < 0) return null;
+  const diff = compareWithYesterday(cells.map((cell, index) => (index === nowIndex ? cell : { ...cell, yesterday: null })), nowIndex);
+  if (!diff) return null;
+  return <div className="text-xs font-bold text-foreground">{describeDiff(diff, true)}</div>;
 }
 
 const CELL_W = 46;
@@ -76,10 +66,8 @@ const CHART_PAD_BOTTOM = 8;
 export function TemperatureChart({ cells, nowIndex }: { cells: HourCell[]; nowIndex: number }) {
   const temps = cells.flatMap((cell) => (cell.temperature === null ? [] : [cell.temperature]));
   if (temps.length === 0) return null;
-  const yesterdayTemps = cells.flatMap((cell) => (cell.yesterday === null ? [] : [cell.yesterday]));
-  // 縦軸は昨日ぶんも含めて決める（差が高さの差として見える。#651）
-  const min = Math.min(...temps, ...yesterdayTemps);
-  const max = Math.max(...temps, ...yesterdayTemps);
+  const min = Math.min(...temps);
+  const max = Math.max(...temps);
   const span = max - min;
   const y = (t: number) =>
     span === 0 ? CHART_H / 2 : CHART_PAD_TOP + ((max - t) / span) * (CHART_H - CHART_PAD_TOP - CHART_PAD_BOTTOM);
@@ -100,23 +88,9 @@ export function TemperatureChart({ cells, nowIndex }: { cells: HourCell[]; nowIn
     }
     return d;
   };
-  const yesterdayPath = (() => {
-    let d = "";
-    let pen = false;
-    cells.forEach((cell, index) => {
-      if (cell.yesterday === null) {
-        pen = false;
-        return;
-      }
-      d += `${pen ? "L" : "M"}${index * CELL_W + CELL_W / 2} ${y(cell.yesterday)}`;
-      pen = true;
-    });
-    return d;
-  })();
   const split = nowIndex >= 0 ? nowIndex : 0;
   return (
     <svg width={cells.length * CELL_W} height={CHART_H} className="block overflow-visible" aria-hidden="true">
-      {yesterdayPath && <path d={yesterdayPath} fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="stroke-topic/25" />}
       {nowIndex > 0 && <path d={pathOf(0, split)} fill="none" strokeWidth={2} strokeLinejoin="round" className="stroke-muted/50" />}
       <path d={pathOf(split, cells.length - 1)} fill="none" strokeWidth={2} strokeLinejoin="round" className="stroke-topic" />
       {points.map((point) =>
@@ -194,6 +168,7 @@ export function HourlyStrip({
               key={`${cell.date}-${cell.hour}`}
               data-now={isNow ? "" : undefined}
               data-focus={index === focusIndex ? "" : undefined}
+              data-hour=""
               style={{ gridColumn: index + 1, gridRow: 2 }}
               className={cn("flex flex-col items-center gap-[3px] rounded-lg pt-1 tabular-nums", isNow && "bg-topic-surface", isPast && "opacity-50 grayscale")}
               aria-label={
