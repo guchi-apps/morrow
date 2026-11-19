@@ -70,3 +70,10 @@ describe("nowTop / toMinutes", () => {
     assert.equal(toMinutes("24:00"), 1440);
   });
 });
+
+describe("接する項目の列（#1097）", () => {
+  it("終了と開始がぴったり接する項目は別の列にする", () => {
+    const layout = layoutTimeline([ev("06:23", "07:18", true), ev("07:18", "18:42", true), ev("18:42", "19:40", true)]);
+    assert.deepEqual(layout.bars.map((bar) => bar.lane), [0, 1, 0]);
+  });
+});

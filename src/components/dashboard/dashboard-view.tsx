@@ -17,6 +17,7 @@ import {
   type PlaceSegment,
   type PlacesView,
 } from "@/lib/dashboard/places";
+import { calendarColor } from "@/lib/dashboard/calendar-color";
 import { HOUR_PX, layoutTimeline, nowTop } from "@/lib/dashboard/timeline";
 import { tempDelta, type TempDelta } from "@/lib/dashboard/temp-delta";
 import type { DashboardTopic } from "@/lib/dashboard/today";
@@ -598,8 +599,13 @@ function ScheduleOk({ schedule, now, offset, mailLinks }: { schedule: Extract<Sc
   const nowTime = jstTimeLabel(now);
   const phases = items.map((item) => schedulePhase(item, nowTime, offset));
   const layout = layoutTimeline(items);
-  const hasRecord = layout.bars.some((bar) => items[bar.index].record);
-  const hasEvent = layout.bars.some((bar) => !items[bar.index].record);
+  // 凡例は線の色ごとに1つ（カレンダー名。移動は「移動」）。
+  const legend: { label: string; color: string }[] = [];
+  for (const bar of layout.bars) {
+    const item = items[bar.index];
+    const label = item.kind === "travel" ? "移動" : (item.note ?? "予定");
+    if (!legend.some((entry) => entry.label === label)) legend.push({ label, color: calendarColor(item) });
+  }
   const nowY = offset === 0 ? nowTop(layout, nowTime) : null;
   // 線の列は右へ増える。項目名は最後の列の右から始める。
   const labelLeft = AXIS_W + 6 + Math.max(layout.laneCount, 1) * LANE_GAP + 12;
@@ -642,12 +648,12 @@ function ScheduleOk({ schedule, now, offset, mailLinks }: { schedule: Extract<Sc
               <svg width={labelLeft} height={layout.height} className="absolute left-0 top-0 overflow-visible" aria-hidden="true">
                 {layout.bars.map((bar) => {
                   const item = items[bar.index];
-                  const color = item.record ? "var(--fair)" : "var(--topic)";
+                  const color = calendarColor(item);
                   const x = laneX(bar.lane);
                   const fade = phases[bar.index] === "done" ? 0.6 : 1;
                   return (
                     <g key={bar.index} opacity={fade}>
-                      <line x1={x} x2={x} y1={bar.top} y2={bar.bottom} stroke={color} strokeWidth={4} strokeLinecap="round" />
+                      <line x1={x} x2={x} y1={bar.top + 1} y2={Math.max(bar.bottom - 1, bar.top + 3)} stroke={color} strokeWidth={4} />
                       <polyline
                         fill="none"
                         stroke={color}
@@ -664,7 +670,7 @@ function ScheduleOk({ schedule, now, offset, mailLinks }: { schedule: Extract<Sc
                 return (
                   <div
                     key={bar.index}
-                    className={cn("absolute right-0 flex items-baseline gap-1.5 leading-5", item.record && "text-fair", phases[bar.index] === "done" && "opacity-75")}
+                    className={cn("absolute right-0 flex items-baseline gap-1.5 leading-5", phases[bar.index] === "done" && "opacity-75")}
                     style={{ top: bar.labelTop, left: labelLeft }}
                   >
                     <span className="min-w-0">
@@ -682,20 +688,14 @@ function ScheduleOk({ schedule, now, offset, mailLinks }: { schedule: Extract<Sc
             </div>
           )}
 
-          {(hasEvent || hasRecord) && layout.bars.length > 0 && (
+          {legend.length > 0 && (
             <p className="flex flex-wrap gap-x-3.5 text-[0.6875rem] text-muted">
-              {hasEvent && (
-                <span>
-                  <span className="mr-1.5 inline-block h-2 w-1 rounded-sm bg-topic align-baseline" aria-hidden="true" />
-                  予定
+              {legend.map((entry) => (
+                <span key={entry.label}>
+                  <span className="mr-1.5 inline-block h-2 w-1 rounded-sm align-baseline" style={{ background: entry.color }} aria-hidden="true" />
+                  {entry.label}
                 </span>
-              )}
-              {hasRecord && (
-                <span>
-                  <span className="mr-1.5 inline-block h-2 w-1 rounded-sm bg-fair align-baseline" aria-hidden="true" />
-                  記録
-                </span>
-              )}
+              ))}
               {phases.includes("done") && <span>薄い線は終わった予定</span>}
             </p>
           )}
