@@ -33,6 +33,14 @@ MorrowはAIDEのMCPの道具を呼ぶ。道具の実装は別リポジトリ（`
 | `aide_delete_event`（書き） | `hermes`（`previewDeleteEvent`・承認後の実行） | `eventId`・`calendarId`・`title`（確認は `dryRun:true`） | 3項目必須 | `hermes-proposal` |
 | `asset_manager_create_subscription` ほかサブスク3本（書き） | Hermesの承認 | Hermesの提案の引数をそのまま検証して渡す | 入力定義は未固定（下記） | `hermes-proposal` |
 
+### AIDEのメールAPI（REST。MCPではない）の添付（#1101・aide#867）
+
+`/api/mail/*` の契約の正はAIDEのREADME「Morrow向けのメールAPI（#795）」。#1101でMorrowが読み始めた項目と口は次のとおりで、`test/mail-body-images.test.ts`「添付の契約（aide#867）」が形を固定する。**2026-11-19時点でaide#867は未実装**（Morrowが先に契約を決めて起票した）。AIDEが出るまでは `attachmentId` が無いので、画面はファイル名だけを出す（壊れない）。
+
+- 本文1件の `attachments[]` に `attachmentId`（開き直しても変わらない部品の識別子。英数字・`.`・`-`・`_`、64字まで）・`contentId`（`Content-ID` から `<>` を外した値）・`inline`（埋め込み）
+- `GET /api/mail/messages/<id>/attachments/<attachmentId>` → `{ ok, owner, source, filename, mimeType, size, data（base64） }`。25MB超は413 `too_large`。`owner` はMorrowが照合する
+- aide#867がマージされたら、実際の応答（Gmail・IMAP）で上の形を確かめ、ここに確認日を書く
+
 ### 未固定のもの（わかっている範囲）
 
 - **サブスクの書き込み4本の入力定義**: 引数はHermesの提案から来る。入力の写しをこの表へまだ足していない。足すときは `SCHEMAS` とHermesの提案の検証（`proposal-core.ts`）を揃える（別Issue）
