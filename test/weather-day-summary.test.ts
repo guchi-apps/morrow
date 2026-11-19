@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { dayAtColumn, summarizeDay } from "../src/lib/weather/day-summary.ts";
+import { dayAtColumn, splitCondition, summarizeDay } from "../src/lib/weather/day-summary.ts";
 
 const day = (date: string, max: number | null, min: number | null) => ({ date, code: 61, max, min, pop: 80 });
 
@@ -29,4 +29,17 @@ test("列の位置から日を引く（24列ごと・範囲外は端）", () => 
   assert.equal(dayAtColumn(days, 24), "b");
   assert.equal(dayAtColumn(days, -5), "a");
   assert.equal(dayAtColumn(days, 999), "c");
+});
+
+test("天気の文字の強弱: 時々は後ろ全体、のちは「のち」だけを小さくする", () => {
+  assert.deepEqual(splitCondition("晴れ時々くもり"), [
+    { text: "晴れ", small: false },
+    { text: "時々くもり", small: true },
+  ]);
+  assert.deepEqual(splitCondition("晴れのちくもり"), [
+    { text: "晴れ", small: false },
+    { text: "のち", small: true },
+    { text: "くもり", small: false },
+  ]);
+  assert.deepEqual(splitCondition("雨"), [{ text: "雨", small: false }]);
 });

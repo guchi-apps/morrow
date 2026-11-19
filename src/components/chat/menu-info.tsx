@@ -26,9 +26,9 @@ export async function MenuInfo({ userId }: { userId: string }) {
         <>
           <b className="mt-0.5 block text-[0.8125rem] font-medium">{today.summary}</b>
           <span className="block tabular-nums text-muted">
-            {today.max !== null && `最高 ${Math.round(today.max)}°`}
+            {today.max !== null && `最高 ${Math.round(today.max)}℃`}
             {today.max !== null && today.min !== null && " / "}
-            {today.min !== null && `最低 ${Math.round(today.min)}°`}
+            {today.min !== null && `最低 ${Math.round(today.min)}℃`}
             {today.pop !== null && `・降水 ${today.pop}%`}
           </span>
         </>
