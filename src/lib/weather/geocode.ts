@@ -3,6 +3,7 @@ import {
   addressQueryOf,
   municipalityCandidates,
   type MunicipalityCandidate,
+  municipalityCodeFromReverse,
   municipalityFromReverse,
   parseGsiSearch,
   parseMuniTable,
@@ -32,7 +33,7 @@ const TIMEOUT_MS = 5_000;
 type Entry<T> = { value: T; expiresAt: number };
 
 const places = new Map<string, Entry<ResolvedPlace | null>>();
-const reverses = new Map<string, Entry<string | null>>();
+const reverses = new Map<string, Entry<{ name: string | null; code: number | null }>>();
 let muniTable: Entry<Map<string, string>> | null = null;
 
 async function fetchJson(url: string): Promise<unknown> {
@@ -51,8 +52,7 @@ async function municipalityTable(): Promise<Map<string, string>> {
   return table;
 }
 
-/** 座標の市町村名（「高槻市」「大阪市北区」）。海上など当たらなければnull。 */
-export async function municipalityAt(point: Coordinates): Promise<string | null> {
+async function reverseAt(point: Coordinates): Promise<{ name: string | null; code: number | null }> {
   const latitude = roundCoordinate(point.latitude);
   const longitude = roundCoordinate(point.longitude);
   const key = `${latitude},${longitude}`;
@@ -63,9 +63,22 @@ export async function municipalityAt(point: Coordinates): Promise<string | null>
     fetchJson(`${REVERSE_URL}?lat=${latitude}&lon=${longitude}`),
     municipalityTable(),
   ]);
-  const name = municipalityFromReverse(json, table);
-  reverses.set(key, { value: name, expiresAt: Date.now() + TTL_MS });
-  return name;
+  const value = { name: municipalityFromReverse(json, table), code: municipalityCodeFromReverse(json) };
+  reverses.set(key, { value, expiresAt: Date.now() + TTL_MS });
+  return value;
+}
+
+/** 座標の市町村名（「高槻市」「大阪市北区」）。海上など当たらなければnull。 */
+export async function municipalityAt(point: Coordinates): Promise<string | null> {
+  return (await reverseAt(point)).name;
+}
+
+/** 座標の都道府県コード（1〜47）と市町村名。「エリアから選ぶ」の登録済み表示用（#1096）。引けなければnull。 */
+export async function prefectureOfPoint(point: Coordinates): Promise<{ prefCode: number; name: string } | null> {
+  const { name, code } = await reverseAt(point);
+  if (name === null || code === null) return null;
+  const prefCode = Math.floor(code / 1000);
+  return prefCode >= 1 && prefCode <= 47 ? { prefCode, name } : null;
 }
 
 /**

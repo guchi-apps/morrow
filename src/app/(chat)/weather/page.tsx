@@ -1,4 +1,4 @@
-import { Check, MapPin, Search } from "lucide-react";
+import { Check, ChevronRight, MapPin, Search } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -12,8 +12,19 @@ import { addDays, DAY_RANGE, dayDiff } from "@/lib/dashboard/day-offset";
 import { dashboardHomePlace } from "@/lib/dashboard/places";
 import { dayLabel, jstDayKey, jstTimeLabel } from "@/lib/day-key";
 import { cn } from "@/lib/utils";
-import { AREAS, areaById, areaHref, municipalitiesOf, prefecturesOf, type MuniEntry } from "@/lib/weather/area-picker";
-import { municipalityAt, municipalityEntries, searchMunicipalities } from "@/lib/weather/geocode";
+import {
+  AREAS,
+  areaById,
+  areaHref,
+  isRegisteredMunicipality,
+  municipalitiesOf,
+  prefecturesOf,
+  registeredByPref,
+  registeredInArea,
+  type MuniEntry,
+  type RegisteredSpot,
+} from "@/lib/weather/area-picker";
+import { municipalityAt, municipalityEntries, prefectureOfPoint, searchMunicipalities } from "@/lib/weather/geocode";
 import { OPEN_METEO_ATTRIBUTION, forecastAt } from "@/lib/weather/open-meteo";
 import { summarizeDay, type DaySummary } from "@/lib/weather/day-summary";
 import { placeDayFrom, type PlaceDay } from "@/lib/weather/place-day";
@@ -39,22 +50,40 @@ const HerePin = ({ className }: { className?: string }) => (
     <MapPin className="size-3.5" aria-hidden="true" />
   </span>
 );
-const PickerChips = ({ label, children }: { label: string; children: React.ReactNode }) => (
-  <div className="flex flex-col gap-1.5">
-    <span className="text-[0.6875rem] text-muted">{label}</span>
-    <div className="flex flex-wrap gap-1.5">{children}</div>
-  </div>
-);
-const PickerChip = ({ href, on, children }: { href: string; on: boolean; children: React.ReactNode }) => (
+/**
+ * 「エリアから選ぶ」の1行（#1096）。右端は登録済みの件数（0件は出さない）と開閉の矢印。
+ * `open` の行を押すと閉じる（親の階層へ戻るリンク）。開閉はURLで持つ（全国の市町村をDOMに出さない）。
+ */
+const PickerRow = ({ href, open, count, depth, children }: { href: string; open: boolean; count: number; depth: 0 | 1; children: React.ReactNode }) => (
   <Link
     href={href}
-    aria-current={on ? "true" : undefined}
+    aria-expanded={open}
     className={cn(
-      "rounded-full border border-border bg-background px-3 py-1 text-xs hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-      on && "border-foreground bg-foreground font-bold text-background hover:bg-foreground",
+      "flex items-center gap-2 border-b border-border py-3 pr-1.5 text-sm hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+      depth === 0 ? "pl-1.5" : "pl-5",
+      open && "font-bold",
     )}
   >
-    {children}
+    <span className="min-w-0 flex-1">{children}</span>
+    {count > 0 && <span className="text-xs font-normal text-muted">{count}件登録</span>}
+    <ChevronRight className={cn("size-4 shrink-0 transition-transform", open && "rotate-90")} aria-hidden="true" />
+  </Link>
+);
+const PickerCity = ({ href, registered, children }: { href: string; registered: boolean; children: React.ReactNode }) => (
+  <Link
+    href={href}
+    className={cn(
+      "flex items-center gap-2 border-b border-border py-2.5 pl-9 pr-1.5 text-[0.8125rem] hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+      registered && "bg-rail-active",
+    )}
+  >
+    <span className="min-w-0 flex-1">{children}</span>
+    {registered && (
+      <span role="img" aria-label="登録済み" title="登録済み" className="inline-flex text-accent">
+        <Check className="size-4" aria-hidden="true" />
+      </span>
+    )}
+    <ChevronRight className="size-4 shrink-0 text-muted" aria-hidden="true" />
   </Link>
 );
 const temp = (value: number | null) => (value === null ? "—" : `${Math.round(value)}°`);
@@ -103,6 +132,15 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
   }
 
   const [home, stored] = await Promise.all([dashboardHomePlace(user.id, now), listWeatherPlaces(user.id)]);
+  // 「エリアから選ぶ」の登録済み表示（#1096）。登録地点（自宅を含む）の座標から都道府県を引く。引けない地点は数えない
+  const registeredSpots: RegisteredSpot[] = [];
+  if (pickerOpen && muni) {
+    const found = await Promise.all(
+      [...(home ? [home] : []), ...stored].map((place) => prefectureOfPoint(place).catch(() => null)),
+    );
+    for (const spot of found) if (spot) registeredSpots.push(spot);
+  }
+  const registeredCounts = registeredByPref(registeredSpots);
   // 現在地（#882）。座標はブラウザが取ってURLへ載せたもので、市町村名だけサーバーで引く（引けなくても予報は出す）
   const hereSpot = hereFromQuery(query);
   const hereName = hereSpot ? await municipalityAt(hereSpot).catch(() => null) : null;
@@ -208,38 +246,56 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
 
         {pickerOpen && (
           <section aria-label="エリアから選ぶ" className="flex flex-col gap-2.5 rounded-xl border border-border bg-surface px-4 py-3">
-            <h3 className="text-xs font-bold tracking-[0.06em] text-muted">エリアから選ぶ</h3>
+            <h3 className="text-xs font-bold tracking-[0.06em] text-muted">エリアから選ぶ（押すとその地点の天気を開きます）</h3>
             {pickerError || !muni ? (
               <p role="status" className="rounded-[10px] bg-danger-surface px-3 py-2 text-[0.8125rem] text-danger">
                 市町村の一覧を取得できませんでした。時間をおいてやり直してください。
               </p>
             ) : (
               <>
-                <PickerChips label="エリア">
-                  {AREAS.map((area) => (
-                    <PickerChip key={area.id} href={areaHref({ area: area.id })} on={pickerArea?.id === area.id}>
-                      {area.label}
-                    </PickerChip>
-                  ))}
-                </PickerChips>
-                {pickerArea && (
-                  <PickerChips label="都道府県">
-                    {prefecturesOf(pickerArea, muni).map((pref) => (
-                      <PickerChip key={pref.code} href={areaHref({ area: pickerArea.id, pref: pref.code })} on={pickerPref === pref.code}>
-                        {pref.name}
-                      </PickerChip>
-                    ))}
-                  </PickerChips>
-                )}
-                {pickerArea && pickerArea.prefectures.includes(pickerPref) && (
-                  <PickerChips label="市町村（押すとその地点の天気を開きます）">
-                    {municipalitiesOf(pickerPref, muni).map((item) => (
-                      <PickerChip key={item.name} href={areaHref({ area: pickerArea.id, pref: pickerPref, city: item.name })} on={false}>
-                        {item.name}
-                      </PickerChip>
-                    ))}
-                  </PickerChips>
-                )}
+                <div className="border-t border-border">
+                  {AREAS.map((area) => {
+                    const areaOpen = pickerArea?.id === area.id;
+                    return (
+                      <div key={area.id}>
+                        <PickerRow
+                          href={areaOpen ? areaHref({}) : areaHref({ area: area.id })}
+                          open={areaOpen}
+                          count={registeredInArea(area, registeredCounts)}
+                          depth={0}
+                        >
+                          {area.label}
+                        </PickerRow>
+                        {areaOpen &&
+                          prefecturesOf(area, muni).map((pref) => {
+                            const prefOpen = pickerPref === pref.code;
+                            return (
+                              <div key={pref.code}>
+                                <PickerRow
+                                  href={prefOpen ? areaHref({ area: area.id }) : areaHref({ area: area.id, pref: pref.code })}
+                                  open={prefOpen}
+                                  count={registeredCounts.get(pref.code) ?? 0}
+                                  depth={1}
+                                >
+                                  {pref.name}
+                                </PickerRow>
+                                {prefOpen &&
+                                  municipalitiesOf(pref.code, muni).map((item) => (
+                                    <PickerCity
+                                      key={item.name}
+                                      href={areaHref({ area: area.id, pref: pref.code, city: item.name })}
+                                      registered={isRegisteredMunicipality(item, registeredSpots)}
+                                    >
+                                      {item.name}
+                                    </PickerCity>
+                                  ))}
+                              </div>
+                            );
+                          })}
+                      </div>
+                    );
+                  })}
+                </div>
               </>
             )}
           </section>
