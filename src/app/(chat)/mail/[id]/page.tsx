@@ -5,15 +5,17 @@ import { MailFeedback } from "@/components/mail/mail-feedback";
 import { findUnsubscribeLink } from "@/lib/mail/unsubscribe-core";
 import { MailBackLink } from "@/components/mail/mail-back-link";
 import { MailAnalysis } from "@/components/mail/mail-analysis";
+import { MailAttachments } from "@/components/mail/mail-attachments";
 import { MailBody } from "@/components/mail/mail-body";
 import { MailFlowRecords } from "@/components/mail/mail-flow-records";
 import { MailLinks } from "@/components/mail/mail-links";
 import { MailDetailActions } from "@/components/mail/mail-detail-actions";
-import { mailFullTime, sizeLabel } from "@/components/mail/mail-format";
+import { mailFullTime } from "@/components/mail/mail-format";
 import { getCurrentUser } from "@/lib/auth-user";
 import { jstTimeLabel } from "@/lib/day-key";
 import { getMail } from "@/lib/mail/aide-client";
 import { safeMailBack } from "@/lib/mail/back-path";
+import { listedAttachments } from "@/lib/mail/body-images";
 import { MAIL_FAILURE_MESSAGES, isMailMessageId, mailAccountKeyOf } from "@/lib/mail/contract";
 import { flowRowStates } from "@/lib/mail/flow-record-core";
 import { flowRecordsFor } from "@/lib/mail/flow-record";
@@ -165,17 +167,9 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
                     </dl>
                   </header>
                   <div className="border-t border-border">
-                    <MailBody html={message.html} text={message.text} />
+                    <MailBody html={message.html} text={message.text} messageId={message.id} attachments={message.attachments} />
                   </div>
-                  {message.attachments.length > 0 && (
-                    <p className="border-t border-border px-4 py-2.5 text-xs text-muted">
-                      添付:{" "}
-                      {message.attachments
-                        .map((file) => `${file.filename || "（名前なし）"}（${sizeLabel(file.size)}）`)
-                        .join("、")}
-                      　※ファイル名のみ表示
-                    </p>
-                  )}
+                  <MailAttachments messageId={message.id} attachments={listedAttachments(message.html, message.attachments)} />
                 </article>
               </>
             );

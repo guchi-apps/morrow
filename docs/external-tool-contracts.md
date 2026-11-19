@@ -27,11 +27,21 @@ MorrowはAIDEのMCPの道具を呼ぶ。道具の実装は別リポジトリ（`
 | `asset_manager_subscriptions`（読み） | `mail/subscription-match.ts`（#884） | `{}` | `name`・`includeEnded`・`includeHistory`（すべて任意）。2026-11-14に `tools/list` と実呼び出し（`name:"JAF"`）で確認 | `mail-subscription-match`（実応答の形） |
 | `asset_manager_card_withdrawals`（読み） | `mail/withdrawal.ts`（#910） | `{days:62}` | `days` 1〜62（省略で30日）。2026-11-15に guchi-apps/aide#856 のソースと asset-manager#1446 の `route.ts`・サービスで確認（コネクタ未更新のため `tools/list` ではない）。応答は `withdrawals[].{cardId, cardName, bankName, paymentDate, amountJpy, estimatedAmountJpy, source, confirmation.sourceKey}` | `mail-withdrawal`「カード引き落とし見込みとの突き合わせ」 |
 | `asset_manager_confirm_card_withdrawal`（書き） | `mail/withdrawal.ts`（`callCardWithdrawalWriteToolJson`。#910） | `cardId`・`paymentDate`・`amount`・`sourceKey`（冪等キー）・`note` | `paymentDate`・`amount`（0〜1億の整数）・`sourceKey`（191字以内）必須。`cardId` か `cardName`。`additionalProperties:false`。同じ `sourceKey`・同じ中身は `unchanged`、中身違いは409、同じカード・日の別キーは `replaced`（`previousAmountJpy`）。取り消し（見込みへ戻す）の道具はAIDEに無い | `external-tool-contracts`「カード引き落とし見込みの呼び出し」 |
+| `kurashio_utility_bill_contracts`・`kurashio_get_utility_bill`（読み） | `mail/utility-bill.ts`（#1100） | `{kind}`／`{kind,contractKey,billingMonth}` | `kind` electricity/gas。`billingMonth` は YYYY-MM（`sourceMessageId` とは同時に指定できない）。OAuthのscopeは `kurashio-bills:read`。2026-11-19に `~/apps/aide` の `src/mcp/tools/kurashio-bills.ts` で確認（契約候補は `{status:"ok",contracts:[{contractKey,planName,latestBillingMonth}]}`、保存済みは `{status:"found",record:{amountYen,usageValue,usageUnit,…}}`／`not_found`） | `mail-utility-bill` |
+| `kurashio_import_utility_bill`（書き） | `mail/utility-bill.ts`（`callUtilityBillWriteToolJson`。#1100） | `billingMonth`・`kind`・`contractKey`・`amountYen`・`usageValue`+`usageUnit`・`planName`・`sourceLabel`・`receivedAt`・`sourceMessageId`・`confidence` | `billingMonth`・`kind`・`contractKey`・`sourceMessageId`・`confidence`（0〜1）必須。`amountYen` は0〜100万の整数（無いと `insufficient_data`）。`usageUnit` だけの指定は断られる。**`confirmNewContract` は付けない**（候補に無い契約は `contract_unresolved` で止める）。OAuthのscopeは `kurashio-bills:write`。既存の行は書き換えず、同じ内容は `duplicate`・値違いは `conflict`（訂正の道具は無い）。`conflict`・`contract_unresolved`・`unverified`・`unknown` は `isError` で返る（`McpCallError.status`） | `mail-utility-bill`・`external-tool-contracts` |
 | `aide_create_task`（書き） | `mail/suggest.ts`（`callWriteToolJson`） | `title`・`due`・`planned`・`memo`・`idempotencyKey`（`due`/`planned` は `YYYY-MM-DD` か、時刻があるときはタイムゾーン付き `2026-11-20T15:00:00+09:00`。タイムゾーン無しの日時は `invalid`。aide#857・#927。**本番のAIDEが対応してから本番へ出す**） | `title`・`idempotencyKey` 必須 | `mail-suggest` |
 | `aide_create_event`（書き） | `mail/suggest.ts` | `title`・`date`・`endDate`・`startTime`+`endTime`・`location`・`calendarId` | `title`・`date` 必須。時刻は両方か両方省略（Morrowは開始だけ読めたら終了を1時間後で補う。#927）。`endDate` は時刻ありの予定だけ。**メモ・説明の引数は無い**（`additionalProperties:false`。2026-11-14に `tools/list` で確認。#908）。`calendarId` は `aide_schedule` の `events[].calendarId` | `mail-suggest` |
 | `asset_manager_import_payment`（書き） | `mail/suggest.ts`・Hermesの承認 | `gmailMessageId`・`date`・`confidence`・`review:true` ほか | `gmailMessageId`・`confidence`(0〜1) 必須。`amount` は整数1以上。`review:true` なら `place`・`amount` 省略可。`items` は1〜100件で `name`・`amount` 必須 | `mail-suggest` |
 | `aide_delete_event`（書き） | `hermes`（`previewDeleteEvent`・承認後の実行） | `eventId`・`calendarId`・`title`（確認は `dryRun:true`） | 3項目必須 | `hermes-proposal` |
 | `asset_manager_create_subscription` ほかサブスク3本（書き） | Hermesの承認 | Hermesの提案の引数をそのまま検証して渡す | 入力定義は未固定（下記） | `hermes-proposal` |
+
+### AIDEのメールAPI（REST。MCPではない）の添付（#1101・aide#867）
+
+`/api/mail/*` の契約の正はAIDEのREADME「Morrow向けのメールAPI（#795）」。#1101でMorrowが読み始めた項目と口は次のとおりで、`test/mail-body-images.test.ts`「添付の契約（aide#867）」が形を固定する。**2026-11-19時点でaide#867は未実装**（Morrowが先に契約を決めて起票した）。AIDEが出るまでは `attachmentId` が無いので、画面はファイル名だけを出す（壊れない）。
+
+- 本文1件の `attachments[]` に `attachmentId`（開き直しても変わらない部品の識別子。英数字・`.`・`-`・`_`、64字まで）・`contentId`（`Content-ID` から `<>` を外した値）・`inline`（埋め込み）
+- `GET /api/mail/messages/<id>/attachments/<attachmentId>` → `{ ok, owner, source, filename, mimeType, size, data（base64） }`。25MB超は413 `too_large`。`owner` はMorrowが照合する
+- aide#867がマージされたら、実際の応答（Gmail・IMAP）で上の形を確かめ、ここに確認日を書く
 
 ### 未固定のもの（わかっている範囲）
 

@@ -111,7 +111,7 @@ AIDEの道具ではなく、Hermes自身が持つ。チャットのチップに�
 |---|---|
 | `aide_zaim_payment`・`aide_zaim_master` | 廃止済み（Zaim APIの提供終了） |
 | `asset_manager_salary_preview`・`_commit`・`_approval_status` | 独自の2段階承認がある。メールの提案でも入れていない（#689）。要るなら別Issue |
-| `kurashio_import_utility_bill`・`kurashio_import_kepco_hourly` | 明細の取り込み（PDF・CSV）で、チャットの指示から作る値ではない |
+| `kurashio_import_utility_bill`・`kurashio_import_kepco_hourly` | 明細の取り込み（PDF・CSV）で、チャットの指示から作る値ではない（`kurashio_import_utility_bill` は請求メールの分析からMorrowのサーバーだけが呼ぶ。#1100） |
 | `aide_room_press` | 押すボタンの効果が道具から分からない（物理操作）。要るならボタンごとに分類して足す |
 | `aide_create_notification`・`aide_create_task_candidate`・`aide_save_daily_brief`・`aide_report_work`・`aide_research_desk_import_weekly_report` | 他のエージェント・自動処理のための口。窓口からの指示で使う用途が無い |
 | `issue_deck_*`（修正の引き受け・解放・レビュー結果の報告・画像） | 開発運用（Claude Code・issue-deckの領域）。Discord側の用途 |

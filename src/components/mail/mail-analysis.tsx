@@ -11,6 +11,7 @@ import { isRegisteredByRecord, recommendedIndex } from "@/lib/mail/flow-group";
 import { TYPEWRITER_MAX_MS, elapsedLabel, splitVisible } from "@/lib/mail/typewriter-core";
 import type { ReceiptState } from "@/lib/mail/flow-record-core";
 import type { MailAnalysis as Analysis } from "@/lib/mail/analyze-core";
+import { describeState, type UtilityBillState } from "@/lib/mail/utility-bill-core";
 import { type BalanceCheck, type CardCheck } from "@/lib/mail/withdrawal-core";
 
 /**
@@ -38,6 +39,8 @@ export function MailAnalysis({ id, registeredKinds, registeredKeys = [], receipt
   const [card, setCard] = useState<CardCheck | null>(null);
   const [cardBusy, setCardBusy] = useState(false);
   const [cardError, setCardError] = useState<string | null>(null);
+  /** 電気・ガスの請求のクラシオへの反映の状態（#1100） */
+  const [utilityBill, setUtilityBill] = useState<UtilityBillState | null>(null);
   const flow = useFlowCards(id);
   // 同じ種類の行が複数あるかで、登録済みの見分け方を変える（#1051。`isRegisteredByRecord()`）
   const cards = rowIds.flatMap((rowId) => (flow.rows[rowId] ? [flow.rows[rowId].card] : []));
@@ -95,9 +98,10 @@ export function MailAnalysis({ id, registeredKinds, registeredKeys = [], receipt
         setError(outcome.error);
         return;
       }
-      const { summary, suggest, withdrawal, balance: check, card: cardCheck } = outcome.value;
+      const { summary, suggest, withdrawal, utilityBill: billBody, utilityBillState: billState, balance: check, card: cardCheck } = outcome.value;
       setError(null);
-      setResult({ summary, suggest, withdrawal });
+      setResult({ summary, suggest, withdrawal, utilityBill: billBody });
+      setUtilityBill(billState ?? null);
       setAnimate(!outcome.value.cached);
       setRunId((n) => n + 1);
       showBalance(check);
@@ -205,6 +209,8 @@ export function MailAnalysis({ id, registeredKinds, registeredKeys = [], receipt
         <>
           <SummaryReveal summary={result.summary.summary} points={result.summary.points} animate={animate} resetKey={runId} />
 
+          {utilityBill && <UtilityBillNotice state={utilityBill} />}
+
           {balance && (
             <BalanceCard
               check={balance}
@@ -287,14 +293,14 @@ function SummaryReveal({ summary, points, animate, resetKey }: { summary: string
   );
 }
 
-type AnalyzeResponse = { ok: true; value: Analysis & { balance: BalanceCheck | null; card: CardCheck | null; cached: boolean } } | { ok: false; error: string };
+type AnalyzeResponse = { ok: true; value: Analysis & { utilityBillState: UtilityBillState | null; balance: BalanceCheck | null; card: CardCheck | null; cached: boolean } } | { ok: false; error: string };
 
 /** 分析を取りに行く。別のメールを分析中（429）なら待って取り直す。中断されたら「中断」として返す（画面には出さない）。 */
 async function requestAnalysis(id: string, refresh: boolean, signal: AbortSignal, onWaiting: (reason: "busy" | "network") => void): Promise<AnalyzeResponse> {
   const aborted: AnalyzeResponse = { ok: false, error: "中断しました。" };
   for (let attempt = 0; ; attempt++) {
     let status: number | "network";
-    let data: (Analysis & { balance?: BalanceCheck | null; card?: CardCheck | null; cached?: boolean; error?: string }) | null = null;
+    let data: (Analysis & { utilityBillState?: UtilityBillState | null; balance?: BalanceCheck | null; card?: CardCheck | null; cached?: boolean; error?: string }) | null = null;
     try {
       const response = await fetch("/api/mail/flow/analyze", {
         method: "POST",
@@ -305,7 +311,7 @@ async function requestAnalysis(id: string, refresh: boolean, signal: AbortSignal
       });
       status = response.status;
       data = (await response.json().catch(() => null)) as (Analysis & { balance?: BalanceCheck | null; card?: CardCheck | null; cached?: boolean; error?: string }) | null;
-      if (response.ok && data?.summary && data.suggest) return { ok: true, value: { summary: data.summary, suggest: data.suggest, withdrawal: data.withdrawal ?? null, balance: data.balance ?? null, card: data.card ?? null, cached: data.cached === true } };
+      if (response.ok && data?.summary && data.suggest) return { ok: true, value: { summary: data.summary, suggest: data.suggest, withdrawal: data.withdrawal ?? null, utilityBill: data.utilityBill ?? null, utilityBillState: data.utilityBillState ?? null, balance: data.balance ?? null, card: data.card ?? null, cached: data.cached === true } };
     } catch {
       // 別アプリへ移るなどで通信だけが途切れた。サーバーの分析は続いているので取り直す
       if (signal.aborted) return aborted;
@@ -430,5 +436,17 @@ function CardMatch({ card, mailAmount, busy, error, onConfirm }: { card: CardChe
         </p>
       )}
     </div>
+  );
+}
+
+/** 電気・ガスの請求のクラシオへの反映の状態（#1100）。 */
+function UtilityBillNotice({ state }: { state: UtilityBillState }) {
+  const view = describeState(state);
+  const tone = view.tone === "ok" ? "border-border bg-rail-active text-foreground" : view.tone === "warn" ? "border-danger/30 bg-danger-surface text-danger" : "border-border text-muted";
+  return (
+    <p role="status" className={`rounded-[10px] border px-3 py-2 ${tone}`}>
+      <span aria-hidden>{view.tone === "ok" ? "✅ " : view.tone === "warn" ? "⚠️ " : "ℹ️ "}</span>
+      {view.text}
+    </p>
   );
 }

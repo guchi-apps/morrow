@@ -63,3 +63,23 @@ export function areaHref(params: { area?: string; pref?: number; city?: string }
   if (params.city) query.set("city", params.city);
   return `/weather?${query.toString()}`;
 }
+
+/** 登録済みの地点を都道府県つきにしたもの（#1096）。`name` は逆ジオコーダの市町村名（政令市は区まで）。 */
+export type RegisteredSpot = { prefCode: number; name: string };
+
+/** 都道府県ごとの登録済み件数。 */
+export function registeredByPref(spots: readonly RegisteredSpot[]): Map<number, number> {
+  const counts = new Map<number, number>();
+  for (const spot of spots) counts.set(spot.prefCode, (counts.get(spot.prefCode) ?? 0) + 1);
+  return counts;
+}
+
+/** エリアの登録済み件数（配下の都道府県の合計）。 */
+export function registeredInArea(area: Area, counts: ReadonlyMap<number, number>): number {
+  return area.prefectures.reduce((sum, code) => sum + (counts.get(code) ?? 0), 0);
+}
+
+/** 市町村が登録済みか。政令市は区の名前（「大阪市北区」）で入るので前方一致で見る。 */
+export function isRegisteredMunicipality(entry: MuniEntry, spots: readonly RegisteredSpot[]): boolean {
+  return spots.some((spot) => spot.prefCode === entry.prefCode && (spot.name === entry.name || spot.name.startsWith(entry.name)));
+}

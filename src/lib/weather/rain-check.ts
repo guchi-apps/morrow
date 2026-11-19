@@ -449,11 +449,13 @@ export type MunicipalityCandidate = Coordinates & { name: string; title: string 
 export function municipalityCandidates(query: string, candidates: GsiCandidate[], limit = 6): MunicipalityCandidate[] {
   const text = query.trim();
   if (!text) return [];
+  // 題は県名を外して比べるので、検索語の先頭の県名も外す（エリア選択は「滋賀県栗東市」で引く。#1095）
+  const needle = withoutPrefecture(text).replace(/[市町村区]$/, "") || text;
   const seen = new Set<string>();
   const found: MunicipalityCandidate[] = [];
   for (const candidate of candidates) {
     const name = withoutPrefecture(candidate.title);
-    if (name === candidate.title || !MUNICIPALITY_SUFFIX.test(name) || !name.includes(text.replace(/[市町村区]$/, ""))) continue;
+    if (name === candidate.title || !MUNICIPALITY_SUFFIX.test(name) || !name.includes(needle)) continue;
     const key = `${roundCoordinate(candidate.latitude)},${roundCoordinate(candidate.longitude)}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -504,11 +506,17 @@ export function parseMuniTable(text: string): Map<string, string> {
   return table;
 }
 
-/** 逆ジオコーダ（`LonLatToAddress`）の応答から市町村名を引く。海上など当たらなければnull。 */
-export function municipalityFromReverse(json: unknown, table: Map<string, string>): string | null {
+/** 逆ジオコーダ（`LonLatToAddress`）の応答から市町村コード（数値）を取り出す。海上など当たらなければnull。 */
+export function municipalityCodeFromReverse(json: unknown): number | null {
   const code = str(record(record(json)?.results)?.muniCd);
   if (!code || !/^\d+$/.test(code)) return null;
-  return table.get(String(Number(code))) ?? null;
+  return Number(code);
+}
+
+/** 逆ジオコーダ（`LonLatToAddress`）の応答から市町村名を引く。海上など当たらなければnull。 */
+export function municipalityFromReverse(json: unknown, table: Map<string, string>): string | null {
+  const code = municipalityCodeFromReverse(json);
+  return code === null ? null : (table.get(String(code)) ?? null);
 }
 
 /* ---------------- 予報 ---------------- */
