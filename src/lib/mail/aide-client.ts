@@ -6,12 +6,15 @@ import {
   isMailAccountKey,
   inferMailAccounts,
   isMailOwner,
+  isMailAttachmentId,
   parseMailActionResponse,
+  parseMailAttachmentResponse,
   parseMailFailure,
   parseMailListResponse,
   parseMailMessageResponse,
   type MailAction,
   type MailActionResult,
+  type MailAttachmentContent,
   type MailFailureKind,
   type MailListPage,
   type MailMessageResult,
@@ -71,7 +74,7 @@ async function callOnce(path: string, init: RequestInit = {}): Promise<{ status:
       ...init,
       headers: { ...init.headers, authorization: `Bearer ${token}`, accept: "application/json" },
       cache: "no-store",
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: init.signal ?? AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (error) {
     console.error(`[aide-bot] メールAPI: AIDEに届かない（${error instanceof Error ? error.name : "不明"}）`);
@@ -174,6 +177,27 @@ export async function getMail(user: MailUser, id: string): Promise<MailOutcome<M
   if (!isMailOwner(message.owner, user.email)) return notOwner(user, "本文");
 
   return { ok: true, value: message };
+}
+
+/** 添付の取り出しは大きい（最大25MB・base64）ので、本文より長く待つ。 */
+const ATTACHMENT_TIMEOUT_MS = 60_000;
+
+/**
+ * 添付1件の中身（#1101・aide#867）。応答の `owner` を照合してから返す。中身・ファイル名はログに出さない。
+ * 取り出し口の無い古いAIDEは404になり、`not_found` として返る。
+ */
+export async function getMailAttachment(user: MailUser, id: string, attachmentId: string): Promise<MailOutcome<MailAttachmentContent>> {
+  if (!isMailAttachmentId(attachmentId)) return { ok: false, kind: "invalid_request", message: null };
+  const result = await call(`/api/mail/messages/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`, {
+    signal: AbortSignal.timeout(ATTACHMENT_TIMEOUT_MS),
+  });
+  if ("ok" in result) return result;
+  if (result.status !== 200) return failureOf(result.status, result.json, "添付の取得");
+
+  const content = parseMailAttachmentResponse(result.json);
+  if (!content) return failureOf(result.status, null, "添付の読み取り");
+  if (!isMailOwner(content.owner, user.email)) return notOwner(user, "添付");
+  return { ok: true, value: content };
 }
 
 /** 同じ操作を2回送っても結果が変わらないもの。一時的な断りの自動やり直しはこれだけ。 */

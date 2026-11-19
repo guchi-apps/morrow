@@ -148,7 +148,32 @@ export type MailSummary = {
   account?: string;
 };
 
-export type MailAttachment = { filename: string; mimeType: string; size: number };
+/**
+ * 添付ファイル（#1101）。`attachmentId`・`contentId`・`inline` はAIDE（aide#867）が足した項目で、
+ * **`attachmentId` が無い応答（古いAIDE）では中身を取り出せない**ので、画面はファイル名だけを出す。
+ */
+export type MailAttachment = {
+  filename: string;
+  mimeType: string;
+  size: number;
+  /** 開き直しても変わらない部品の識別子（Gmailの `partId` 等）。取り出し口のパスに入る。 */
+  attachmentId: string | null;
+  /** `Content-ID`（`<` `>` を外した値）。本文の `cid:` と照合する。 */
+  contentId: string | null;
+  /** 本文に埋め込まれた部品（埋め込み画像）。 */
+  inline: boolean;
+};
+
+/** 添付の識別子の形（英数字・`.`・`-`・`_`、64字まで）。URLのパスへそのまま入れるので外れた値は捨てる。 */
+export function isMailAttachmentId(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(value) && value !== "." && value !== "..";
+}
+
+/** 取り出せる添付の大きさの上限（AIDEと同じ25MB。超えるとAIDEは413 `too_large`）。 */
+export const MAIL_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
+
+/** 添付1件の取り出しの応答（aide#867）。 */
+export type MailAttachmentContent = { owner: string; filename: string; mimeType: string; data: Uint8Array };
 
 export type MailDetail = MailSummary & {
   to: string;
@@ -184,6 +209,7 @@ export type MailFailureKind =
   | "failed"
   | "invalid_request"
   | "locked"
+  | "too_large"
   | "not_owner"
   | "unreachable";
 
@@ -194,6 +220,7 @@ export const MAIL_FAILURE_MESSAGES: Record<MailFailureKind, string> = {
   failed: "メールを取得できませんでした（AIDEからGmail・IMAPへ届かないか、応答が不正です）。",
   invalid_request: "操作できませんでした。",
   locked: "AIDEへの試行が続いたため、しばらく受け付けられません。時間をおいてください。",
+  too_large: "ファイルが大きすぎるため取り出せません（25MBまで）。",
   not_owner: "このメールボックスの持ち主ではないため、表示・操作できません。",
   unreachable: "AIDEに接続できませんでした。時間をおいて読み込み直してください。",
 };
@@ -269,17 +296,46 @@ export function parseMailListResponse(json: unknown): MailListPage | null {
   };
 }
 
+function parseAttachment(a: Record<string, unknown>): MailAttachment {
+  const contentId = typeof a.contentId === "string" ? a.contentId.trim().replace(/^<|>$/g, "") : "";
+  return {
+    filename: str(a.filename),
+    mimeType: str(a.mimeType),
+    size: typeof a.size === "number" && Number.isFinite(a.size) && a.size >= 0 ? a.size : 0,
+    attachmentId: isMailAttachmentId(a.attachmentId) ? a.attachmentId : null,
+    contentId: contentId !== "" && contentId.length <= 256 ? contentId : null,
+    inline: a.inline === true,
+  };
+}
+
+/** 添付1件の取り出しの応答。形が違う・base64が読めない・上限超えは null。 */
+export function parseMailAttachmentResponse(json: unknown): MailAttachmentContent | null {
+  if (!isRecord(json) || json.ok !== true || typeof json.owner !== "string" || typeof json.data !== "string") return null;
+  const data = decodeBase64(json.data);
+  if (!data || data.length > MAIL_ATTACHMENT_MAX_BYTES) return null;
+  return { owner: json.owner, filename: str(json.filename), mimeType: str(json.mimeType), data };
+}
+
+function decodeBase64(value: string): Uint8Array | null {
+  const clean = value.replace(/\s+/g, "");
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(clean) || clean.length % 4 === 1) return null;
+  try {
+    const binary = atob(clean);
+    const out = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 export function parseMailMessageResponse(json: unknown): MailMessageResult | null {
   if (!isRecord(json) || json.ok !== true || typeof json.owner !== "string" || !isRecord(json.message)) return null;
   const summary = parseSummary(json.message);
   if (!summary) return null;
   const raw = json.message;
   const attachments = Array.isArray(raw.attachments)
-    ? raw.attachments.filter(isRecord).map((a) => ({
-        filename: str(a.filename),
-        mimeType: str(a.mimeType),
-        size: typeof a.size === "number" ? a.size : 0,
-      }))
+    ? raw.attachments.filter(isRecord).map(parseAttachment)
     : [];
   return {
     owner: json.owner,
@@ -304,13 +360,14 @@ export function parseMailActionResponse(json: unknown): MailActionResult | null 
 export function parseMailFailure(json: unknown, status: number): { kind: MailFailureKind; message: string | null } {
   const error = isRecord(json) ? json.error : undefined;
   const message = isRecord(json) && typeof json.message === "string" && json.message !== "" ? json.message : null;
-  const known: MailFailureKind[] = ["unconfigured", "unauthorized", "not_found", "failed", "invalid_request", "locked"];
+  const known: MailFailureKind[] = ["unconfigured", "unauthorized", "not_found", "failed", "invalid_request", "locked", "too_large"];
   const kind = known.find((k) => k === error);
   if (kind) return { kind, message };
   if (status === 404) return { kind: "not_found", message };
   if (status === 401) return { kind: "unauthorized", message };
   if (status === 503) return { kind: "unconfigured", message };
   if (status === 400) return { kind: "invalid_request", message };
+  if (status === 413) return { kind: "too_large", message };
   return { kind: "failed", message };
 }
 

@@ -27,6 +27,8 @@ final class WebViewModel: NSObject, ObservableObject {
     private var isUploadingPushToken = false
     /// 読み込みが遅いときに保存済みを先出しするための待ち（#643）
     private var slowTask: Task<Void, Never>?
+    /// 保存中の添付の置き場所（#1101。WKDownload ごと）
+    fileprivate var pendingDownloads: [ObjectIdentifier: URL] = [:]
 
     /// 読み込みがこの秒数で終わらなければ、保存済みの画面を先に出す
     private static let slowThreshold: Duration = .seconds(4)
@@ -364,6 +366,11 @@ extension WebViewModel: WKNavigationDelegate {
 
         let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? true
 
+        // メールの添付の保存（#1101）。画面の読み込みとして扱わない（遅延時の保存済み画面の先出しを走らせない）
+        if AppConfig.isAppURL(url), navigationAction.shouldPerformDownload || Self.isAttachmentDownload(url) {
+            return .download
+        }
+
         // ログインの開始は、WebViewの中では行わず認証シートへ渡す
         if isMainFrame, let route = InterceptedRoute.classify(url) {
             handle(route)
@@ -406,7 +413,22 @@ extension WebViewModel: WKNavigationDelegate {
             }
             return .cancel
         }
+        // `Content-Disposition: attachment` の応答（メールの添付。#1101）は表示せず保存へ回す
+        if let response = navigationResponse.response as? HTTPURLResponse,
+           response.statusCode == 200,
+           let disposition = response.value(forHTTPHeaderField: "Content-Disposition"),
+           disposition.lowercased().hasPrefix("attachment") {
+            return .download
+        }
         return .allow
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        download.delegate = self
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -519,6 +541,64 @@ extension WebViewModel: WKUIDelegate {
         while let presented = top.presentedViewController { top = presented }
         top.present(controller, animated: true)
         return true
+    }
+}
+
+// MARK: - 添付ファイルの保存（#1101）
+
+extension WebViewModel: WKDownloadDelegate {
+    /// メールの添付の保存の口（`/api/mail/attachments/<id>/<aid>?mode=download`）か
+    fileprivate static func isAttachmentDownload(_ url: URL) -> Bool {
+        guard url.path.hasPrefix("/api/mail/attachments/"),
+              let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
+        else { return false }
+        return items.contains { $0.name == "mode" && $0.value == "download" }
+    }
+
+    /// 一時フォルダの、ダウンロードごとの空のフォルダへ置く（同じ名前の前回のファイルと衝突させない）。
+    /// 名前はサーバーが付けた `Content-Disposition` の名前で、パスの区切りはWebKitが落とす
+    func download(
+        _ download: WKDownload,
+        decideDestinationUsing response: URLResponse,
+        suggestedFilename: String
+    ) async -> URL? {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MailAttachments", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        } catch {
+            return nil
+        }
+        let name = (suggestedFilename as NSString).lastPathComponent
+        let destination = folder.appendingPathComponent(name.isEmpty ? "attachment" : name)
+        pendingDownloads[ObjectIdentifier(download)] = destination
+        return destination
+    }
+
+    /// 保存し終えたら共有シートを開く（「ファイルに保存」「画像を保存」などは利用者が選ぶ）
+    func downloadDidFinish(_ download: WKDownload) {
+        guard let file = pendingDownloads.removeValue(forKey: ObjectIdentifier(download)) else { return }
+        let sheet = UIActivityViewController(activityItems: [file], applicationActivities: nil)
+        sheet.completionWithItemsHandler = { _, _, _, _ in
+            try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+        }
+        // iPadでは吹き出しの出どころが要る
+        sheet.popoverPresentationController?.sourceView = webView
+        sheet.popoverPresentationController?.sourceRect = CGRect(x: webView.bounds.midX, y: webView.bounds.midY, width: 0, height: 0)
+        sheet.popoverPresentationController?.permittedArrowDirections = []
+        if !present(sheet) {
+            try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+        }
+    }
+
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        if let file = pendingDownloads.removeValue(forKey: ObjectIdentifier(download)) {
+            try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+        }
+        let alert = UIAlertController(title: nil, message: "ファイルを保存できませんでした。時間をおいてやり直してください。", preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        _ = present(alert)
     }
 }
 

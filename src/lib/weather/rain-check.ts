@@ -506,11 +506,17 @@ export function parseMuniTable(text: string): Map<string, string> {
   return table;
 }
 
-/** 逆ジオコーダ（`LonLatToAddress`）の応答から市町村名を引く。海上など当たらなければnull。 */
-export function municipalityFromReverse(json: unknown, table: Map<string, string>): string | null {
+/** 逆ジオコーダ（`LonLatToAddress`）の応答から市町村コード（数値）を取り出す。海上など当たらなければnull。 */
+export function municipalityCodeFromReverse(json: unknown): number | null {
   const code = str(record(record(json)?.results)?.muniCd);
   if (!code || !/^\d+$/.test(code)) return null;
-  return table.get(String(Number(code))) ?? null;
+  return Number(code);
+}
+
+/** 逆ジオコーダ（`LonLatToAddress`）の応答から市町村名を引く。海上など当たらなければnull。 */
+export function municipalityFromReverse(json: unknown, table: Map<string, string>): string | null {
+  const code = municipalityCodeFromReverse(json);
+  return code === null ? null : (table.get(String(code)) ?? null);
 }
 
 /* ---------------- 予報 ---------------- */
