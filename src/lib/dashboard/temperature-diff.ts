@@ -22,8 +22,20 @@ export function compareWithYesterday(
   return { kind: diff > 0 ? "warmer" : "colder", degrees };
 }
 
+/** この差（℃）以上は「かなり」（#1109）。 */
+export const BIG_DIFF = 5;
+
+export type DiffLevel = "much-warmer" | "warmer" | "same" | "colder" | "much-colder";
+
+/** 昨日との差（今−昨日。℃）を5段階にする。±SAME_WITHIN以内は同じ、±BIG_DIFF以上はかなり。 */
+export function diffLevel(diff: number): DiffLevel {
+  if (Math.abs(diff) <= SAME_WITHIN) return "same";
+  if (diff > 0) return diff >= BIG_DIFF ? "much-warmer" : "warmer";
+  return diff <= -BIG_DIFF ? "much-colder" : "colder";
+}
+
 export function describeDiff(diff: TemperatureDiff, isNow: boolean): string {
   const when = isNow ? "いま" : "1日の平均で";
   if (diff.kind === "same") return `${when}昨日と同じくらい`;
-  return `${when}昨日より ${diff.degrees}° ${diff.kind === "warmer" ? "暑い" : "寒い"}`;
+  return `${when}昨日より ${diff.degrees}℃ ${diff.kind === "warmer" ? "暑い" : "寒い"}`;
 }

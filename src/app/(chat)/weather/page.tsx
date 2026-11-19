@@ -86,7 +86,7 @@ const PickerCity = ({ href, registered, children }: { href: string; registered: 
     <ChevronRight className="size-4 shrink-0 text-muted" aria-hidden="true" />
   </Link>
 );
-const temp = (value: number | null) => (value === null ? "—" : `${Math.round(value)}°`);
+const temp = (value: number | null) => (value === null ? "—" : `${Math.round(value)}℃`);
 
 /**
  * 天気ページ（#695）。登録した地点（自宅は常に先頭）の一覧と地名検索、地点を選ぶとその日の0〜23時の

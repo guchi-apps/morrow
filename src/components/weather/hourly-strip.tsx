@@ -1,4 +1,9 @@
 import {
+  ArrowDown,
+  ArrowDownRight,
+  ArrowRight,
+  ArrowUp,
+  ArrowUpRight,
   Cloud,
   CloudDrizzle,
   CloudFog,
@@ -11,8 +16,9 @@ import {
 
 import { ScrollToNow } from "@/components/dashboard/scroll-to-now";
 import type { HourCell } from "@/lib/dashboard/places";
-import { compareWithYesterday, describeDiff } from "@/lib/dashboard/temperature-diff";
+import { compareWithYesterday, describeDiff, diffLevel, type DiffLevel } from "@/lib/dashboard/temperature-diff";
 import { describeWeatherCode, RAIN_POP } from "@/lib/weather/rain-check";
+import { STRIP_COLUMN_W } from "@/lib/weather/strip-layout";
 import { cn } from "@/lib/utils";
 
 /**
@@ -57,59 +63,23 @@ export function YesterdayNote({ cells, nowIndex }: { cells: HourCell[]; nowIndex
   return <div className="text-xs font-bold text-foreground">{describeDiff(diff, true)}</div>;
 }
 
-const CELL_W = 46;
-const CHART_H = 64;
-const CHART_PAD_TOP = 18;
-const CHART_PAD_BOTTOM = 8;
+/** 昨日比の矢印（#1109）。暑い側は暖色、寒い側は寒色、同じくらいは灰色。 */
+const DIFF_ARROW: Record<DiffLevel, { Icon: typeof ArrowUp; label: string; className: string }> = {
+  "much-warmer": { Icon: ArrowUp, label: "昨日よりかなり暑い", className: "text-accent" },
+  warmer: { Icon: ArrowUpRight, label: "昨日よりやや暑い", className: "text-accent" },
+  same: { Icon: ArrowRight, label: "昨日と同じくらい", className: "text-muted" },
+  colder: { Icon: ArrowDownRight, label: "昨日よりやや寒い", className: "text-topic" },
+  "much-colder": { Icon: ArrowDown, label: "昨日よりかなり寒い", className: "text-topic" },
+};
 
-/** 気温の折れ線（#609）。全列にまたがる1枚のSVGで、各点の上に値を出す。過ぎた時間（`nowIndex` より前）は灰色。 */
-export function TemperatureChart({ cells, nowIndex }: { cells: HourCell[]; nowIndex: number }) {
-  const temps = cells.flatMap((cell) => (cell.temperature === null ? [] : [cell.temperature]));
-  if (temps.length === 0) return null;
-  const min = Math.min(...temps);
-  const max = Math.max(...temps);
-  const span = max - min;
-  const y = (t: number) =>
-    span === 0 ? CHART_H / 2 : CHART_PAD_TOP + ((max - t) / span) * (CHART_H - CHART_PAD_TOP - CHART_PAD_BOTTOM);
-  const points = cells.map((cell, index) =>
-    cell.temperature === null ? null : { index, x: index * CELL_W + CELL_W / 2, y: y(cell.temperature), t: cell.temperature },
-  );
-  // 欠けた時間で線を切る。過去と未来は「今」の点で繋ぎ、色だけ分ける。
-  const pathOf = (from: number, to: number) => {
-    let d = "";
-    let pen = false;
-    for (const point of points.slice(from, to + 1)) {
-      if (!point) {
-        pen = false;
-        continue;
-      }
-      d += `${pen ? "L" : "M"}${point.x} ${point.y}`;
-      pen = true;
-    }
-    return d;
-  };
-  const split = nowIndex >= 0 ? nowIndex : 0;
-  return (
-    <svg width={cells.length * CELL_W} height={CHART_H} className="block overflow-visible" aria-hidden="true">
-      {nowIndex > 0 && <path d={pathOf(0, split)} fill="none" strokeWidth={2} strokeLinejoin="round" className="stroke-muted/50" />}
-      <path d={pathOf(split, cells.length - 1)} fill="none" strokeWidth={2} strokeLinejoin="round" className="stroke-topic" />
-      {points.map((point) =>
-        point ? (
-          <g key={point.index} className={point.index < nowIndex ? "text-muted/60" : "text-foreground"}>
-            <circle cx={point.x} cy={point.y} r={point.index === nowIndex ? 4 : 2.5} className={point.index < nowIndex ? "fill-muted/60" : "fill-topic"} />
-            <text x={point.x} y={point.y - 7} textAnchor="middle" fontSize="11" fontWeight="700" fill="currentColor">
-              {Math.round(point.t)}°
-            </text>
-          </g>
-        ) : null,
-      )}
-    </svg>
-  );
+/** 数字＋小さい単位（℃・%・mm。#1109）。 */
+function Unit({ children }: { children: string }) {
+  return <span className="ml-px text-[0.6em] font-normal">{children}</span>;
 }
 
 /**
- * 1時間ごとの帯（#594・#609）。上から、その時間に居る場所（隣と同じなら1本）・時刻と天気・気温の折れ線・
- * 降水確率（棒と%）・1時間雨量（mm）。`nowIndex` より前は過ぎた時間で、灰色に薄くする（-1は全部が先の時間）。
+ * 1時間ごとの帯（#594・#609・#1109）。上から、その時間に居る場所（隣と同じなら1本）・時刻と天気・気温（昨日比の矢印つき）・
+ * 降水確率（%）・1時間雨量（mm）。グラフは無く数字だけ。`nowIndex` より前は過ぎた時間で、灰色に薄くする（-1は全部が先の時間）。
  * 列は固定幅で、カードの幅に収まらないぶんは帯の中だけ横にスクロールする（ページは横に動かさない）。
  */
 export function HourlyStrip({
@@ -136,12 +106,12 @@ export function HourlyStrip({
     if (last && same) last.span += 1;
     else bands.push({ start: index, span: 1, cell });
   });
-  const total = cells.length;
   const todayDate = nowIndex >= 0 ? cells[nowIndex]?.date : undefined;
 
   return (
     <ScrollToNow className="-mx-0.5 overflow-x-auto overscroll-x-contain px-0.5 pb-1 [scrollbar-width:thin]" resetKey={resetKey}>
-      <ol className="relative grid w-max auto-cols-[46px] grid-flow-col gap-y-1" aria-label="1時間ごとの天気">
+      <ol style={{ gridAutoColumns: `${STRIP_COLUMN_W}px` }}
+        className="relative grid w-max grid-flow-col gap-y-1" aria-label="1時間ごとの天気">
         {bands.map((band) => (
           <li
             key={`band-${band.start}`}
@@ -184,30 +154,42 @@ export function HourlyStrip({
             </li>
           );
         })}
-        <li aria-hidden="true" style={{ gridColumn: `1 / span ${total}`, gridRow: 3 }}>
-          <TemperatureChart cells={cells} nowIndex={nowIndex} />
-        </li>
+        {cells.map((cell, index) => {
+          const level = cell.temperature !== null && cell.yesterday !== null ? diffLevel(cell.temperature - cell.yesterday) : null;
+          const arrow = level ? DIFF_ARROW[level] : null;
+          return (
+            <li
+              key={`temp-${cell.date}-${cell.hour}`}
+              aria-hidden="true"
+              style={{ gridColumn: index + 1, gridRow: 3 }}
+              className={cn(
+                "flex flex-col items-center gap-px text-center text-xs font-bold tabular-nums",
+                index === nowIndex && "bg-topic-surface",
+                index < nowIndex && "opacity-50 grayscale",
+              )}
+            >
+              <span className="whitespace-nowrap">
+                {cell.temperature === null ? "—" : <>{Math.round(cell.temperature)}<Unit>℃</Unit></>}
+              </span>
+              {arrow ? <arrow.Icon className={cn("size-3", arrow.className)} aria-label={arrow.label} /> : <span className="h-3" />}
+            </li>
+          );
+        })}
         {cells.map((cell, index) => {
           const wet = cell.pop !== null && cell.pop >= RAIN_POP;
-          const isPast = index < nowIndex;
           return (
             <li
               key={`pop-${cell.date}-${cell.hour}`}
               aria-hidden="true"
               style={{ gridColumn: index + 1, gridRow: 4 }}
               className={cn(
-                "flex flex-col items-center gap-[3px] rounded-lg py-0.5 tabular-nums",
-                wet && "bg-topic-surface",
+                "rounded-lg py-0.5 text-center text-[0.65625rem] tabular-nums",
+                wet ? "bg-topic-surface font-bold text-topic" : "text-muted",
                 index === nowIndex && !wet && "bg-topic-surface",
-                isPast && "opacity-50 grayscale",
+                index < nowIndex && "opacity-50 grayscale",
               )}
             >
-              <span className="flex h-[30px] w-2 items-end overflow-hidden rounded bg-border">
-                <span className="block w-full rounded bg-topic/70" style={{ height: `${cell.pop ?? 0}%` }} />
-              </span>
-              <span className={cn("text-[0.65625rem]", wet ? "font-bold text-topic" : "text-muted")}>
-                {cell.pop === null ? "—" : `${cell.pop}%`}
-              </span>
+              {cell.pop === null ? "—" : <>{cell.pop}<Unit>%</Unit></>}
             </li>
           );
         })}
@@ -217,20 +199,15 @@ export function HourlyStrip({
             aria-hidden="true"
             style={{ gridColumn: index + 1, gridRow: 5 }}
             className={cn(
-              "text-center text-[0.65625rem] tabular-nums",
+              "whitespace-nowrap text-center text-[0.65625rem] tabular-nums",
               cell.precipitation !== null && cell.precipitation > 0 ? "font-bold text-topic" : "text-muted",
               index < nowIndex && "opacity-50 grayscale",
             )}
           >
-            {cell.precipitation === null ? "—" : cell.precipitation === 0 ? "0" : cell.precipitation.toFixed(1)}
+            {cell.precipitation === null ? "—" : <>{cell.precipitation === 0 ? "0" : cell.precipitation.toFixed(1)}<Unit>mm</Unit></>}
           </li>
         ))}
       </ol>
-      <div className="flex gap-3 pt-0.5 text-[0.625rem] text-muted">
-        <span>上: 気温（℃）</span>
-        <span>中: 降水確率</span>
-        <span>下: 雨量（mm/時）</span>
-      </div>
     </ScrollToNow>
   );
 }
