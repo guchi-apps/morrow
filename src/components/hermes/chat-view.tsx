@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ChatItemView } from "@/components/hermes/chat-items";
 import { ProposalCard } from "@/components/hermes/proposal-card";
+import { locateOnce } from "@/lib/geolocation";
 import { describeHermesError, type ChatConnection } from "@/lib/hermes/errors";
 import {
   addPendingInterrupt,
@@ -79,16 +80,10 @@ async function fetchStatus(): Promise<ChatConnection> {
   }
 }
 
-/** 現在地を1回だけ取る（追跡しない。8秒で諦める）。拒否・失敗・非対応はnull（サーバーが自宅の天気で代える）。 */
-function currentLocation(): Promise<{ latitude: number; longitude: number } | null> {
-  if (typeof navigator === "undefined" || !("geolocation" in navigator)) return Promise.resolve(null);
-  return new Promise((resolve) => {
-    navigator.geolocation.getCurrentPosition(
-      (position) => resolve({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
-      () => resolve(null),
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 5 * 60_000 },
-    );
-  });
+/** 現在地を1回だけ取る（追跡しない。8秒で諦める。iOSの殻では端末の位置情報。#1087）。拒否・失敗・非対応はnull（サーバーが自宅の天気で代える）。 */
+async function currentLocation(): Promise<{ latitude: number; longitude: number } | null> {
+  const result = await locateOnce({ timeoutMs: 8000 });
+  return result.status === "ok" ? { latitude: result.latitude, longitude: result.longitude } : null;
 }
 
 /** 待つ。中断されたら待ちを打ち切る。 */

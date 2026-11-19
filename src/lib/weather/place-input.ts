@@ -101,5 +101,6 @@ export function hereFromQuery(query: Record<string, string | string[] | undefine
  * 検索結果（`?q=`）や、座標が読めずに地点未選択になった画面で自動取得すると、検索語や指定が消える。
  */
 export function shouldAutoLocate(query: Record<string, string | string[] | undefined>): boolean {
-  return ["q", "n", "lat", "lon", "here"].every((key) => query[key] === undefined);
+  // エリア選択（`picker`・`area`・`pref`・`city`。#1079）の間も取らない。取ると現在地の画面へ置き換わり、選択画面が消える（#1085）
+  return ["q", "n", "lat", "lon", "here", "picker", "area", "pref", "city"].every((key) => query[key] === undefined);
 }

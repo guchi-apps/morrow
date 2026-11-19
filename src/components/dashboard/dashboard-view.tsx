@@ -2,15 +2,14 @@ import { CloudRain, CloudSun, Umbrella } from "lucide-react";
 import Link from "next/link";
 import { Suspense } from "react";
 
-import { DaySwipe } from "@/components/dashboard/day-swipe";
 import { HourlyStrip, WeatherIcon, YesterdayNote } from "@/components/weather/hourly-strip";
 import { weatherHref } from "@/lib/weather/place-input";
 import { dashboardSchedule } from "@/lib/dashboard/aide";
 import { mailIdsByTarget } from "@/lib/mail/link";
 import { linkKey, mailBadgeLabel } from "@/lib/mail/link-core";
-import { addDays, cardDayName, DAY_RANGE, dayHref, relativeDayName } from "@/lib/dashboard/day-offset";
+import { addDays, cardDayName, relativeDayName } from "@/lib/dashboard/day-offset";
 import type { ScheduleItem, ScheduleView, WeatherDay } from "@/lib/dashboard/parse";
-import { schedulePhase, type SchedulePhase } from "@/lib/dashboard/schedule-phase";
+import { schedulePhase } from "@/lib/dashboard/schedule-phase";
 import {
   dashboardDayWeather,
   dashboardPlaces,
@@ -18,6 +17,7 @@ import {
   type PlaceSegment,
   type PlacesView,
 } from "@/lib/dashboard/places";
+import { HOUR_PX, layoutTimeline, nowTop } from "@/lib/dashboard/timeline";
 import { tempDelta, type TempDelta } from "@/lib/dashboard/temp-delta";
 import type { DashboardTopic } from "@/lib/dashboard/today";
 import { dayLabel, jstDayKey, jstTimeLabel } from "@/lib/day-key";
@@ -33,23 +33,22 @@ import { cn } from "@/lib/utils";
  * 並びは、スマホ（1列）で上から「天気 → 予定 → ニュース」。PC・iPad
  * （lg以上）は左に天気・ニュース、右に予定の2列。
  *
- * 左右のスワイプ（`DaySwipe`）・見出しの ‹ › で前後の日へめくる（#606。`?d=`）。今日以外の日は、天気・予定だけを出す。ニュース・現在地の天気は「いま」の
- * 状態なので今日だけ。
+ * 今日だけを出す（#1088。以前の左右スワイプ・‹ ›・`?d=` による日めくり〔#606〕は廃止した）。
  */
 
 type Props = {
   userId: string;
   now: Date;
   todayKey: string;
-  /** 表示する日の今日からのずれ（0＝今日）。 */
-  offset: number;
   topics: DashboardTopic[];
 };
 
-export function DashboardView({ userId, now, todayKey, offset, topics }: Props) {
-  const dayKey = addDays(todayKey, offset);
+/** 表示する日の今日からのずれ。ホームは今日固定（#1088）。内部の関数が持つ `offset` 引数へ渡す。 */
+const offset = 0;
+
+export function DashboardView({ userId, now, todayKey, topics }: Props) {
+  const dayKey = todayKey;
   const dayName = cardDayName(dayKey, offset);
-  const isToday = offset === 0;
 
   // 見出しに地点（市町村名）を出すので、カードごと後から流す。`key` を日付にして、めくった直後は
   // 前の日の中身を残さず「取得しています…」を出す（新しい境界として扱わせる）。
@@ -72,22 +71,13 @@ export function DashboardView({ userId, now, todayKey, offset, topics }: Props) 
       </Suspense>
     </Card>
   );
-  const topicCard = isToday && <TopicCard topics={topics} />;
-
-  const prev = offset > -DAY_RANGE ? offset - 1 : null;
-  const next = offset < DAY_RANGE ? offset + 1 : null;
-  const peekName = (target: number) => relativeDayName(target) ?? cardDayName(addDays(todayKey, target), target);
+  const topicCard = <TopicCard topics={topics} />;
 
   return (
-    <DaySwipe
-      prevHref={prev === null ? null : dayHref(todayKey, prev)}
-      nextHref={next === null ? null : dayHref(todayKey, next)}
-      prevLabel={prev === null ? null : peekName(prev)}
-      nextLabel={next === null ? null : peekName(next)}
-    >
+    <>
       <div className="mobile-tab-pad min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-[980px] flex-col gap-3 px-3.5 py-4 md:gap-4 md:px-7 md:py-6">
-          <DayNav todayKey={todayKey} offset={offset} prev={prev} next={next} now={now} />
+          <DayNav todayKey={todayKey} now={now} />
 
           {/* スマホ: 1列（読む順） */}
           <div className="flex flex-col gap-3 lg:hidden">
@@ -110,87 +100,21 @@ export function DashboardView({ userId, now, todayKey, offset, topics }: Props) 
           </DesktopOnly>
         </div>
       </div>
-    </DaySwipe>
+    </>
   );
 }
 
-const NAV_BUTTON =
-  "grid size-8 shrink-0 place-items-center rounded-full border border-border bg-surface text-base font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
-
-/**
- * 見出しの日付と前後への移動（#606）。ボタンは `Link`（`replace`）なので、JSが動く前でも押せる。
- * 端の日では押せない形（薄い・リンクでない）にする。ドットは範囲（前後 `DAY_RANGE` 日）の中の位置。
- */
-function DayNav({
-  todayKey,
-  offset,
-  prev,
-  next,
-  now,
-}: {
-  todayKey: string;
-  offset: number;
-  prev: number | null;
-  next: number | null;
-  now: Date;
-}) {
-  const dayKey = addDays(todayKey, offset);
-  const relative = relativeDayName(offset);
-  const step = (target: number | null, label: string, glyph: string) =>
-    target === null ? (
-      <span className={cn(NAV_BUTTON, "text-muted opacity-40")} aria-hidden="true">
-        {glyph}
-      </span>
-    ) : (
-      <Link href={dayHref(todayKey, target)} replace scroll={false} aria-label={label} className={cn(NAV_BUTTON, "hover:bg-rail-active")}>
-        {glyph}
-      </Link>
-    );
-
+/** 見出しの日付と取得時刻（#1088。前後への移動は廃止した）。 */
+function DayNav({ todayKey, now }: { todayKey: string; now: Date }) {
   return (
     <div className="flex flex-col items-center gap-1.5">
-      <div className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1.5">
-        {step(prev, "前の日", "‹")}
-        <h2 className="flex items-baseline gap-2 text-lg font-bold tracking-wide md:text-[1.375rem]">
-          {dayLabel(dayKey)}
-          {relative && (
-            <span
-              className={cn(
-                "rounded-full px-2 py-px text-xs font-bold tracking-normal",
-                offset === 0 ? "bg-accent-surface text-accent" : "bg-topic-surface text-topic",
-              )}
-            >
-              {relative}
-            </span>
-          )}
-        </h2>
-        {step(next, "次の日", "›")}
-      </div>
-      {/* データを取得した時刻。日付の中心を保つため、ドットと「今日へ」はこの行に置く */}
-      <div className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-xs text-muted">
-        <span>{jstTimeLabel(now)} 時点</span>
-        <span className="hidden items-center gap-1 sm:flex" aria-hidden="true">
-          {Array.from({ length: DAY_RANGE * 2 + 1 }, (_, index) => index - DAY_RANGE).map((dot) => (
-            <i
-              key={dot}
-              className={cn(
-                "block h-[5px] rounded-full",
-                dot === offset ? "w-3.5 bg-accent" : dot === 0 ? "w-[5px] bg-muted" : "w-[5px] bg-border",
-              )}
-            />
-          ))}
+      <h2 className="flex items-baseline gap-2 text-lg font-bold tracking-wide md:text-[1.375rem]">
+        {dayLabel(todayKey)}
+        <span className="rounded-full bg-accent-surface px-2 py-px text-xs font-bold tracking-normal text-accent">
+          {relativeDayName(0)}
         </span>
-        {offset !== 0 && (
-          <Link
-            href="/"
-            replace
-            scroll={false}
-            className="rounded-full border border-accent px-3 py-0.5 text-xs font-bold text-accent hover:bg-accent-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          >
-            今日へ
-          </Link>
-        )}
-      </div>
+      </h2>
+      <span className="text-xs text-muted">{jstTimeLabel(now)} 時点</span>
     </div>
   );
 }
@@ -453,7 +377,7 @@ async function PlacesSection({
           <YesterdayNote cells={hours} nowIndex={nowIndex} />
           <HourlyStrip cells={hours} nowIndex={nowIndex} resetKey={`${dayKey}:${offset}`} />
           {rainy.length > 0 && <UmbrellaNote>{umbrellaText(rainy[0], rainy.length > 1)}</UmbrellaNote>}
-          <p className="text-[0.6875rem] text-muted">青い地は降水確率{RAIN_POP}%以上。灰色は過ぎた時間。横にスクロールできます。端でさらに引くと前後の日へ移ります。</p>
+          <p className="text-[0.6875rem] text-muted">青い地は降水確率{RAIN_POP}%以上。灰色は過ぎた時間。横にスクロールできます。</p>
         </div>
       )}
       {hours.length === 0 && rainy.length > 0 && (
@@ -625,25 +549,62 @@ function timeRange(item: ScheduleItem): string {
   return item.end ? `${item.start}–${item.end}` : item.start;
 }
 
-/** 終わった予定は少し、記録は大きく薄くする（#626）。これからの予定は従来の色のまま。 */
-const PHASE_FADE: Record<SchedulePhase, string | null> = {
-  upcoming: null,
-  done: "opacity-75",
-  record: "opacity-50",
-};
+const AXIS_W = 40;
+const LANE_GAP = 10;
 
-const PHASE_LEGEND: { phase: SchedulePhase; label: string }[] = [
-  { phase: "upcoming", label: "これから" },
-  { phase: "done", label: "終わった予定" },
-  { phase: "record", label: "記録" },
-];
+/** 項目の題名まわり（種類のチップ・リンク・中止の印・メモ・✉）。タイムラインの項目名と上の帯で共有する。 */
+function ItemText({ item, mailLinks }: { item: ScheduleItem; mailLinks: Map<string, string[]> }) {
+  const chip = item.kind === "reminder" ? item.note : KIND_CHIP[item.kind];
+  const cancelled = item.outcome !== null;
+  return (
+    <>
+      {chip && (
+        <span
+          className={cn(
+            "mr-1.5 inline-block rounded-full px-[7px] py-px text-[0.6875rem]",
+            item.kind === "reminder" ? "bg-accent-surface text-accent" : "bg-topic-surface text-topic",
+          )}
+        >
+          {chip}
+        </span>
+      )}
+      {item.url ? (
+        <a
+          href={item.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn("hover:underline", cancelled && "text-muted line-through")}
+        >
+          {item.title}
+        </a>
+      ) : (
+        <span className={cn(cancelled && "text-muted line-through")}>{item.title}</span>
+      )}
+      {cancelled && (
+        <span className="ml-1.5 text-[0.6875rem] text-muted">{item.outcome === "CANCELED" ? "中止" : "不参加"}</span>
+      )}
+      {item.kind === "event" && item.note && !item.record && (
+        <span className="ml-1.5 text-[0.6875rem] text-muted">{item.note}</span>
+      )}
+      {item.id && (item.kind === "event" || item.kind === "task") && (
+        <MailBadge messageIds={mailLinks.get(linkKey(item.kind, item.id)) ?? []} />
+      )}
+    </>
+  );
+}
 
 function ScheduleOk({ schedule, now, offset, mailLinks }: { schedule: Extract<ScheduleView, { status: "ok" }>; now: Date; offset: number; mailLinks: Map<string, string[]> }) {
   const { items, free, partial, googleDisconnected } = schedule;
   const nowTime = jstTimeLabel(now);
   const phases = items.map((item) => schedulePhase(item, nowTime, offset));
-  // 薄い行が無い日は凡例を出さない（全部これからなら、区別するものが無い）。
-  const legend = phases.some((phase) => phase !== "upcoming") ? PHASE_LEGEND.filter((entry) => phases.includes(entry.phase)) : [];
+  const layout = layoutTimeline(items);
+  const hasRecord = layout.bars.some((bar) => items[bar.index].record);
+  const hasEvent = layout.bars.some((bar) => !items[bar.index].record);
+  const nowY = offset === 0 ? nowTop(layout, nowTime) : null;
+  // 線の列は右へ増える。項目名は最後の列の右から始める。
+  const labelLeft = AXIS_W + 6 + Math.max(layout.laneCount, 1) * LANE_GAP + 12;
+  const laneX = (lane: number) => AXIS_W + 6 + lane * LANE_GAP;
+  const hours = Array.from({ length: layout.endHour - layout.startHour + 1 }, (_, i) => layout.startHour + i);
 
   return (
     <>
@@ -657,64 +618,87 @@ function ScheduleOk({ schedule, now, offset, mailLinks }: { schedule: Extract<Sc
         !partial && !googleDisconnected && <Empty>この日の予定はありません。</Empty>
       ) : (
         <>
-        {legend.length > 0 && (
-          <p className="flex flex-wrap gap-x-3.5 text-[0.6875rem] text-muted">
-            {legend.map((entry) => (
-              <span key={entry.phase}>
-                <span
-                  className={cn("mr-1.5 inline-block size-2 rounded-full bg-foreground align-baseline", PHASE_FADE[entry.phase])}
-                  aria-hidden="true"
-                />
-                {entry.label}
-              </span>
-            ))}
-          </p>
-        )}
-        <ul className="grid grid-cols-[84px_minmax(0,1fr)] gap-x-3 md:grid-cols-[92px_minmax(0,1fr)]">
-          {items.map((item, index) => {
-            const fade = PHASE_FADE[phases[index]];
-            const chip = item.kind === "reminder" ? item.note : KIND_CHIP[item.kind];
-            const cancelled = item.outcome !== null;
-            return (
-              <li key={`${item.kind}-${index}`} className="contents">
-                <span className={cn("py-1.5 text-[0.8125rem] tabular-nums text-muted", fade)}>{timeRange(item)}</span>
-                <span className={cn("min-w-0 border-b border-border py-1.5 text-sm", fade)}>
-                  {chip && (
-                    <span
-                      className={cn(
-                        "mr-1.5 inline-block rounded-full px-[7px] py-px text-[0.6875rem]",
-                        item.kind === "reminder" ? "bg-accent-surface text-accent" : "bg-topic-surface text-topic",
-                      )}
-                    >
-                      {chip}
+          {/* 時刻のない予定・終日・タスク・リマインドは、時間軸の上に並べる */}
+          {layout.band.length > 0 && (
+            <ul className="flex flex-col gap-1 border-b border-border pb-2.5 text-sm">
+              {layout.band.map((index) => (
+                <li key={`${items[index].kind}-${index}`} className="flex gap-2.5">
+                  <span className="w-[3.25rem] shrink-0 pt-px text-xs tabular-nums text-muted">{timeRange(items[index])}</span>
+                  <span className="min-w-0">
+                    <ItemText item={items[index]} mailLinks={mailLinks} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {layout.bars.length > 0 && (
+            <div className="relative text-sm" style={{ height: layout.height }}>
+              {hours.map((hour) => (
+                <div key={hour} className="absolute inset-x-0 border-t border-border" style={{ top: (hour - layout.startHour) * HOUR_PX }}>
+                  <span className="absolute -top-2 left-0 bg-surface pr-1 text-[0.6875rem] tabular-nums text-muted">{hour}:00</span>
+                </div>
+              ))}
+              <svg width={labelLeft} height={layout.height} className="absolute left-0 top-0 overflow-visible" aria-hidden="true">
+                {layout.bars.map((bar) => {
+                  const item = items[bar.index];
+                  const color = item.record ? "var(--fair)" : "var(--topic)";
+                  const x = laneX(bar.lane);
+                  const fade = phases[bar.index] === "done" ? 0.6 : 1;
+                  return (
+                    <g key={bar.index} opacity={fade}>
+                      <line x1={x} x2={x} y1={bar.top} y2={bar.bottom} stroke={color} strokeWidth={4} strokeLinecap="round" />
+                      <polyline
+                        fill="none"
+                        stroke={color}
+                        strokeWidth={1}
+                        opacity={0.7}
+                        points={`${x},${bar.top} ${labelLeft - 8},${bar.top} ${labelLeft - 8},${bar.labelTop + 10} ${labelLeft - 2},${bar.labelTop + 10}`}
+                      />
+                    </g>
+                  );
+                })}
+              </svg>
+              {layout.bars.map((bar) => {
+                const item = items[bar.index];
+                return (
+                  <div
+                    key={bar.index}
+                    className={cn("absolute right-0 flex items-baseline gap-1.5 leading-5", item.record && "text-fair", phases[bar.index] === "done" && "opacity-75")}
+                    style={{ top: bar.labelTop, left: labelLeft }}
+                  >
+                    <span className="min-w-0">
+                      <ItemText item={item} mailLinks={mailLinks} />
                     </span>
-                  )}
-                  {item.url ? (
-                    <a
-                      href={item.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={cn("hover:underline", cancelled && "text-muted line-through")}
-                    >
-                      {item.title}
-                    </a>
-                  ) : (
-                    <span className={cn(cancelled && "text-muted line-through")}>{item.title}</span>
-                  )}
-                  {cancelled && (
-                    <span className="ml-1.5 text-[0.6875rem] text-muted">
-                      {item.outcome === "CANCELED" ? "中止" : "不参加"}
-                    </span>
-                  )}
-                  {item.kind === "event" && item.note && (
-                    <span className="ml-1.5 text-[0.6875rem] text-muted">{item.note}</span>
-                  )}
-                  {item.id && (item.kind === "event" || item.kind === "task") && <MailBadge messageIds={mailLinks.get(linkKey(item.kind, item.id)) ?? []} />}
+                    <span className="shrink-0 text-[0.6875rem] tabular-nums text-muted">{timeRange(item)}</span>
+                  </div>
+                );
+              })}
+              {nowY !== null && (
+                <div className="pointer-events-none absolute inset-x-0 z-[1] border-t-2 border-accent" style={{ top: nowY }}>
+                  <i className="absolute -top-[6px] size-[9px] rounded-full bg-accent" style={{ left: AXIS_W }} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {(hasEvent || hasRecord) && layout.bars.length > 0 && (
+            <p className="flex flex-wrap gap-x-3.5 text-[0.6875rem] text-muted">
+              {hasEvent && (
+                <span>
+                  <span className="mr-1.5 inline-block h-2 w-1 rounded-sm bg-topic align-baseline" aria-hidden="true" />
+                  予定
                 </span>
-              </li>
-            );
-          })}
-        </ul>
+              )}
+              {hasRecord && (
+                <span>
+                  <span className="mr-1.5 inline-block h-2 w-1 rounded-sm bg-fair align-baseline" aria-hidden="true" />
+                  記録
+                </span>
+              )}
+              {phases.includes("done") && <span>薄い線は終わった予定</span>}
+            </p>
+          )}
         </>
       )}
 
