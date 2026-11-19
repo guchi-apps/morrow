@@ -1,7 +1,7 @@
 import { listConnectedServers, type ConnectedServer } from "@/lib/mcp/connections";
 import { findPreset } from "@/lib/mcp/presets";
 import { readMcpBody } from "@/lib/mcp/rpc-body";
-import { toolErrorReason } from "@/lib/mcp/tool-error";
+import { toolErrorReason, toolErrorStatus } from "@/lib/mcp/tool-error";
 
 /**
  * MCPの道具をモデルを通さずに1本呼ぶ（#573）。
@@ -25,9 +25,12 @@ const WRITE_CALL_TIMEOUT_MS = 30_000;
 export class McpCallError extends Error {
   /** 道具が `isError` で返した、画面に出してよい短い理由（`reason`）。無ければnull。本文・スタックは含めない。 */
   readonly reason: string | null;
-  constructor(message: string, reason: string | null = null) {
+  /** 道具が `isError` の結果に載せた `status`（`conflict` など。#1100）。無ければnull。 */
+  readonly status: string | null;
+  constructor(message: string, reason: string | null = null, status: string | null = null) {
     super(message);
     this.reason = reason;
+    this.status = status;
   }
 }
 
@@ -134,6 +137,24 @@ export async function callCardWithdrawalWriteToolJson(
 }
 
 /**
+ * 電気・ガスの請求をクラシオ（kurashio）へ登録する書き込み（#1100）の許可リスト。
+ * メールの分析で請求の確定額が読めたときに、Morrowのサーバーが呼ぶ。AIDE側が冪等（同じ内容は `duplicate`、値違いは `conflict`）。
+ */
+export const UTILITY_BILL_WRITE_TOOLS = ["kurashio_import_utility_bill"] as const;
+export type UtilityBillWriteTool = (typeof UTILITY_BILL_WRITE_TOOLS)[number];
+
+export async function callUtilityBillWriteToolJson(
+  server: ConnectedServer,
+  tool: UtilityBillWriteTool,
+  args: Record<string, unknown>,
+): Promise<ToolJson> {
+  if (!(UTILITY_BILL_WRITE_TOOLS as readonly string[]).includes(tool)) {
+    throw new McpCallError(`${tool} は許可していない書き込みの道具です`);
+  }
+  return callTool(server, tool, args, WRITE_CALL_TIMEOUT_MS);
+}
+
+/**
  * Hermesの提案（#748）を利用者が承認したあとだけ、Morrowのサーバーが呼ぶ書き込みの許可リスト。
  * メール用（上）とは型を分けてあり、広げても `callWriteToolJson()` の3本は変わらない。
  * `docs/hermes-actions.md` の「取り消せない書き込み」の表と揃える。
@@ -209,7 +230,7 @@ async function callTool(
 
   if (result.isError === true) {
     const reason = toolErrorReason(result);
-    throw new McpCallError(`${tool} が失敗を返しました${reason ? `: ${reason}` : ""}`, reason);
+    throw new McpCallError(`${tool} が失敗を返しました${reason ? `: ${reason}` : ""}`, reason, toolErrorStatus(result));
   }
 
   if (result.structuredContent && typeof result.structuredContent === "object") {

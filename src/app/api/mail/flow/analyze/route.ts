@@ -4,6 +4,9 @@ import { getCurrentUser } from "@/lib/auth-user";
 import { readJsonObject } from "@/lib/json-body";
 import { analyzeMail } from "@/lib/mail/analyze";
 import { MAIL_FAILURE_MESSAGES, isMailMessageId } from "@/lib/mail/contract";
+import { getMail, type MailUser } from "@/lib/mail/aide-client";
+import { syncUtilityBill } from "@/lib/mail/utility-bill";
+import type { UtilityBill } from "@/lib/mail/utility-bill-core";
 import { checkCardWithdrawal, checkWithdrawal } from "@/lib/mail/withdrawal";
 
 /**
@@ -33,5 +36,14 @@ export async function POST(request: Request) {
   const [balance, card] = withdrawal
     ? await Promise.all([checkWithdrawal(user.id, withdrawal), checkCardWithdrawal(user.id, withdrawal, body.id)])
     : [null, null];
-  return NextResponse.json({ ...result.result, balance, card, cached: result.cached });
+  // 電気・ガスの請求なら、クラシオへの反映の状態を毎回読み直す（#1100。未反映なら登録も試みる。AIDE側が冪等）。持ち主は分析の中で照合済み
+  const bill = result.result.utilityBill;
+  const utilityBillState = bill ? await utilityBillView(user, body.id, bill) : null;
+  return NextResponse.json({ ...result.result, balance, card, utilityBillState, cached: result.cached });
+}
+
+async function utilityBillView(user: MailUser, messageId: string, bill: UtilityBill) {
+  const mail = await getMail(user, messageId);
+  if (!mail.ok) return null;
+  return syncUtilityBill(user.id, messageId, bill, mail.value.message.receivedAt, { write: true });
 }

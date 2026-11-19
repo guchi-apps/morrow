@@ -39,3 +39,20 @@ export function toolErrorReason(result: Record<string, unknown>): string | null 
   if (text && MISSING_SCOPE_PATTERN.test(text)) return MISSING_SCOPE_REASON;
   return null;
 }
+
+/**
+ * `isError` の結果のJSONにある `status`（AIDEの `kurashio_import_utility_bill` の `conflict`・`contract_unresolved` など。#1100）。
+ * 英数字と `_` だけの短い値のときだけ返す。無ければnull。
+ */
+export function toolErrorStatus(result: Record<string, unknown>): string | null {
+  let record: unknown = result.structuredContent;
+  if (!record || typeof record !== "object") {
+    try {
+      record = JSON.parse(firstText(result) ?? "");
+    } catch {
+      record = null;
+    }
+  }
+  const status = record && typeof record === "object" ? (record as { status?: unknown }).status : null;
+  return typeof status === "string" && /^[a-z_]{1,40}$/.test(status) ? status : null;
+}
