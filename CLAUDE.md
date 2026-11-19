@@ -918,6 +918,14 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 - 受信トレイ表示以外（すべて・ゴミ箱・検索）では要約を出さない。作れなかった行は従来表示
 - **生成中の削除で行を復活させない**（#860）。Codex待ちの間にアーカイブ・ゴミ箱が先に終わると保存が行を戻すため、`deleteListSummaries()` が**DBを消す前に**プロセス内の取消し印（`createTombstones()`。30分）を付け、生成側は開始時刻以降に印のあるIDを保存せず、書いた後にも見て消し直す。プロセスをまたぐ競合（PM2を複数にした場合）は守れないので、増やすときはDB側の印へ変える
 
+### メールの画像と添付ファイル（#1101）
+
+- **画像は「画像を表示」を押したときだけ出す**（外部画像と、本文に埋め込まれた `cid:` 画像の両方）。埋め込み画像は画面がMorrowの中継（`?mode=view`）から取って `data:` に差し替える（本文の枠は `allow-same-origin` が無くCookieが届かないため、URLのままでは読めない）。表示中は本文の下に「本文の画像」を並べ、埋め込みは保存、**外部画像は元のURLを開くだけ**（Morrowのサーバーから任意のURLを取りに行かない。SSRFの穴になる）。純粋部は `src/lib/mail/body-images.ts`（`test/mail-body-images.test.ts`）
+- **添付は `GET /api/mail/attachments/<id>/<attachmentId>?mode=check|view|download`**（AIDEの取り出し口〔aide#867〕を中継。持ち主照合は `getMailAttachment()`）。毎回AIDEから取り直し、中身・ファイル名はDB・ログに残さない
+- **安全性の簡易検査は `src/lib/mail/attachment-check.ts`**（純粋。`test/mail-attachment-check.test.ts`）。ファイル名（実行形式・二重拡張子・向きを変える制御文字）と中身の構造（先頭の署名と拡張子の一致・PDFの `/JavaScript`・`/Launch`・`/EmbeddedFile`・ZIPの中身の名前とパスワード・Officeのマクロ）だけを見る。**ウイルス対策ソフトではない**（画面にも明記）。`danger` は保存させない（サーバーも403）、`caution` は理由のシートで確かめてから `confirm=1` で保存（無ければ409）。依存は足していない（VirusTotal・ClamAVは#1101で見送り）
+- **応答の種類は中身の署名で決める**（申告の `mimeType` は信じない）。その場で開けるのは `safe` の画像（png/jpeg/gif/webp）とPDFだけで、SVG・HTMLは常に保存。応答は `nosniff`・`CSP: sandbox` 固定（PDFを開くときだけ `sandbox` を外す。Chromeが表示しないため）。`Content-Disposition` のファイル名は `attachmentDisposition()` で無害化する
+- **iOSの殻は `Content-Disposition: attachment` の応答と `?mode=download` を `WKDownload` で受け、共有シートを開く**（`WebViewModel.swift`。一時フォルダに置き、閉じたら消す）。殻を変えずにWebだけで保存させると、WKWebViewは何もしない
+
 ### メール詳細の操作と要約（#717）
 
 - **本文を開いた時点で未読なら自動で既読にする**（#835。`MailDetailActions` のeffect。開いたメールごとに1回だけで、成功の表示は出さず失敗だけ赤字。「未読に戻す」を押しても再度は既読にしない）
