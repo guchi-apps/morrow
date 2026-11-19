@@ -342,9 +342,16 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
                 </div>
 
                 {!detail ? (
-                  <p role="status" className="rounded-[10px] bg-danger-surface px-3 py-2.5 text-[0.8125rem] leading-relaxed text-danger">
-                    この地点の天気を取得できませんでした。時間をおいて開き直してください。
-                  </p>
+                  <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-[10px] bg-danger-surface px-3 py-2.5 text-[0.8125rem] leading-relaxed text-danger">
+                    <span>この地点の天気を取得できませんでした。時間をおいてもう一度取得してください。</span>
+                    {/* 現在地は位置から取り直す（素の /weather）。素の <a> で開き直し、予報も取り直させる（#1087） */}
+                    <a
+                      href={isHere ? (offset === 0 ? "/weather" : `/weather?d=${date}`) : weatherHref(selected, offset === 0 ? undefined : date)}
+                      className="shrink-0 rounded-[9px] border border-danger/40 bg-surface px-3 py-1 text-xs font-bold text-danger focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    >
+                      もう一度取得
+                    </a>
+                  </div>
                 ) : (
                   <>
                     <DaySummaryPanel summaries={summaries} days={days} initialDate={date} resetKey={`${keyOf(selected)}:${date}`}>

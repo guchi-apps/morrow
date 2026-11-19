@@ -129,6 +129,8 @@ ios/scripts/remote-upload-testflight.sh    # Mac で main を取り込み、Test
 
 現在地の天気は天気ページ（`/weather`）が、開いたときに `navigator.geolocation` で1回だけ取る（#882。ダッシュボードの「現在地」バッジは#867で削除済み）。ビルド設定の `INFOPLIST_KEY_NSLocationWhenInUseUsageDescription`（利用目的）とWKUIDelegateの許可（#641）を使う。
 
+**#1087から、殻では端末の位置情報（CoreLocation）で取る**（`LocationProvider.swift`）。WKWebViewの `navigator.geolocation` はWebKitの確認（iOS 27未満では開くたび）を挟み、取れないことがあったため。殻は `WKScriptMessageHandlerWithReply` の口 `morrowLocation` をMorrowのオリジンのメインフレームにだけ答え、`{ status: "ok", latitude, longitude }`／`denied`／`failed` を返す（`{ query: "permission" }` は許可を求めずに状態だけ）。1回取るだけで追跡しない・保存しない（5分以内に取れた位置は使い回す・10秒で諦める）。Web側は `src/lib/geolocation.ts` の `locateOnce()` を通し、口が無い（ブラウザ・古い殻）・答えが読めないときは `navigator.geolocation` へ落とす。天気ページ・雨雲レーダー・チャット（天気の質問）が使う。**口の名前・返す形を変えるときは両方を揃える**（`test/geolocation.test.ts` が名前の一致を見る）
+
 ### オフライン表示について
 
 WKWebView では Service Worker を使えないので、殻が「最後に見た画面」を自分で持ちます（#643。`PageCache.swift`・`CachedPageView.swift`）。

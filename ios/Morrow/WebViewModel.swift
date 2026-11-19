@@ -39,6 +39,10 @@ final class WebViewModel: NSObject, ObservableObject {
         // Cookie・localStorage（Supabaseのセッション）を端末に残し、再起動後もログインを保つ
         configuration.websiteDataStore = .default()
         configuration.applicationNameForUserAgent = AppConfig.userAgentApplicationName
+        // 現在地を端末の位置情報から返す口（#1087。`LocationProvider.swift`）。ページのJSの世界にだけ出す
+        configuration.userContentController.addScriptMessageHandler(
+            LocationBridge(), contentWorld: .page, name: LocationBridge.handlerName
+        )
 
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
