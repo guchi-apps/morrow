@@ -4,6 +4,7 @@ import { Crosshair, LocateFixed, Minus, Pause, Play, Plus } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { jstTimeLabel } from "@/lib/day-key";
+import { locateOnce, locatePermission } from "@/lib/geolocation";
 import { cn } from "@/lib/utils";
 import {
   RADAR_FORECAST_TIMES_URL,
@@ -312,43 +313,38 @@ export function RainRadar({
 
   // 現在地。位置は1回だけ取り、追跡しない。許可済みなら開いたときに点だけ出す（地図は動かさない）
   const locate = (recenter: boolean) => {
-    if (!("geolocation" in navigator)) {
-      setLocateError("この端末では現在地を取得できません。");
-      return;
-    }
     setLocating(true);
     setLocateError(null);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLocating(false);
-        const next = { latitude: position.coords.latitude, longitude: position.coords.longitude };
-        if (!isInRadarArea(next.latitude, next.longitude)) {
-          setLocateError("現在地がレーダーの範囲の外です。");
-          return;
-        }
-        setHere(next);
-        if (recenter) {
-          setPanned(next);
-          const now = currentRef.current;
-          if (now) setRequested(new Set([now.validtime]));
-          setPlaying(false);
-        }
-      },
-      () => {
-        setLocating(false);
+    // iOSの殻では端末の位置情報から取る（#1087。`locateOnce()`）
+    void locateOnce({ timeoutMs: GEO_TIMEOUT_MS, maximumAgeMs: 60_000 }).then((result) => {
+      setLocating(false);
+      if (result.status === "unsupported") {
+        setLocateError("この端末では現在地を取得できません。");
+        return;
+      }
+      if (result.status !== "ok") {
         setLocateError("現在地を取得できませんでした。位置情報の許可を確認してください。");
-      },
-      { enableHighAccuracy: false, timeout: GEO_TIMEOUT_MS, maximumAge: 60_000 },
-    );
+        return;
+      }
+      const next = { latitude: result.latitude, longitude: result.longitude };
+      if (!isInRadarArea(next.latitude, next.longitude)) {
+        setLocateError("現在地がレーダーの範囲の外です。");
+        return;
+      }
+      setHere(next);
+      if (recenter) {
+        setPanned(next);
+        const now = currentRef.current;
+        if (now) setRequested(new Set([now.validtime]));
+        setPlaying(false);
+      }
+    });
   };
   useEffect(() => {
     let cancelled = false;
-    navigator.permissions
-      ?.query({ name: "geolocation" })
-      .then((status) => {
-        if (!cancelled && status.state === "granted") locate(false);
-      })
-      .catch(() => {});
+    void locatePermission().then((permission) => {
+      if (!cancelled && permission === "granted") locate(false);
+    });
     return () => {
       cancelled = true;
     };

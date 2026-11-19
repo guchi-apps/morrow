@@ -4,11 +4,12 @@ import { LocateFixed } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
+import { locateOnce } from "@/lib/geolocation";
 import { hereHref } from "@/lib/weather/place-input";
 
 /**
  * 天気ページを地点指定なしで開いたとき、現在地を1回取って `/weather?here=1&lat=&lon=` へ置き換える（#882）。
- * iOSアプリの殻はWKWebViewの位置情報を許可済み（#641）なので、`navigator.geolocation` がそのまま使える。
+ * iOSアプリの殻では端末の位置情報（CoreLocation）から取る（#1087。`locateOnce()`）。ブラウザは `navigator.geolocation`。
  * 常時追跡はしない。位置はサーバーに保存せず、小数2桁に丸めてURLへ載せる。拒否・失敗では再要求せず案内だけ出す。
  */
 
@@ -28,15 +29,10 @@ export function AutoLocate({ date }: { date?: string }) {
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    if (!("geolocation" in navigator)) {
-      queueMicrotask(() => setState("unsupported"));
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (position) => router.replace(hereHref(position.coords, date)),
-      (error) => setState(error.code === 1 ? "denied" : "failed"),
-      { enableHighAccuracy: false, timeout: 15_000, maximumAge: 5 * 60_000 },
-    );
+    void locateOnce({ timeoutMs: 15_000, maximumAgeMs: 5 * 60_000 }).then((result) => {
+      if (result.status === "ok") router.replace(hereHref(result, date));
+      else setState(result.status);
+    });
   }, [router, date]);
 
   return (
