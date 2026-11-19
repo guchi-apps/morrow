@@ -8,14 +8,18 @@ import { parseOpenMeteo, roundCoordinate, type Coordinates, type Forecast } from
  * 座標は小数2桁（≒1km）に丸めてから送る——現在地をそのまま外へ出さないためと、キャッシュの鍵を揃えるため。
  * 成功は30分持つ（AIDEの同期は毎時）。失敗は持たずに投げる。出典の表示（`OPEN_METEO_ATTRIBUTION`）を画面に添えること。
  *
- * 一時的な失敗（通信・時間切れ・429・5xx）は少し待って1回だけ取り直す（#1087）。現在地は座標が毎回変わりキャッシュに
+ * 一時的な失敗（通信・時間切れ8秒・429・5xx）は少し待って1回だけ取り直す（#1087。合計14秒まで）。現在地は座標が毎回変わりキャッシュに
  * 当たらないため、1回の失敗がそのまま「取得できませんでした」になっていた。取り直しも失敗したら、期限切れでも
  * 直前の値（同じ地点・24時間以内）があればそれを返す。
  */
 
 const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 const TTL_MS = 30 * 60 * 1000;
-const TIMEOUT_MS = 10_000;
+const TIMEOUT_MS = 8_000;
+/** 取り直しを含めた待ち時間の上限。画面の描画を待たせすぎない */
+const TOTAL_BUDGET_MS = 14_000;
+/** 残りがこれより短ければ取り直さない */
+const MIN_RETRY_MS = 2_000;
 const RETRY_DELAY_MS = 700;
 /** 取り直しも失敗したとき、期限切れの値を代わりに使ってよい古さ */
 const STALE_MS = 24 * 60 * 60 * 1000;
@@ -43,14 +47,21 @@ export function isRetryableStatus(status: number): boolean {
 
 /**
  * 1回だけ取り直す。`ForecastFetchError` で `retryable: false` のものは取り直さない。それ以外の例外（通信・打ち切り）は取り直す。
+ * `task` には打ち切りまでの時間を渡す。取り直しは上限（`budgetMs`）の残りで行い、残りが `minRetryMs` 未満なら取り直さない。
  */
-export async function withOneRetry<T>(task: () => Promise<T>, delayMs = RETRY_DELAY_MS): Promise<T> {
+export async function withOneRetry<T>(
+  task: (timeoutMs: number) => Promise<T>,
+  { delayMs = RETRY_DELAY_MS, timeoutMs = TIMEOUT_MS, budgetMs = TOTAL_BUDGET_MS, minRetryMs = MIN_RETRY_MS, now = Date.now } = {},
+): Promise<T> {
+  const startedAt = now();
   try {
-    return await task();
+    return await task(Math.min(timeoutMs, budgetMs));
   } catch (error) {
     if (error instanceof ForecastFetchError && !error.retryable) throw error;
+    const remaining = budgetMs - (now() - startedAt) - delayMs;
+    if (remaining < minRetryMs) throw error;
     await new Promise((resolve) => setTimeout(resolve, delayMs));
-    return task();
+    return task(Math.min(timeoutMs, remaining));
   }
 }
 
@@ -72,8 +83,8 @@ export function forecastAt(point: Coordinates): Promise<Forecast> {
     past_days: String(DAY_RANGE),
     forecast_days: String(DAY_RANGE + 1),
   });
-  const fetchOnce = async () => {
-    const response = await fetch(`${FORECAST_URL}?${params}`, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+  const fetchOnce = async (timeoutMs: number) => {
+    const response = await fetch(`${FORECAST_URL}?${params}`, { signal: AbortSignal.timeout(timeoutMs) });
     if (!response.ok) throw new ForecastFetchError(`Open-Meteoが ${response.status} を返しました`, isRetryableStatus(response.status));
     const forecast = parseOpenMeteo(await response.json());
     if (!forecast) throw new ForecastFetchError("Open-Meteoの予報を読めませんでした", false);

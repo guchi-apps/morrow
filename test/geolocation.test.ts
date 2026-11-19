@@ -57,7 +57,7 @@ describe("Open-Meteoの取り直し（#1087）", () => {
       calls += 1;
       if (calls === 1) throw new TypeError("fetch failed");
       return "ok";
-    }, 0);
+    }, { delayMs: 0 });
     assert.equal(value, "ok");
     assert.equal(calls, 2);
   });
@@ -68,7 +68,7 @@ describe("Open-Meteoの取り直し（#1087）", () => {
       withOneRetry(async () => {
         calls += 1;
         throw new ForecastFetchError("503", true);
-      }, 0),
+      }, { delayMs: 0 }),
     );
     assert.equal(calls, 2);
   });
@@ -79,8 +79,38 @@ describe("Open-Meteoの取り直し（#1087）", () => {
       withOneRetry(async () => {
         calls += 1;
         throw new ForecastFetchError("400", false);
-      }, 0),
+      }, { delayMs: 0 }),
     );
     assert.equal(calls, 1);
+  });
+
+  it("取り直しは上限の残りで打ち切り、残りが短ければ取り直さない", async () => {
+    let clock = 0;
+    const timeouts: number[] = [];
+    await assert.rejects(
+      withOneRetry(
+        async (timeoutMs) => {
+          timeouts.push(timeoutMs);
+          clock += timeoutMs;
+          throw new TypeError("timeout");
+        },
+        { delayMs: 0, timeoutMs: 8000, budgetMs: 14000, minRetryMs: 2000, now: () => clock },
+      ),
+    );
+    assert.deepEqual(timeouts, [8000, 6000]);
+
+    clock = 0;
+    timeouts.length = 0;
+    await assert.rejects(
+      withOneRetry(
+        async (timeoutMs) => {
+          timeouts.push(timeoutMs);
+          clock += 13000;
+          throw new TypeError("timeout");
+        },
+        { delayMs: 0, timeoutMs: 8000, budgetMs: 14000, minRetryMs: 2000, now: () => clock },
+      ),
+    );
+    assert.deepEqual(timeouts, [8000]);
   });
 });
