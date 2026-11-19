@@ -73,6 +73,8 @@ describe("municipalityCandidates", () => {
     ];
     // 県での絞り込みは呼び出し側（題が選んだ県で始まるか）。ここでは同名の別の県も候補に残す
     assert.deepEqual(municipalityCandidates("東京都府中市", fuchu).map((item) => item.title), ["東京都府中市", "広島県府中市"]);
+    // 県名だけの検索語は従来どおり何も出さない（外して空になっても全件を通さない）
+    assert.deepEqual(municipalityCandidates("東京都", fuchu), []);
     assert.deepEqual(municipalityCandidates("大阪府大阪市", [{ title: "大阪府大阪市", latitude: 34.69, longitude: 135.5 }]).map((item) => item.name), ["大阪市"]);
   });
 });
