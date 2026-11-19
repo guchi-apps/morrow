@@ -29,6 +29,14 @@ describe("埋め込み画像（cid）", () => {
     assert.deepEqual(listedAttachments(html, [logo, noId, other]), [noId, other]);
     assert.deepEqual(listedAttachments(null, [logo]), [logo]);
   });
+  it("大きすぎる・多すぎる埋め込み画像は本文に差し替えず、添付の一覧に回す", () => {
+    const big = file({ contentId: "logo@x", size: 6 * 1024 * 1024 });
+    assert.deepEqual(embeddedImages(html, [big]), []);
+    assert.deepEqual(listedAttachments(html, [big]), [big]);
+    const many = Array.from({ length: 25 }, (_, i) => file({ attachmentId: `1.${i}`, contentId: `c${i}` }));
+    const manyHtml = many.map((a) => `<img src="cid:${a.contentId}">`).join("");
+    assert.equal(embeddedImages(manyHtml, many).length, 20);
+  });
   it("cid: を data: に差し替え、対応の無いものは残す", () => {
     const out = replaceCids(html, new Map([["logo@x", "data:image/png;base64,AA=="]]));
     assert.ok(out.includes(`src="data:image/png;base64,AA=="`));

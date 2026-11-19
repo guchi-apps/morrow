@@ -10,6 +10,9 @@ import type { MailAttachment } from "@/lib/mail/contract";
  */
 
 const URL_LIMIT = 30;
+/** 本文に差し替える埋め込み画像の上限（1枚5MB・20枚）。超えたものは添付ファイルの一覧に回す（data: にすると枠の文書が膨らむ）。 */
+export const EMBED_MAX_BYTES = 5 * 1024 * 1024;
+export const EMBED_MAX_COUNT = 20;
 
 /** 本文の `cid:` 参照（小文字・パーセント復号済みの `contentId`）。 */
 export function cidReferences(html: string): string[] {
@@ -33,7 +36,9 @@ function normalizeCid(value: string): string {
 /** 本文から参照されている埋め込み画像（取り出せるものだけ）。 */
 export function embeddedImages(html: string, attachments: MailAttachment[]): MailAttachment[] {
   const refs = new Set(cidReferences(html));
-  return attachments.filter((a) => a.attachmentId !== null && a.contentId !== null && refs.has(a.contentId.toLowerCase()));
+  return attachments
+    .filter((a) => a.attachmentId !== null && a.contentId !== null && a.size <= EMBED_MAX_BYTES && refs.has(a.contentId.toLowerCase()))
+    .slice(0, EMBED_MAX_COUNT);
 }
 
 /** 添付ファイルの一覧に出すもの（本文に埋め込まれて画像として出るものは除く）。 */
