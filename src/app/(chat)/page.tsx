@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 
 import { DashboardView } from "@/components/dashboard/dashboard-view";
 import { getCurrentUser } from "@/lib/auth-user";
-import { resolveDayOffset } from "@/lib/dashboard/day-offset";
 import { dashboardTopics } from "@/lib/dashboard/today";
 import { jstDayKey } from "@/lib/day-key";
 
@@ -13,14 +12,9 @@ import { jstDayKey } from "@/lib/day-key";
  * 古い通知の `/c/<ID>` ・`/notices` もここへ転送する。
  * 「今日届いた通知」と「届いた通知」（`/pushes`）は#675で朝の見通し・先回りの提案とともに廃止した。
  *
- * `?d=YYYY-MM-DD` で前後の日（今日から±`DAY_RANGE`日）を出す（#606。スワイプ・‹ ›）。無い・読めない値は今日、
- * 範囲外は端へ丸める。
+ * 今日だけを出す（#1088。以前の `?d=` による前後の日めくり〔#606〕は廃止。`?d=` が付いていても無視する）。
  */
-export default async function DashboardPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
+export default async function DashboardPage() {
   const user = await getCurrentUser();
   if (!user) {
     redirect("/login");
@@ -28,16 +22,13 @@ export default async function DashboardPage({
 
   const now = new Date();
   const todayKey = jstDayKey(now);
-  const offset = resolveDayOffset(todayKey, (await searchParams).d);
-
-  const topics = offset === 0 ? await dashboardTopics(user.id, now) : [];
+  const topics = await dashboardTopics(user.id, now);
 
   return (
     <DashboardView
       userId={user.id}
       now={now}
       todayKey={todayKey}
-      offset={offset}
       topics={topics}
     />
   );

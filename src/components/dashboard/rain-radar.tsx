@@ -515,7 +515,6 @@ export function RainRadar({
         role="application"
         aria-label="雨雲レーダーの地図。ドラッグか矢印キーで動かし、プラスとマイナスで拡大縮小できます"
         tabIndex={0}
-        data-no-day-swipe
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerEnd}
@@ -631,8 +630,7 @@ export function RainRadar({
         </p>
       )}
 
-      {/* スライダーの横の動きで日がめくれないように、日めくりの対象から外す（day-swipe.tsx） */}
-      <div className="flex items-center gap-2.5" data-no-day-swipe>
+      <div className="flex items-center gap-2.5">
         <button
           type="button"
           onClick={togglePlay}
