@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { WeatherIcon } from "@/components/weather/hourly-strip";
 import { STRIP_COLUMN_W } from "@/lib/weather/strip-layout";
-import { dayAtColumn, type DaySummary } from "@/lib/weather/day-summary";
+import { dayAtColumn, splitCondition, type DaySummary } from "@/lib/weather/day-summary";
 
 const COLUMN_W = STRIP_COLUMN_W;
 /** 「今」の位置からこれ以上離れたら「今の時間に戻る」を出す（px）。 */
@@ -14,7 +14,24 @@ const temp = (value: number | null) => (value === null ? "—" : `${Math.round(v
 
 function Diff({ diff }: { diff: string | null }) {
   if (diff === null) return null;
-  return <span className="ml-1 text-xs font-normal text-muted">昨日比 {diff}</span>;
+  return <span className="ml-1 text-xs font-normal text-muted">{diff}</span>;
+}
+
+/** 「時々」「のち」を半分のサイズにして、天気の文字に強弱をつける（#1108）。 */
+function Condition({ text }: { text: string }) {
+  return (
+    <>
+      {splitCondition(text).map((part, index) =>
+        part.small ? (
+          <span key={index} className="text-[0.5em]">
+            {part.text}
+          </span>
+        ) : (
+          <span key={index}>{part.text}</span>
+        ),
+      )}
+    </>
+  );
 }
 
 /**
@@ -65,6 +82,8 @@ export function DaySummaryPanel({
   };
 
   const summary = summaries[active] ?? summaries[initialDate];
+  const nextDate = days[days.indexOf(summary?.date ?? active) + 1];
+  const next = nextDate ? summaries[nextDate] : undefined;
 
   return (
     <div ref={root} className="flex min-w-0 flex-col gap-2.5">
@@ -82,20 +101,40 @@ export function DaySummaryPanel({
               </button>
             )}
           </div>
-          <div className="flex items-center gap-3.5">
-            <WeatherIcon code={summary.code} className="size-14 shrink-0 text-topic" />
-            <div className="flex flex-col">
-              <span className="text-2xl font-bold leading-tight">{summary.condition}</span>
-              {summary.pop !== null && <span className="text-sm text-muted">降水確率 {summary.pop}%</span>}
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <div className="flex items-center gap-3.5">
+                <WeatherIcon code={summary.code} className="size-14 shrink-0 text-topic" />
+                <div className="flex flex-col">
+                  <span className="whitespace-nowrap text-2xl font-bold leading-tight">
+                    <Condition text={summary.condition} />
+                  </span>
+                  {summary.pop !== null && <span className="text-sm text-muted">降水確率 {summary.pop}%</span>}
+                </div>
+              </div>
+              <p className="text-[0.9375rem] tabular-nums">
+                <b className="text-accent">{temp(summary.max)}</b>
+                <Diff diff={summary.maxDiff} />
+                <span className="mx-1.5 text-muted">/</span>
+                <b className="text-topic">{temp(summary.min)}</b>
+                <Diff diff={summary.minDiff} />
+              </p>
             </div>
+            {next && (
+              <div className="flex shrink-0 flex-col items-center gap-0.5 border-l border-border pl-3 text-center" aria-label={`翌日 ${next.label}`}>
+                <span className="text-[0.6875rem] text-muted">{next.label}</span>
+                <WeatherIcon code={next.code} className="size-8 text-topic" />
+                <span className="whitespace-nowrap text-[0.8125rem] font-bold">
+                  <Condition text={next.condition} />
+                </span>
+                <span className="whitespace-nowrap text-[0.8125rem] tabular-nums">
+                  <b className="text-accent">{temp(next.max)}</b>
+                  <span className="mx-1 text-muted">/</span>
+                  <b className="text-topic">{temp(next.min)}</b>
+                </span>
+              </div>
+            )}
           </div>
-          <p className="text-[0.9375rem] tabular-nums">
-            最高 <b className="text-accent">{temp(summary.max)}</b>
-            <Diff diff={summary.maxDiff} />
-            <span className="mx-1.5 text-muted">/</span>
-            最低 <b className="text-topic">{temp(summary.min)}</b>
-            <Diff diff={summary.minDiff} />
-          </p>
         </div>
       )}
       {children}
