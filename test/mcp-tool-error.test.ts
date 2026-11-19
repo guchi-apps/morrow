@@ -23,11 +23,11 @@ test("理由の無い失敗・例外の本文は出さない", () => {
   assert.equal(toolErrorReason(text(JSON.stringify({ ok: false, reason: "  " }))), null);
 });
 
-test("AIDEへ繋ぐときは tasks:read と tasks:write を求める（#788・#922）", () => {
+test("AIDEへ繋ぐときは tasks:read・tasks:write と kurashio-bills:read・write を求める（#788・#922・#1100）", () => {
   const aide = MCP_PRESETS.find((p) => p.id === "aide")!;
   // aide_tasks（紐づけの候補）は tasks:read、aide_create_task は tasks:write。AIDEは write で read を兼ねない
   //（aide の src/mcp/tools/tasks.ts の requiredScopes。2026-11-15に確認）。
-  assert.deepEqual(aide.scopes, ["tasks:read", "tasks:write"]);
+  assert.deepEqual(aide.scopes, ["tasks:read", "tasks:write", "kurashio-bills:read", "kurashio-bills:write"]);
   const url = new URL(
     buildAuthorizeUrl({
       authorizationEndpoint: "https://aide.example/authorize",
@@ -39,7 +39,7 @@ test("AIDEへ繋ぐときは tasks:read と tasks:write を求める（#788・#9
       scopes: aide.scopes,
     }),
   );
-  assert.equal(url.searchParams.get("scope"), "tasks:read tasks:write");
+  assert.equal(url.searchParams.get("scope"), "tasks:read tasks:write kurashio-bills:read kurashio-bills:write");
 });
 
 test("scopeを持たない接続先では scope を付けない", () => {

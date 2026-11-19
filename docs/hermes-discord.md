@@ -62,7 +62,7 @@ Hermesの口とprofileの実測は #725、経路は `docs/hermes-route.md`（#72
 | 要対応のメールだけ | 同上 | `gmail_action_triage.py`（#要確認メール）。**10/29から停止中** |
 | ニュース | 定時のお知らせ（#344） | なし |
 | AIサブスクの残枠 | なし | `ai_subscription_quota_alert.py` |
-| 電気・ガスの請求の取り込み | なし | `kepco_bill_auto_import.py`（kurashioへ書き込み、結果をDiscordへ） |
+| 電気・ガスの請求の取り込み | メールの分析から自動反映（#1100） | `kepco_bill_auto_import.py`（kurashioへ書き込み、結果をDiscordへ） |
 | Hermesのチャット（完了・承認待ち） | #728で足す | 該当なし（Discordの会話はDiscordで返る） |
 
 Hermes以外が投稿するチャンネル（#アプリ-本番リリース・#アプリ-異常通知・#ssl更新通知 など）はこの境界の対象外。
@@ -85,7 +85,9 @@ Hermes以外が投稿するチャンネル（#アプリ-本番リリース・#�
 - Morrowのメールの提案（#689）と、subpcの `billing_mail_import.py`（guchi-apps/subpc の `configs/hermes/scripts/`。**2026-11-08時点でcronに登録されていない**）は、
   どちらも `asset_manager_import_payment` を呼ぶ。両方とも `gmailMessageId` を渡すので、同じメールは2回目が `duplicate` になり、二重登録はされない
 - 再びcronへ登録するときは、Morrowの提案で押したメールと重なっても上の冪等キーで止まることを前提にしてよい
-- `kepco_bill_auto_import.py`（kurashio）はMorrowに同じ経路が無いので重ならない
+- `kepco_bill_auto_import.py`（kurashio）は#1100から**Morrowのメール分析の自動反映と重なる**。Morrowは電気・ガスの請求メールを分析したとき
+  `kurashio_import_utility_bill` で登録し（`src/lib/mail/utility-bill.ts`）、すでに同じ請求月の行があれば書かず「反映済み」と出す。
+  AIDE側が冪等（既存の行は書き換えない）なので、どちらが先でも二重にならない。Hermes側を止めるかは、Morrowの反映が安定してから決める
 
 ### これから足す通知（#728）
 

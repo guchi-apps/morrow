@@ -10,6 +10,7 @@ import type { MailFailureKind } from "@/lib/mail/contract";
 import { eventCandidates, linksForMessage, taskCandidates } from "@/lib/mail/link";
 import { linkKey, type LinkCandidate } from "@/lib/mail/link-core";
 import { plainBody, withReceivedDate } from "@/lib/mail/suggest-core";
+import { syncUtilityBill } from "@/lib/mail/utility-bill";
 import { checkCardWithdrawal, checkWithdrawal, confirmCardWithdrawal, type CardConfirmOutcome } from "@/lib/mail/withdrawal";
 import type { BalanceCheck, CardCheck } from "@/lib/mail/withdrawal-core";
 
@@ -150,6 +151,12 @@ async function run(user: MailUser, messageId: string, key: string, refresh: bool
     await saveAnalysis(user.id, messageId, reply, startedAt).catch((error: unknown) =>
       console.warn("[aide-bot] メールの分析の保存に失敗した", error instanceof Error ? error.message : error),
     );
+    // 電気・ガスの請求ならクラシオへ反映する（#1100）。到着時の先回りでも走る。失敗は本筋を止めない（開いたときに状態を読み直す）
+    if (parsed.utilityBill) {
+      await syncUtilityBill(user.id, messageId, parsed.utilityBill, message.receivedAt, { write: true }).catch((error: unknown) =>
+        console.warn("[aide-bot] クラシオへの反映に失敗した", error instanceof Error ? error.message : error),
+      );
+    }
     return { ok: true, result: withReceived(parsed, message.receivedAt), cached: false };
   } catch (error) {
     console.error("[aide-bot] メールの分析に失敗した", error instanceof Error ? error.message : error);

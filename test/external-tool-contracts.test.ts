@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { normalizeSuggestion, toolCallFor } from "@/lib/mail/suggest-core";
+import { importArgs, normalizeUtilityBill } from "@/lib/mail/utility-bill-core";
 import { cardConfirmArgs } from "@/lib/mail/withdrawal-core";
 
 /**
@@ -50,6 +51,35 @@ const SCHEMAS: Record<string, Schema> = {
       note: { type: "string", maxLength: 191 },
     },
     required: ["paymentDate", "amount", "sourceKey"],
+  },
+  // #1100。2026-11-19に ~/apps/aide の src/mcp/tools/kurashio-bills.ts（inputSchema）から写した
+  kurashio_utility_bill_contracts: { props: { kind: { type: "string", enum: ["electricity", "gas"] } }, required: ["kind"] },
+  kurashio_get_utility_bill: {
+    props: {
+      kind: { type: "string", enum: ["electricity", "gas"] },
+      contractKey: { type: "string" },
+      billingMonth: { type: "string", pattern: /^\d{4}-(0[1-9]|1[0-2])$/ },
+      sourceMessageId: { type: "string", maxLength: 255 },
+    },
+    required: ["kind", "contractKey"],
+  },
+  kurashio_import_utility_bill: {
+    props: {
+      billingMonth: { type: "string", pattern: /^\d{4}-(0[1-9]|1[0-2])$/ },
+      kind: { type: "string", enum: ["electricity", "gas"] },
+      contractKey: { type: "string" },
+      amountYen: { type: "integer", min: 0, max: 1_000_000 },
+      usageValue: { type: "number", min: 0, max: 100_000 },
+      usageUnit: { type: "string", maxLength: 16 },
+      planName: { type: "string", maxLength: 64 },
+      receivedAt: { type: "string" },
+      sourceMessageId: { type: "string", maxLength: 255 },
+      sourceLabel: { type: "string", maxLength: 64 },
+      confidence: { type: "number", min: 0, max: 1 },
+      confirmNewContract: { type: "boolean" },
+      dryRun: { type: "boolean" },
+    },
+    required: ["billingMonth", "kind", "contractKey", "sourceMessageId", "confidence"],
   },
   aide_tasks: {
     props: {
@@ -272,5 +302,17 @@ describe("書き込みの呼び出し（toolCallFor が作る引数は入力の�
   it("予定の削除（確認用は dryRun: true・実行用は対象の3項目だけ）", () => {
     assertValid("aide_delete_event", { eventId: "e1", calendarId: "c1", title: "予定", dryRun: true });
     assertValid("aide_delete_event", { eventId: "e1", calendarId: "c1", title: "予定" });
+  });
+});
+
+describe("電気・ガスの請求のクラシオへの反映の呼び出し（#1100）", () => {
+  const bill = normalizeUtilityBill({ kind: "gas", billingMonth: "2026-11", amountYen: 2648, usageValue: 12, usageUnit: "m3", planName: "ガス", sourceLabel: "はぴeみる電", confidence: 0.9 })!;
+  it("読み取り（契約候補・月で引く・メールIDで引く）", () => {
+    assertValid("kurashio_utility_bill_contracts", { kind: "electricity" });
+    assertValid("kurashio_get_utility_bill", { kind: "electricity", contractKey: "k1", billingMonth: "2026-11" });
+  });
+  it("登録（使用量あり・なし。受信日付き）", () => {
+    assertValid("kurashio_import_utility_bill", importArgs(bill, "k1", "msg-1", Date.parse("2026-11-05T09:12:00+09:00")));
+    assertValid("kurashio_import_utility_bill", importArgs({ ...bill, usageValue: null, usageUnit: null, planName: null, sourceLabel: null }, "k1", "msg-1", null));
   });
 });

@@ -75,7 +75,9 @@ export const MCP_PRESETS: McpPreset[] = [
     // メールの提案の「タスクを作る」（`aide_create_task`。#689・#788）と、メールの紐づけの候補の
     // 「未完了のタスク」（`aide_tasks`。#834・#922）。AIDEは読み取りにも `tasks:read` を求め、`tasks:write` では読めない。
     // 予定・家計簿・天気などはscope不要。
-    scopes: ["tasks:read", "tasks:write"],
+    // 電気・ガスの請求のクラシオへの反映（`kurashio_*`。#1100）は `kurashio-bills:read`（契約候補・保存済みの確認）と
+    // `kurashio-bills:write`（登録）。足した後は利用者のAIDEの繋ぎ直しが要る。
+    scopes: ["tasks:read", "tasks:write", "kurashio-bills:read", "kurashio-bills:write"],
     description: "資産と固定費・部屋の状態・VPSとサブPCの稼働・今日の見通し・開発状況",
     provides: [
       "いまの室温・湿度・CO2（aide_room_sensors）とエアコンの運転状態（aide_aircon_status）",
@@ -129,6 +131,8 @@ export const MCP_PRESETS: McpPreset[] = [
       "asset_manager_record_subscription_cancellation",
       // #910。メールの確定額でカード引き落とし見込みを上書きする（`CARD_WITHDRAWAL_WRITE_TOOLS`）。
       "asset_manager_confirm_card_withdrawal",
+      // #1100。電気・ガスの請求をクラシオへ登録する（`UTILITY_BILL_WRITE_TOOLS`）。AIDE側が冪等で、既存の行は書き換えない。
+      "kurashio_import_utility_bill",
       "aide_research_desk_import_weekly_report",
     ],
     // #366。読み取り・疎通確認だけの道具。AIDEが道具を足しても、ここへ足すまでは
@@ -149,6 +153,9 @@ export const MCP_PRESETS: McpPreset[] = [
       "asset_manager_subscriptions",
       // #910。カード引き落とし見込みの読み取りだけ
       "asset_manager_card_withdrawals",
+      // #1100。クラシオの電気・ガスの契約候補と保存済みの請求の読み取りだけ
+      "kurashio_utility_bill_contracts",
+      "kurashio_get_utility_bill",
       "aide_host_status",
       "aide_uptime_monitors",
       "aide_service_quotas",
