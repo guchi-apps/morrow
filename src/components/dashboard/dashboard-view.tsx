@@ -257,7 +257,7 @@ function WeatherBody({ weather, previous }: { weather: DayWeatherView; previous:
 }
 
 function temp(value: number | null): string {
-  return value === null ? "—" : `${value.toFixed(1)}°`;
+  return value === null ? "—" : `${value.toFixed(1)}℃`;
 }
 
 /** 気温の前日比（#665）。＋は暖かい側（橙）、−は寒い側（青）、同じなら灰色。符号でも判別できる。 */

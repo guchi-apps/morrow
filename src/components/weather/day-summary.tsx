@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { WeatherIcon } from "@/components/weather/hourly-strip";
+import { STRIP_COLUMN_W } from "@/lib/weather/strip-layout";
 import { dayAtColumn, splitCondition, type DaySummary } from "@/lib/weather/day-summary";
 
-const COLUMN_W = 46;
+const COLUMN_W = STRIP_COLUMN_W;
 /** 「今」の位置からこれ以上離れたら「今の時間に戻る」を出す（px）。 */
 const AWAY_PX = COLUMN_W;
 
-const temp = (value: number | null) => (value === null ? "—" : `${Math.round(value)}°`);
+const temp = (value: number | null) => (value === null ? "—" : `${Math.round(value)}℃`);
 
 function Diff({ diff }: { diff: string | null }) {
   if (diff === null) return null;
