@@ -449,11 +449,13 @@ export type MunicipalityCandidate = Coordinates & { name: string; title: string 
 export function municipalityCandidates(query: string, candidates: GsiCandidate[], limit = 6): MunicipalityCandidate[] {
   const text = query.trim();
   if (!text) return [];
+  // 題は県名を外して比べるので、検索語の先頭の県名も外す（エリア選択は「滋賀県栗東市」で引く。#1095）
+  const needle = withoutPrefecture(text).replace(/[市町村区]$/, "") || text;
   const seen = new Set<string>();
   const found: MunicipalityCandidate[] = [];
   for (const candidate of candidates) {
     const name = withoutPrefecture(candidate.title);
-    if (name === candidate.title || !MUNICIPALITY_SUFFIX.test(name) || !name.includes(text.replace(/[市町村区]$/, ""))) continue;
+    if (name === candidate.title || !MUNICIPALITY_SUFFIX.test(name) || !name.includes(needle)) continue;
     const key = `${roundCoordinate(candidate.latitude)},${roundCoordinate(candidate.longitude)}`;
     if (seen.has(key)) continue;
     seen.add(key);

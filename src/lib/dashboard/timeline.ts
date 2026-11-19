@@ -85,13 +85,14 @@ export function layoutTimeline(items: TimelineInput[]): TimelineLayout {
   const height = (endHour - startHour) * HOUR_PX;
   const px = (minutes: number) => ((minutes - startHour * 60) / 60) * HOUR_PX;
 
-  // 開始の早い順に、空いている最も左の列へ詰める。
+  // 開始の早い順に、空いている最も左の列へ詰める。終了と開始がぴったり接する項目は同じ列に置かない
+  // （縦に繋がって1本に見えるため。#1097）。
   timed.sort((a, b) => a.start - b.start || a.end - b.end || a.index - b.index);
   const laneEnds: number[] = [];
   const bars: TimelineBar[] = [];
   let lastLabel = -Infinity;
   for (const t of timed) {
-    let lane = laneEnds.findIndex((end) => end <= t.start);
+    let lane = laneEnds.findIndex((end) => end < t.start);
     if (lane < 0) lane = laneEnds.length;
     laneEnds[lane] = t.end;
     const top = px(t.start);

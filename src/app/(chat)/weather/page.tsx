@@ -115,6 +115,7 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
   const pickerCity = (first(query.city) ?? "").slice(0, 30);
   let muni: MuniEntry[] | null = null;
   let pickerError = false;
+  let pickerUnresolved: string | null = null;
   if (pickerOpen) {
     try {
       muni = await municipalityEntries();
@@ -128,7 +129,8 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
     // 同名の市（府中市など）で別の県を拾わないよう、題が選んだ県で始まるものだけを採る
     const hit = entry ? found.find((item) => item.name === pickerCity && item.title.startsWith(entry.prefecture)) : undefined;
     if (hit) redirect(weatherHref({ name: hit.name, latitude: hit.latitude, longitude: hit.longitude }));
-    pickerError = true;
+    // 一覧は出せているので消さず、その市町村だけ引けなかったと知らせる（#1095）
+    pickerUnresolved = pickerCity;
   }
 
   const [home, stored] = await Promise.all([dashboardHomePlace(user.id, now), listWeatherPlaces(user.id)]);
@@ -253,6 +255,11 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
               </p>
             ) : (
               <>
+                {pickerUnresolved && (
+                  <p role="status" className="rounded-[10px] bg-danger-surface px-3 py-2 text-[0.8125rem] text-danger">
+                    「{pickerUnresolved}」の地点を見つけられませんでした。上の検索から市町村名で探してください。
+                  </p>
+                )}
                 <div className="border-t border-border">
                   {AREAS.map((area) => {
                     const areaOpen = pickerArea?.id === area.id;

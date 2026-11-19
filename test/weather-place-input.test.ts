@@ -64,6 +64,19 @@ describe("municipalityCandidates", () => {
     const many = Array.from({ length: 10 }, (_, i) => ({ title: `県${i}三条市`.replace("県", "新潟県"), latitude: 30 + i, longitude: 130 }));
     assert.equal(municipalityCandidates("三条", many, 3).length, 3);
   });
+  it("県名付きの検索語でも候補を残す（エリア選択は「県名＋市町村名」で引く。#1095）", () => {
+    const result = municipalityCandidates("新潟県三条市", found);
+    assert.deepEqual(result.map((item) => item.title), ["新潟県三条市"]);
+    const fuchu = [
+      { title: "東京都府中市", latitude: 35.67, longitude: 139.48 },
+      { title: "広島県府中市", latitude: 34.57, longitude: 133.24 },
+    ];
+    // 県での絞り込みは呼び出し側（題が選んだ県で始まるか）。ここでは同名の別の県も候補に残す
+    assert.deepEqual(municipalityCandidates("東京都府中市", fuchu).map((item) => item.title), ["東京都府中市", "広島県府中市"]);
+    // 県名だけの検索語は従来どおり何も出さない（外して空になっても全件を通さない）
+    assert.deepEqual(municipalityCandidates("東京都", fuchu), []);
+    assert.deepEqual(municipalityCandidates("大阪府大阪市", [{ title: "大阪府大阪市", latitude: 34.69, longitude: 135.5 }]).map((item) => item.name), ["大阪市"]);
+  });
 });
 
 describe("findRegisteredPlace（#868）", () => {
