@@ -9,7 +9,7 @@ import { mailIdsByTarget } from "@/lib/mail/link";
 import { linkKey, mailBadgeLabel } from "@/lib/mail/link-core";
 import { addDays, cardDayName, relativeDayName } from "@/lib/dashboard/day-offset";
 import type { ScheduleItem, ScheduleView, WeatherDay } from "@/lib/dashboard/parse";
-import { schedulePhase, type SchedulePhase } from "@/lib/dashboard/schedule-phase";
+import { schedulePhase } from "@/lib/dashboard/schedule-phase";
 import {
   dashboardDayWeather,
   dashboardPlaces,
@@ -17,6 +17,7 @@ import {
   type PlaceSegment,
   type PlacesView,
 } from "@/lib/dashboard/places";
+import { HOUR_PX, layoutTimeline, nowTop } from "@/lib/dashboard/timeline";
 import { tempDelta, type TempDelta } from "@/lib/dashboard/temp-delta";
 import type { DashboardTopic } from "@/lib/dashboard/today";
 import { dayLabel, jstDayKey, jstTimeLabel } from "@/lib/day-key";
@@ -548,25 +549,62 @@ function timeRange(item: ScheduleItem): string {
   return item.end ? `${item.start}–${item.end}` : item.start;
 }
 
-/** 終わった予定は少し、記録は大きく薄くする（#626）。これからの予定は従来の色のまま。 */
-const PHASE_FADE: Record<SchedulePhase, string | null> = {
-  upcoming: null,
-  done: "opacity-75",
-  record: "opacity-50",
-};
+const AXIS_W = 40;
+const LANE_GAP = 10;
 
-const PHASE_LEGEND: { phase: SchedulePhase; label: string }[] = [
-  { phase: "upcoming", label: "これから" },
-  { phase: "done", label: "終わった予定" },
-  { phase: "record", label: "記録" },
-];
+/** 項目の題名まわり（種類のチップ・リンク・中止の印・メモ・✉）。タイムラインの項目名と上の帯で共有する。 */
+function ItemText({ item, mailLinks }: { item: ScheduleItem; mailLinks: Map<string, string[]> }) {
+  const chip = item.kind === "reminder" ? item.note : KIND_CHIP[item.kind];
+  const cancelled = item.outcome !== null;
+  return (
+    <>
+      {chip && (
+        <span
+          className={cn(
+            "mr-1.5 inline-block rounded-full px-[7px] py-px text-[0.6875rem]",
+            item.kind === "reminder" ? "bg-accent-surface text-accent" : "bg-topic-surface text-topic",
+          )}
+        >
+          {chip}
+        </span>
+      )}
+      {item.url ? (
+        <a
+          href={item.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn("hover:underline", cancelled && "text-muted line-through")}
+        >
+          {item.title}
+        </a>
+      ) : (
+        <span className={cn(cancelled && "text-muted line-through")}>{item.title}</span>
+      )}
+      {cancelled && (
+        <span className="ml-1.5 text-[0.6875rem] text-muted">{item.outcome === "CANCELED" ? "中止" : "不参加"}</span>
+      )}
+      {item.kind === "event" && item.note && !item.record && (
+        <span className="ml-1.5 text-[0.6875rem] text-muted">{item.note}</span>
+      )}
+      {item.id && (item.kind === "event" || item.kind === "task") && (
+        <MailBadge messageIds={mailLinks.get(linkKey(item.kind, item.id)) ?? []} />
+      )}
+    </>
+  );
+}
 
 function ScheduleOk({ schedule, now, offset, mailLinks }: { schedule: Extract<ScheduleView, { status: "ok" }>; now: Date; offset: number; mailLinks: Map<string, string[]> }) {
   const { items, free, partial, googleDisconnected } = schedule;
   const nowTime = jstTimeLabel(now);
   const phases = items.map((item) => schedulePhase(item, nowTime, offset));
-  // 薄い行が無い日は凡例を出さない（全部これからなら、区別するものが無い）。
-  const legend = phases.some((phase) => phase !== "upcoming") ? PHASE_LEGEND.filter((entry) => phases.includes(entry.phase)) : [];
+  const layout = layoutTimeline(items);
+  const hasRecord = layout.bars.some((bar) => items[bar.index].record);
+  const hasEvent = layout.bars.some((bar) => !items[bar.index].record);
+  const nowY = offset === 0 ? nowTop(layout, nowTime) : null;
+  // 線の列は右へ増える。項目名は最後の列の右から始める。
+  const labelLeft = AXIS_W + 6 + Math.max(layout.laneCount, 1) * LANE_GAP + 12;
+  const laneX = (lane: number) => AXIS_W + 6 + lane * LANE_GAP;
+  const hours = Array.from({ length: layout.endHour - layout.startHour + 1 }, (_, i) => layout.startHour + i);
 
   return (
     <>
@@ -580,64 +618,87 @@ function ScheduleOk({ schedule, now, offset, mailLinks }: { schedule: Extract<Sc
         !partial && !googleDisconnected && <Empty>この日の予定はありません。</Empty>
       ) : (
         <>
-        {legend.length > 0 && (
-          <p className="flex flex-wrap gap-x-3.5 text-[0.6875rem] text-muted">
-            {legend.map((entry) => (
-              <span key={entry.phase}>
-                <span
-                  className={cn("mr-1.5 inline-block size-2 rounded-full bg-foreground align-baseline", PHASE_FADE[entry.phase])}
-                  aria-hidden="true"
-                />
-                {entry.label}
-              </span>
-            ))}
-          </p>
-        )}
-        <ul className="grid grid-cols-[84px_minmax(0,1fr)] gap-x-3 md:grid-cols-[92px_minmax(0,1fr)]">
-          {items.map((item, index) => {
-            const fade = PHASE_FADE[phases[index]];
-            const chip = item.kind === "reminder" ? item.note : KIND_CHIP[item.kind];
-            const cancelled = item.outcome !== null;
-            return (
-              <li key={`${item.kind}-${index}`} className="contents">
-                <span className={cn("py-1.5 text-[0.8125rem] tabular-nums text-muted", fade)}>{timeRange(item)}</span>
-                <span className={cn("min-w-0 border-b border-border py-1.5 text-sm", fade)}>
-                  {chip && (
-                    <span
-                      className={cn(
-                        "mr-1.5 inline-block rounded-full px-[7px] py-px text-[0.6875rem]",
-                        item.kind === "reminder" ? "bg-accent-surface text-accent" : "bg-topic-surface text-topic",
-                      )}
-                    >
-                      {chip}
+          {/* 時刻のない予定・終日・タスク・リマインドは、時間軸の上に並べる */}
+          {layout.band.length > 0 && (
+            <ul className="flex flex-col gap-1 border-b border-border pb-2.5 text-sm">
+              {layout.band.map((index) => (
+                <li key={`${items[index].kind}-${index}`} className="flex gap-2.5">
+                  <span className="w-[3.25rem] shrink-0 pt-px text-xs tabular-nums text-muted">{timeRange(items[index])}</span>
+                  <span className="min-w-0">
+                    <ItemText item={items[index]} mailLinks={mailLinks} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {layout.bars.length > 0 && (
+            <div className="relative text-sm" style={{ height: layout.height }}>
+              {hours.map((hour) => (
+                <div key={hour} className="absolute inset-x-0 border-t border-border" style={{ top: (hour - layout.startHour) * HOUR_PX }}>
+                  <span className="absolute -top-2 left-0 bg-surface pr-1 text-[0.6875rem] tabular-nums text-muted">{hour}:00</span>
+                </div>
+              ))}
+              <svg width={labelLeft} height={layout.height} className="absolute left-0 top-0 overflow-visible" aria-hidden="true">
+                {layout.bars.map((bar) => {
+                  const item = items[bar.index];
+                  const color = item.record ? "var(--fair)" : "var(--topic)";
+                  const x = laneX(bar.lane);
+                  const fade = phases[bar.index] === "done" ? 0.6 : 1;
+                  return (
+                    <g key={bar.index} opacity={fade}>
+                      <line x1={x} x2={x} y1={bar.top} y2={bar.bottom} stroke={color} strokeWidth={4} strokeLinecap="round" />
+                      <polyline
+                        fill="none"
+                        stroke={color}
+                        strokeWidth={1}
+                        opacity={0.7}
+                        points={`${x},${bar.top} ${labelLeft - 8},${bar.top} ${labelLeft - 8},${bar.labelTop + 10} ${labelLeft - 2},${bar.labelTop + 10}`}
+                      />
+                    </g>
+                  );
+                })}
+              </svg>
+              {layout.bars.map((bar) => {
+                const item = items[bar.index];
+                return (
+                  <div
+                    key={bar.index}
+                    className={cn("absolute right-0 flex items-baseline gap-1.5 leading-5", item.record && "text-fair", phases[bar.index] === "done" && "opacity-75")}
+                    style={{ top: bar.labelTop, left: labelLeft }}
+                  >
+                    <span className="min-w-0">
+                      <ItemText item={item} mailLinks={mailLinks} />
                     </span>
-                  )}
-                  {item.url ? (
-                    <a
-                      href={item.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={cn("hover:underline", cancelled && "text-muted line-through")}
-                    >
-                      {item.title}
-                    </a>
-                  ) : (
-                    <span className={cn(cancelled && "text-muted line-through")}>{item.title}</span>
-                  )}
-                  {cancelled && (
-                    <span className="ml-1.5 text-[0.6875rem] text-muted">
-                      {item.outcome === "CANCELED" ? "中止" : "不参加"}
-                    </span>
-                  )}
-                  {item.kind === "event" && item.note && (
-                    <span className="ml-1.5 text-[0.6875rem] text-muted">{item.note}</span>
-                  )}
-                  {item.id && (item.kind === "event" || item.kind === "task") && <MailBadge messageIds={mailLinks.get(linkKey(item.kind, item.id)) ?? []} />}
+                    <span className="shrink-0 text-[0.6875rem] tabular-nums text-muted">{timeRange(item)}</span>
+                  </div>
+                );
+              })}
+              {nowY !== null && (
+                <div className="pointer-events-none absolute inset-x-0 z-[1] border-t-2 border-accent" style={{ top: nowY }}>
+                  <i className="absolute -top-[6px] size-[9px] rounded-full bg-accent" style={{ left: AXIS_W }} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {(hasEvent || hasRecord) && layout.bars.length > 0 && (
+            <p className="flex flex-wrap gap-x-3.5 text-[0.6875rem] text-muted">
+              {hasEvent && (
+                <span>
+                  <span className="mr-1.5 inline-block h-2 w-1 rounded-sm bg-topic align-baseline" aria-hidden="true" />
+                  予定
                 </span>
-              </li>
-            );
-          })}
-        </ul>
+              )}
+              {hasRecord && (
+                <span>
+                  <span className="mr-1.5 inline-block h-2 w-1 rounded-sm bg-fair align-baseline" aria-hidden="true" />
+                  記録
+                </span>
+              )}
+              {phases.includes("done") && <span>薄い線は終わった予定</span>}
+            </p>
+          )}
         </>
       )}
 
