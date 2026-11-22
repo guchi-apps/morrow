@@ -1,8 +1,8 @@
-import { CloudRain, CloudSun, Umbrella } from "lucide-react";
+import { CloudSun, Umbrella } from "lucide-react";
 import Link from "next/link";
 import { Suspense } from "react";
 
-import { HourlyStrip, WeatherIcon, YesterdayNote } from "@/components/weather/hourly-strip";
+import { HourlyStrip, UmbrellaRainIcon, WeatherIcon, YesterdayNote } from "@/components/weather/hourly-strip";
 import { weatherHref } from "@/lib/weather/place-input";
 import { dashboardSchedule } from "@/lib/dashboard/aide";
 import { mailIdsByTarget } from "@/lib/mail/link";
@@ -266,7 +266,6 @@ function DeltaMark({ delta }: { delta: TempDelta | null }) {
 
 function WeatherOk({ today, previous }: { today: WeatherDay; previous: WeatherDay | null }) {
   const rainy = today.pop !== null && today.pop >= RAIN_POP;
-  const Icon = rainy ? CloudRain : CloudSun;
   const maxDelta = previous ? tempDelta(today.max, previous.max) : null;
   const minDelta = previous ? tempDelta(today.min, previous.min) : null;
 
@@ -274,7 +273,7 @@ function WeatherOk({ today, previous }: { today: WeatherDay; previous: WeatherDa
     <>
       <div className="flex items-center gap-3.5">
         <div className="grid size-12 shrink-0 place-items-center rounded-[14px] bg-topic-surface text-topic">
-          <Icon className="size-6" aria-hidden="true" />
+          {rainy ? <UmbrellaRainIcon level="medium" className="size-6" /> : <CloudSun className="size-6" aria-hidden="true" />}
         </div>
         <div className="min-w-0">
           <div className="text-lg font-bold">
