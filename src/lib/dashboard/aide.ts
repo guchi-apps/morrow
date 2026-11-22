@@ -1,11 +1,12 @@
 import { jstDayKey } from "@/lib/day-key";
-import { parseSchedule, parseWeather, type ScheduleView, type WeatherView } from "@/lib/dashboard/parse";
+import { chooseHomeLocation, hasPoint, type RememberedLocation } from "@/lib/dashboard/home-location-core";
+import { parseSchedule, parseWeatherLocation, type ScheduleView, type WeatherLocation } from "@/lib/dashboard/parse";
 import { callToolJson, connectedServerFor, type ToolJson } from "@/lib/mcp/direct-call";
 
 /**
  * ダッシュボードの天気・予定をAIDEから取る（#573）。**モデルは通さない**（`direct-call.ts`）。
  *
- * - **プロセス内で短くキャッシュする**（成功5分・失敗1分）。AIDEの天気は毎時の同期を読むだけ、
+ * - **プロセス内で短くキャッシュする**（成功5分・失敗1分）。自宅の地点は滅多に変わらず、
  *   予定もDaySpanを都度引くので、開くたびに叩き直す理由が薄い。PM2で1プロセスという前提は
  *   `compact.ts` と同じ。キーには日本時間の日付を含め、日付が変わったら引き直す
  * - 同じ鍵の取得が走っている間は、その結果を共有する（2つのタブで同時に開いても1本）
@@ -44,16 +45,29 @@ function failureDetail(error: unknown): string {
   return error instanceof Error ? error.message : "不明なエラー";
 }
 
-export function dashboardWeather(userId: string, now = new Date()): Promise<WeatherView> {
-  return cached(`weather:${userId}:${jstDayKey(now)}`, async (): Promise<WeatherView> => {
+export type HomeLocationView = { status: "unconnected" } | { status: "ok"; location: WeatherLocation | null };
+
+/** 利用者ごとに最後に座標つきで読めた自宅の地点（プロセス内）。AIDEが止まっていても使う（#1116）。 */
+const rememberedLocations = new Map<string, RememberedLocation>();
+
+/**
+ * 自宅の地点（座標・市町村名）。**予報そのものはAIDEから読まない**（#1116。Open-Meteoから直接作る）。
+ * AIDEの `aide_weather` から地点だけを読み、座標つきで読めたら30日覚える。取得に失敗した回・地点の無い応答の回は
+ * 覚えている地点を返す（`chooseHomeLocation()`）。失敗は例外にも「failed」にもしない——地点が無いだけで、画面は「自宅の地点が届いていません」を出す。
+ */
+export function homeLocation(userId: string, now = new Date()): Promise<HomeLocationView> {
+  return cached(`home:${userId}:${jstDayKey(now)}`, async (): Promise<HomeLocationView> => {
+    let fresh: WeatherLocation | null = null;
     try {
       const server = await connectedServerFor(userId, "aide");
       if (!server) return { status: "unconnected" };
-      return parseWeather(await callToolJson(server, "aide_weather"));
+      fresh = parseWeatherLocation(await callToolJson(server, "aide_weather"));
     } catch (error) {
-      console.error("[aide-bot] ダッシュボードの天気を取得できなかった", error);
-      return { status: "failed", detail: failureDetail(error) };
+      console.error("[aide-bot] 自宅の地点を取得できなかった", error);
     }
+    const location = chooseHomeLocation(fresh, rememberedLocations.get(userId), Date.now());
+    if (hasPoint(fresh)) rememberedLocations.set(userId, { location: fresh, at: Date.now() });
+    return { status: "ok", location };
   });
 }
 
