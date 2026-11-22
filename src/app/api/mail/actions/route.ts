@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth-user";
 import { readJsonObject } from "@/lib/json-body";
 import { applyMailAction } from "@/lib/mail/aide-client";
+import { forgetArchivedLog, recordArchived } from "@/lib/mail/archive-log";
 import { deleteAnalyses } from "@/lib/mail/analysis-store";
 import { deleteListSummaries } from "@/lib/mail/list-summary";
 import {
@@ -63,6 +64,18 @@ export async function POST(request: Request) {
   if (action === "archive" || action === "trash") {
     await deleteAnalyses(user.id, [...new Set(rawIds)]).catch((error: unknown) =>
       console.warn("[aide-bot] メールの分析の削除に失敗した", error instanceof Error ? error.message : error),
+    );
+  }
+
+  // 最近のアーカイブ（#1122）。アーカイブは時刻を控え、受信トレイへ戻す・ゴミ箱へ移すと控えを消す
+  const uniqueIds = [...new Set(rawIds)];
+  if (action === "archive") {
+    await recordArchived(user.id, uniqueIds).catch((error: unknown) =>
+      console.warn("[aide-bot] アーカイブの控えの保存に失敗した", error instanceof Error ? error.message : error),
+    );
+  } else if (action === "inbox" || action === "trash") {
+    await forgetArchivedLog(user.id, uniqueIds).catch((error: unknown) =>
+      console.warn("[aide-bot] アーカイブの控えの削除に失敗した", error instanceof Error ? error.message : error),
     );
   }
 

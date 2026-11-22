@@ -31,7 +31,7 @@ type Props = {
  * 仕入れる種類の管理は必要なときだけ開く。
  */
 export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) {
-  const { categories, lastFetchedAt, topics, byCategory, mergedCount, bubbleLimit, lifetimeHours } = board;
+  const { categories, lastFetchedAt, topics, byCategory, bubbleLimit, lifetimeHours } = board;
 
   const enabledCategories = categories.filter((category) => category.enabled);
 
@@ -74,7 +74,7 @@ export function TopicsView({ board, now, seenAt, schedules, hasDevice }: Props) 
               : "まだニュースがありません。「最近の記事を取得する」を押すと仕入れが始まり、30秒ほどで並びます。"}
           </p>
         ) : (
-          <TopicTabs categories={categories} allTopics={topics} byCategory={byCategory} mergedCount={mergedCount} seenAt={seenAt} now={now} />
+          <TopicTabs categories={categories} allTopics={topics} byCategory={byCategory} seenAt={seenAt} now={now} />
         )}
 
         <HeaderDialog

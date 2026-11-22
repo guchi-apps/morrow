@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { jstDayKey, jstTimeLabel } from "@/lib/day-key";
-import { buildTimeline, unreadCount } from "@/lib/topic-timeline";
+import { buildTimeline } from "@/lib/topic-timeline";
 import { OTHER_CATEGORY_ID, topicCategoryShort, type TopicCategory } from "@/lib/topic-categories";
 import { cn } from "@/lib/utils";
 
@@ -25,8 +25,6 @@ type Props = {
   allTopics: TopicRow[];
   /** テーマ別タブの中身。`src/lib/topics.ts` の `TopicBoard.byCategory` を参照。 */
   byCategory: Record<string, TopicRow[]>;
-  /** 「すべて」タブの見出しに出す、重複としてまとめた記事の数。 */
-  mergedCount: number;
   /**
    * 前回この画面を開いた時刻（#418）。**初回のpropsを `useState` に固定して使う**——`router.refresh()` で
    * 描き直されて新しい値が届いても、開いたばかりの「NEW」と境目の線をその場で消さないため。
@@ -44,7 +42,7 @@ type Props = {
  * スクロールを妨げない。タブバー自体の横スクロール（タブ数が多いとき）は、そのすぐ下の
  * カードにだけスワイプ判定を置くことで両立させている。
  */
-export function TopicTabs({ categories, allTopics, byCategory, mergedCount, seenAt: initialSeenAt, now }: Props) {
+export function TopicTabs({ categories, allTopics, byCategory, seenAt: initialSeenAt, now }: Props) {
   const [seenAt] = useState(initialSeenAt);
   const [todayKey] = useState(() => jstDayKey(now));
   const tabs = useMemo<Tab[]>(() => {
@@ -159,17 +157,9 @@ export function TopicTabs({ categories, allTopics, byCategory, mergedCount, seen
           </p>
         ) : (
           <section key={active.id} className="topic-tab-fade flex flex-col gap-3 rounded-xl border border-border bg-surface p-4">
-            <div className="flex items-baseline justify-between gap-3">
-              <h2 className="text-[0.8125rem] font-bold">
-                {active.label}のニュース（{active.rows.length}件）
-              </h2>
-              <span className="text-[0.6875rem] text-muted">
-                {unreadCount(active.rows, seenAt) > 0 ? `新着${unreadCount(active.rows, seenAt)}件・` : ""}取り込んだ順
-                {active.id === ALL_TAB_ID && mergedCount > 0
-                  ? `・同じ出来事${mergedCount}件を1件にまとめて表示`
-                  : "・同じ出来事はまとめて表示"}
-              </span>
-            </div>
+            <h2 className="text-[0.8125rem] font-bold">
+              {active.label}のニュース（{active.rows.length}件）
+            </h2>
             <Timeline rows={active.rows} categories={categories} seenAt={seenAt} todayKey={todayKey} />
           </section>
         )}
