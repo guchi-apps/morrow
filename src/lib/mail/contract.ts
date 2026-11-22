@@ -18,6 +18,22 @@ export const MAIL_VIEWS = [
 
 export type MailViewKey = (typeof MAIL_VIEWS)[number]["key"];
 
+/**
+ * 画面の表示切替。AIDEの `MAIL_VIEWS` に「最近のアーカイブ」（Morrowの控えから作る。AIDEへは渡さない。#1122）を足したもの。
+ * 受信トレイ・未読・すべて・ゴミ箱の後ろ（ゴミ箱の手前）に置く。
+ */
+export const MAIL_PAGE_VIEWS = [
+  ...MAIL_VIEWS.slice(0, 3),
+  { key: "archived", label: "最近のアーカイブ" },
+  ...MAIL_VIEWS.slice(3),
+] as const;
+
+export type MailPageViewKey = MailViewKey | "archived";
+
+export function isMailPageViewKey(value: unknown): value is MailPageViewKey {
+  return value === "archived" || isMailViewKey(value);
+}
+
 export function isMailViewKey(value: unknown): value is MailViewKey {
   return typeof value === "string" && MAIL_VIEWS.some((view) => view.key === value);
 }

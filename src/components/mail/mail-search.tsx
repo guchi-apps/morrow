@@ -25,6 +25,8 @@ type Props = {
   labels: MailLabel[];
   supportsLabels: boolean;
   inTrash: boolean;
+  /** 検索欄を出すか。「最近のアーカイブ」（#1122）では出さない。 */
+  searchable?: boolean;
   showAccount: boolean;
   nowMs: number;
   /** 上に固定する帯（#997）のクラス。検索欄はこの帯の末尾に入る。 */
@@ -43,7 +45,7 @@ type Props = {
  * メールの検索欄と、検索結果への一覧の差し替え（#998）。Enterで画面全体を読み込み直さず、この下の一覧だけを結果に変える。
  * URLの `?q=` は書き換えるだけ（遷移しない）。×・空で送ると、サーバーで描いた元の一覧へすぐ戻る。
  */
-export function MailSearch({ initialQuery, view, account, labels, supportsLabels, inTrash, showAccount, nowMs, stickyClassName, tabs, top, below, children }: Props) {
+export function MailSearch({ initialQuery, view, account, labels, supportsLabels, inTrash, searchable = true, showAccount, nowMs, stickyClassName, tabs, top, below, children }: Props) {
   const [text, setText] = useState(initialQuery);
   const [active, setActive] = useState(initialQuery);
   // 同じ語で送り直したときも結果を取り直す（覚えた結果があればすぐ返る）
@@ -91,8 +93,17 @@ export function MailSearch({ initialQuery, view, account, labels, supportsLabels
   return (
     <MailViewPendingContext.Provider value={{ pending: pendingView, setPending: setPendingView }}>
       <div className={stickyClassName}>
+        {/* 最終確認はタブ行の上に1行で出す（タブが増えて見切れないように。#1122） */}
+        {top}
         <div className="flex items-center gap-2">
-          <nav aria-label="表示するメール" className={cn("flex shrink-0 flex-nowrap gap-1 text-xs transition-opacity sm:gap-1.5", active && "opacity-40")}>
+          {/* 収まらないバッジは見切って、指で左右にスクロールして切り替える（ページ全体の幅は広げない） */}
+          <nav
+            aria-label="表示するメール"
+            className={cn(
+              "flex min-w-0 flex-nowrap gap-1 overflow-x-auto overscroll-x-contain text-xs transition-opacity [-ms-overflow-style:none] [scrollbar-width:none] sm:gap-1.5 [&::-webkit-scrollbar]:hidden",
+              active && "opacity-40",
+            )}
+          >
             {tabs.map((item) => {
               const on = item.key === view;
               return (
@@ -107,7 +118,7 @@ export function MailSearch({ initialQuery, view, account, labels, supportsLabels
                     if (active) event.preventDefault();
                   }}
                   className={cn(
-                    "whitespace-nowrap rounded-full border px-2.5 py-1.5 transition-colors sm:px-3",
+                    "shrink-0 whitespace-nowrap rounded-full border px-2.5 py-1.5 transition-colors sm:px-3",
                     on ? "border-foreground bg-foreground text-background" : "border-border bg-surface",
                     active ? "cursor-default" : !on && "hover:bg-rail-active",
                   )}
@@ -117,8 +128,8 @@ export function MailSearch({ initialQuery, view, account, labels, supportsLabels
               );
             })}
           </nav>
-          {top}
         </div>
+        {searchable && (
         <form
           role="search"
           // 読み込み途中（ハイドレーション前）に送られたときは、従来どおり `/mail?q=` へ遷移する
@@ -160,6 +171,7 @@ export function MailSearch({ initialQuery, view, account, labels, supportsLabels
             </button>
           )}
         </form>
+        )}
       </div>
       {below}
 

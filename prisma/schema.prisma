@@ -62,6 +62,7 @@ model User {
   topics            Topic[]
   mailTriages       MailTriage[]
   mailFeedbacks     MailFeedback[]
+  mailArchiveLogs   MailArchiveLog[]
   mailFlowRecords   MailFlowRecord[]
   mailLinks         MailLink[]
   mailListSummaries MailListSummary[]
@@ -592,4 +593,22 @@ model HermesActionLog {
 
   @@index([userId, createdAt])
   @@index([createdAt])
+}
+
+// --- 最近のアーカイブ（#1122） ---
+// Morrowでアーカイブした操作の控え。Gmail/AIDEにはアーカイブした日時が無いため、押した時刻を持つ。
+// #732の「メール由来の情報をDBに残さない」の例外だが、持つのはメッセージIDと時刻だけ（件名・差出人・本文は持たない。表示のたびにAIDEから取る）。
+// 受信トレイへ戻す・ゴミ箱への操作で削除し、7日で掃除する。
+
+model MailArchiveLog {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// AIDEのメッセージID（最大320文字）。
+  messageId  String   @db.VarChar(320)
+  archivedAt DateTime @default(now())
+
+  @@unique([userId, messageId])
+  @@index([userId, archivedAt])
 }

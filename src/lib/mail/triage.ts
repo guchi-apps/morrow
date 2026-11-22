@@ -10,6 +10,7 @@ import { isPushKindEnabled } from "@/lib/push/kinds-server";
 import { sendPushToUser, usersWithSubscriptions } from "@/lib/push/subscriptions";
 
 import { applyMailAction, listMail } from "@/lib/mail/aide-client";
+import { recordArchived } from "@/lib/mail/archive-log";
 import { deleteAnalyses } from "@/lib/mail/analysis-store";
 import { mailAccountKeyOf, type MailFailureKind } from "@/lib/mail/contract";
 import { gmailPushConfigFrom, isMainAccountMessage } from "@/lib/mail/gmail-push-core";
@@ -282,6 +283,8 @@ async function archiveJudged(user: CheckUser, ids: string[]) {
     // 手動のアーカイブ（`/api/mail/actions`）と同じ後始末
     await deleteListSummaries(user.id, group).catch(() => undefined);
     await deleteAnalyses(user.id, group).catch(() => undefined);
+    // 自動で外したメールも「最近のアーカイブ」から見返せるようにする（#1122）
+    await recordArchived(user.id, group).catch(() => undefined);
   }
 }
 
