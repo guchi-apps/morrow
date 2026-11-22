@@ -19,7 +19,7 @@ export type ChatFailure = {
 export function describeHermesError(kind: HermesErrorKind): ChatFailure {
   switch (kind) {
     case "unreachable":
-      return { connection: "unreachable", status: 502, kind, message: "Hermesに届きません（サブPCが止まっている可能性があります）。" };
+      return { connection: "unreachable", status: 502, kind, message: "Hermesに届きません（DeskMiniが止まっている可能性があります）。" };
     case "hermes_down":
       return { connection: "hermes_down", status: 503, kind, message: "Hermesが応答しません。" };
     case "rejected":

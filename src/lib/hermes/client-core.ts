@@ -18,7 +18,7 @@ import { readBridgeEvents } from "./sse.ts";
  *
  * | kind | 意味 | 画面 |
  * |---|---|---|
- * | `unreachable` | 接続失敗・5秒のタイムアウト・tailscale serveの502/504（ブリッジ停止） | Hermesに届きません（サブPCが止まっている可能性） |
+ * | `unreachable` | 接続失敗・5秒のタイムアウト・tailscale serveの502/504（ブリッジ停止） | Hermesに届きません（DeskMiniが止まっている可能性） |
  * | `hermes_down` | ブリッジが503（Hermesへ繋がらない） | Hermesが応答しません |
  * | `rejected` | 401/403 | 接続の設定に問題があります（ログに残す） |
  * | `not_configured` | 宛先URL・トークンが未設定 | 同上 |

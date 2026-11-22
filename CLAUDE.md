@@ -411,7 +411,7 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
   同じサブスク枠で動くので、APIキーも依存パッケージも増えない（#144で検討中）
 - **アカウントが対応していないモデルは、GPT-5.6系へ1度だけ落としてやり直す**（#358）。`models_cache.json` に載っていても、
   ChatGPTアカウントの契約によっては実行時に `The 'gpt-6-luna' model is not supported when using Codex with a ChatGPT account.`
-  （400）で断られる（サブPCでは通り、本番のアカウントでだけ出た）。`runCodexExec()` が起動の時点でこのエラーが返った回だけ、
+  （400）で断られる（DeskMiniでは通り、本番のアカウントでだけ出た）。`runCodexExec()` が起動の時点でこのエラーが返った回だけ、
   `UNSUPPORTED_MODEL_FALLBACKS`（astra→5.6-sol、sol→5.6-terra、luna→5.6-luna）でやり直す。本文が届いた後は再実行しない。
   使用量の記録のモデル名は指定した方（GPT-6系）のまま。`test/codex-fallback.test.ts` が固定する
 - **利用可能なモデル名を確認できるCLIコマンドは無い。** `~/.codex/models_cache.json` の
@@ -1065,7 +1065,7 @@ AI分析（#766）が、未完了のタスクと前後の予定（`aide_tasks`�
 `/api/chat` は接続を `toCodexMcpServers()` で均し、`runCodexExec()` が `-c mcp_servers.<slug>.url=…` と
 `bearer_token_env_var` で1回ごとに渡す（`src/lib/codex.ts`。**`--ignore-user-config` は
 `~/.codex/config.toml` を読まないだけで、`-c` の明示オーバーライドは独立に効く**）。
-実測はサブPC・`codex-cli 0.152.1`・2026-09-05。
+実測はDeskMini・`codex-cli 0.152.1`・2026-09-05。
 
 - **`default_tools_approval_mode="approve"` が無いと道具を呼べない。** 非対話の `exec` は承認
   ポリシーが `never` で、呼び出しが「MCP tool call requires approval, but approval policy is
@@ -1251,7 +1251,7 @@ Chromeへ繋いだつもりで別セッションのページを自分のログ�
 `ss -ltnp` のPIDで確かめること。
 
 **画面の作り直しやリクエストと利用者の操作が競合する不具合は、CDPの
-`Network.emulateNetworkConditions`（`latency` を1〜2秒）で再現できる**（#155）。サブPCの
+`Network.emulateNetworkConditions`（`latency` を1〜2秒）で再現できる**（#155）。DeskMiniの
 開発サーバーはRSCの取得が0.2秒ほどで終わるため、素のままだと**競合する窓そのものが開かない**
 ——実機のスマホで起きることが手元では一度も起きない、という形になる。
 
