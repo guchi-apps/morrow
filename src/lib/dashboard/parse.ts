@@ -25,21 +25,6 @@ export type WeatherDay = {
  */
 export type WeatherLocation = { name: string | null; latitude: number | null; longitude: number | null };
 
-export type WeatherView =
-  | { status: "unconnected" }
-  | { status: "failed"; detail: string }
-  /** AIDEは答えたが予報を持っていない（`state` が `ok` 以外）。 */
-  | { status: "unavailable"; reason: string | null }
-  | {
-      status: "ok";
-      today: WeatherDay;
-      tomorrow: WeatherDay | null;
-      /** AIDE側の同期が止まっている（古い予報）。 */
-      stale: boolean;
-      attribution: string | null;
-      location: WeatherLocation | null;
-    };
-
 export type ScheduleItem = {
   kind: "event" | "travel" | "reminder" | "task";
   /** `HH:MM`。終日・時刻なしはnull。 */
@@ -115,20 +100,6 @@ function httpUrl(value: unknown): string | null {
   }
 }
 
-function weatherDay(value: unknown): WeatherDay | null {
-  const day = record(value);
-  if (!day) return null;
-  const summary = str(day.summary);
-  if (!summary) return null;
-  return {
-    date: str(day.date) ?? "",
-    summary,
-    max: num(day.temperatureMax),
-    min: num(day.temperatureMin),
-    pop: num(day.precipitationProbabilityMax),
-  };
-}
-
 function weatherLocation(value: unknown): WeatherLocation | null {
   const location = record(value);
   if (!location) return null;
@@ -140,26 +111,15 @@ function weatherLocation(value: unknown): WeatherLocation | null {
   return { name, latitude: hasPoint ? latitude : null, longitude: hasPoint ? longitude : null };
 }
 
-export function parseWeather(json: unknown): WeatherView {
+/**
+ * `aide_weather` の応答から自宅の地点だけを読む（#1116）。予報（`data`）や `state`・`stale` は読まない——日別予報は
+ * Morrowが自宅の地点からOpen-Meteoで直接作る。`state` が `ok` 以外・同期が止まっている応答でも、地点は読めれば返す。
+ * 読めない・無ければnull。
+ */
+export function parseWeatherLocation(json: unknown): WeatherLocation | null {
   const root = record(json);
-  if (!root) return { status: "failed", detail: "天気の応答を読めませんでした" };
-
-  if (root.state !== "ok") {
-    return { status: "unavailable", reason: str(root.reason) };
-  }
-
-  const data = record(root.data);
-  const today = weatherDay(data?.today);
-  if (!today) return { status: "failed", detail: "今日の予報が応答に入っていませんでした" };
-
-  return {
-    status: "ok",
-    today,
-    tomorrow: weatherDay(data?.tomorrow),
-    stale: root.stale === true,
-    attribution: str(data?.attribution),
-    location: weatherLocation(root.location ?? data?.location),
-  };
+  if (!root) return null;
+  return weatherLocation(root.location ?? record(root.data)?.location);
 }
 
 /** 並べる順: 時刻の無いもの（終日・時刻なしのタスク）が先、続いて開始時刻順。 */

@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { parseSchedule, parseWeather } from "../src/lib/dashboard/parse.ts";
+import { parseSchedule, parseWeatherLocation } from "../src/lib/dashboard/parse.ts";
 import { readMcpBody } from "../src/lib/mcp/rpc-body.ts";
 
 const WEATHER_OK = {
@@ -42,43 +42,31 @@ const SCHEDULE_OK = {
   ],
 };
 
-describe("parseWeather", () => {
-  it("今日・明日の予報を読む", () => {
-    const view = parseWeather(WEATHER_OK);
-    assert.equal(view.status, "ok");
-    if (view.status !== "ok") return;
-    assert.deepEqual(view.today, { date: "2026-10-19", summary: "雨（強）", max: 25.8, min: 18.4, pop: 100 });
-    assert.equal(view.tomorrow?.pop, 89);
-    assert.equal(view.stale, false);
+describe("parseWeatherLocation", () => {
+  it("地点（location）は返っていれば読み、無ければnull（#586）", () => {
+    assert.deepEqual(parseWeatherLocation({ ...WEATHER_OK, location: { name: "高槻市", latitude: 34.85, longitude: 135.62 } }), {
+      name: "高槻市",
+      latitude: 34.85,
+      longitude: 135.62,
+    });
+    assert.equal(parseWeatherLocation(WEATHER_OK), null);
   });
 
-  it("地点（location）は返っていれば読み、無ければnull（#586。AIDEの対応前）", () => {
-    const withLocation = parseWeather({ ...WEATHER_OK, location: { name: "高槻市", latitude: 34.85, longitude: 135.62 } });
-    assert.ok(withLocation.status === "ok");
-    assert.deepEqual(withLocation.location, { name: "高槻市", latitude: 34.85, longitude: 135.62 });
-
-    const before = parseWeather(WEATHER_OK);
-    assert.ok(before.status === "ok");
-    assert.equal(before.location, null);
-
-    // 範囲外の座標は捨て、名前だけ使う
-    const broken = parseWeather({ ...WEATHER_OK, location: { name: "高槻市", latitude: 200, longitude: "x" } });
-    assert.ok(broken.status === "ok");
-    assert.deepEqual(broken.location, { name: "高槻市", latitude: null, longitude: null });
+  it("座標が範囲外・数でなければ座標は捨て、名前だけ残す", () => {
+    const broken = parseWeatherLocation({ ...WEATHER_OK, location: { name: "高槻市", latitude: 200, longitude: "x" } });
+    assert.deepEqual(broken, { name: "高槻市", latitude: null, longitude: null });
   });
 
-  it("state が ok 以外は「予報が無い」で、失敗とも天気とも別にする", () => {
-    assert.deepEqual(parseWeather({ state: "missing", reason: "未同期" }), { status: "unavailable", reason: "未同期" });
+  it("同期が止まっている（stale）・state が ok 以外の応答でも地点は読める（#1116）", () => {
+    const location = { name: "高槻市", latitude: 34.85, longitude: 135.62 };
+    assert.deepEqual(parseWeatherLocation({ ...WEATHER_OK, stale: true, location }), location);
+    assert.deepEqual(parseWeatherLocation({ state: "missing", reason: "未同期", location }), location);
+    assert.deepEqual(parseWeatherLocation({ state: "ok", data: { location } }), location);
   });
 
-  it("形が読めない応答は failed", () => {
-    assert.equal(parseWeather(null).status, "failed");
-    assert.equal(parseWeather({ state: "ok", data: {} }).status, "failed");
-  });
-
-  it("明日が null（深夜0時台）でも今日は出す", () => {
-    const view = parseWeather({ ...WEATHER_OK, data: { ...WEATHER_OK.data, tomorrow: null } });
-    assert.equal(view.status === "ok" && view.tomorrow, null);
+  it("形が読めない応答はnull", () => {
+    assert.equal(parseWeatherLocation(null), null);
+    assert.equal(parseWeatherLocation("x"), null);
   });
 });
 
