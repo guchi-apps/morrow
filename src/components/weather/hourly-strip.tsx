@@ -5,10 +5,8 @@ import {
   ArrowUp,
   ArrowUpRight,
   Cloud,
-  CloudDrizzle,
   CloudFog,
   CloudLightning,
-  CloudRain,
   CloudSnow,
   CloudSun,
   Sun,
@@ -26,8 +24,47 @@ import { cn } from "@/lib/utils";
  * サーバーコンポーネントのまま置く（`ScrollToNow` だけがクライアント）。
  */
 
-/** 天気コード（WMO）→ アイコン。表の区切りは `describeWeatherCode()` と同じ。 */
+/** 雨の強さ（傘の上の雨粒の量で表す。#1124）。表の区切りは `describeWeatherCode()` の「弱／無印／強」と同じ。 */
+type RainLevel = "weak" | "medium" | "strong";
+
+function rainLevelOf(code: number): RainLevel | null {
+  if ([51, 56, 61, 66, 80].includes(code)) return "weak";
+  if ([53, 63, 81].includes(code)) return "medium";
+  if ([55, 57, 65, 67, 82].includes(code)) return "strong";
+  return null;
+}
+
+/** 雨粒（傘の上）。弱＝点が少ない、並＝短い線、強＝長い線がたくさん。 */
+const RAIN_DROPS: Record<RainLevel, string> = {
+  weak: "M8 3h.01M16 3h.01",
+  medium: "M6 2.5v1.5M12 2v2M18 2.5v1.5",
+  strong: "M4 1v3.5M8 1v4M12 0.5v4.5M16 1v4M20 1v3.5",
+};
+
+/** 傘＋雨粒のアイコン。曇りと見分けやすいよう、雨は雲ではなく傘で出す（#1124）。 */
+export function UmbrellaRainIcon({ level, className }: { level: RainLevel; className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M20 15a8 8 0 0 0-16 0Z" />
+      <path d="M12 15v4.5a1.8 1.8 0 0 0 3.6 0" />
+      <path d={RAIN_DROPS[level]} />
+    </svg>
+  );
+}
+
+/** 天気コード（WMO）→ アイコン。表の区切りは `describeWeatherCode()` と同じ。雨・霧雨・にわか雨は傘（#1124）。 */
 export function WeatherIcon({ code, className }: { code: number | null; className?: string }) {
+  const level = code === null ? null : rainLevelOf(code);
+  if (level) return <UmbrellaRainIcon level={level} className={className} />;
   const Icon =
     code === null
       ? Cloud
@@ -39,13 +76,9 @@ export function WeatherIcon({ code, className }: { code: number | null; classNam
             ? Cloud
             : code <= 48
               ? CloudFog
-              : code <= 57
-                ? CloudDrizzle
-                : code <= 67 || (code >= 80 && code <= 82)
-                  ? CloudRain
-                  : code <= 86
-                    ? CloudSnow
-                    : CloudLightning;
+              : code <= 86
+                ? CloudSnow
+                : CloudLightning;
   return <Icon className={className} aria-hidden="true" />;
 }
 
