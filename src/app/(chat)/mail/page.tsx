@@ -6,17 +6,20 @@ import { MailCheckButton } from "@/components/mail/mail-check-button";
 import { MailCriteriaDialog } from "@/components/mail/mail-criteria-dialog";
 import { MailCriteriaForm } from "@/components/mail/mail-criteria-form";
 import { MailLearnedRules } from "@/components/mail/mail-learned-rules";
-import { elapsedLabel } from "@/components/mail/mail-format";
+import { ArchivedList, type ArchivedGroup } from "@/components/mail/archived-list";
 import { MailRows } from "@/components/mail/mail-rows";
 import { MailSearch } from "@/components/mail/mail-search";
 import { getCurrentUser } from "@/lib/auth-user";
 import { jstDayKey, jstTimeLabel } from "@/lib/day-key";
-import { listMailForPage } from "@/lib/mail/aide-client";
+import { getMail, listMailForPage } from "@/lib/mail/aide-client";
+import { recentArchived } from "@/lib/mail/archive-log";
+import { groupArchiveByDay } from "@/lib/mail/archive-log-core";
 import {
   MAIL_FAILURE_MESSAGES,
-  MAIL_VIEWS,
-  isMailViewKey,
-  type MailViewKey,
+  MAIL_PAGE_VIEWS,
+  isMailPageViewKey,
+  type MailListPage,
+  type MailPageViewKey,
 } from "@/lib/mail/contract";
 import {
   KNOWN_ACCOUNT_NAMES,
@@ -57,7 +60,8 @@ export default async function MailPage({ searchParams }: Props) {
   }
 
   const query = await searchParams;
-  const view: MailViewKey = isMailViewKey(query.view) ? query.view : "inbox";
+  const view: MailPageViewKey = isMailPageViewKey(query.view) ? query.view : "inbox";
+  const archivedView = view === "archived";
   const filter = parseAccountFilter(query.acct);
   // URLへ載せる選択（既定のときは付けない）。表示切替・検索・ページ送りで引き継ぐ
   const account = filter.kind === "keys" ? filter.keys.join(",") : null;
@@ -66,7 +70,22 @@ export default async function MailPage({ searchParams }: Props) {
   const q = (query.q ?? "").trim().slice(0, 200);
 
   const now = new Date();
-  const result = await listMailForPage(user, { view, labelId: null, filter, q: "", pageToken: null });
+  // 「最近のアーカイブ」（#1122）はAIDEの一覧ではなくMorrowの控えから作る。アカウントの絞り込み・検索は持たない
+  const emptyPage: MailListPage = {
+    owner: "",
+    supportsLabels: false,
+    partial: false,
+    failedAccounts: [],
+    accounts: null,
+    labels: [],
+    messages: [],
+    nextPageToken: null,
+    resultSizeEstimate: 0,
+  };
+  const result = view === "archived"
+    ? ({ ok: true, value: emptyPage } as const)
+    : await listMailForPage(user, { view, labelId: null, filter, q: "", pageToken: null });
+  const archivedGroups: ArchivedGroup[] = archivedView ? await archivedGroupsFor(user, now) : [];
   // 受信トレイでは、INBOXラベルの無い（アーカイブ済みの）メールを出さない（#795）
   const inboxView = view === "inbox";
   // INBOXの無いメール（アーカイブ・ゴミ箱）の要約は消す（#851。Gmail側の直接操作の取りこぼしを拾う）
@@ -101,7 +120,7 @@ export default async function MailPage({ searchParams }: Props) {
     if (acct) params.set("acct", acct);
     return `/mail${params.size > 0 ? `?${params}` : ""}`;
   };
-  const viewHref = (key: MailViewKey) => {
+  const viewHref = (key: MailPageViewKey) => {
     const params = new URLSearchParams();
     if (key !== "inbox") params.set("view", key);
     if (account) params.set("acct", account);
@@ -142,26 +161,14 @@ export default async function MailPage({ searchParams }: Props) {
           labels={result.ok ? result.value.labels : []}
           supportsLabels={result.ok ? result.value.supportsLabels : false}
           inTrash={view === "trash"}
+          searchable={!archivedView}
           showAccount={showAccounts && selected.length > 1}
           nowMs={now.getTime()}
           stickyClassName="sticky top-0 z-10 -mx-3.5 flex flex-col gap-2 border-b border-border bg-background px-3.5 pb-2.5 pt-3 md:-mx-7 md:px-7 md:pt-5"
-          tabs={MAIL_VIEWS.map((item) => ({ key: item.key, label: item.label, href: viewHref(item.key) }))}
+          tabs={MAIL_PAGE_VIEWS.map((item) => ({ key: item.key, label: item.label, href: viewHref(item.key) }))}
           top={
-            <p className="ml-auto min-w-0 text-right text-[0.625rem] leading-snug text-muted sm:text-[0.6875rem]">
-              {checkedAt ? (
-                <>
-                  <span className="sm:hidden">
-                    {jstTimeLabel(checkedAt)}確認（{elapsedLabel(checkedAt, now)}）
-                    <br />
-                    15分ごとに自動
-                  </span>
-                  <span className="hidden sm:inline">
-                    最終確認 {jstTimeLabel(checkedAt)}（{elapsedLabel(checkedAt, now)}）・15分ごとに自動で確認
-                  </span>
-                </>
-              ) : (
-                "まだ新着を確認していません"
-              )}
+            <p className="whitespace-nowrap text-right text-[0.625rem] leading-snug text-muted sm:text-[0.6875rem]">
+              {checkedAt ? `${jstTimeLabel(checkedAt)}確認（15分ごとに確認）` : "まだ新着を確認していません"}
             </p>
           }
           // 「いま確認」のボタンはヘッダーへ。結果のメッセージだけがここ（固定部分の下）に出る
@@ -186,7 +193,15 @@ export default async function MailPage({ searchParams }: Props) {
                 一覧に欠けがあります。時間をおいて読み込み直してください。
               </p>
             )}
-            {rows.length === 0 && !result.value.nextPageToken ? (
+            {archivedView ? (
+              archivedGroups.length === 0 ? (
+                <p className="rounded-xl border border-border bg-surface px-4 py-3 text-xs leading-relaxed text-muted">
+                  最近（7日以内）にMorrowでアーカイブしたメールはありません。アーカイブすると、ここからアーカイブした順に見返して受信トレイへ戻せます。
+                </p>
+              ) : (
+                <ArchivedList groups={archivedGroups} back={back} />
+              )
+            ) : rows.length === 0 && !result.value.nextPageToken ? (
               <p className="rounded-xl border border-border bg-surface px-4 py-3 text-xs text-muted">
                 {result.value.partial ? "取得できたアカウントには、表示するメールがありません。" : "メールはありません。"}
               </p>
@@ -212,4 +227,25 @@ export default async function MailPage({ searchParams }: Props) {
       </div>
     </PullToRefresh>
   );
+}
+
+const archivedTime = new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", hour: "2-digit", minute: "2-digit" });
+
+/** 最近のアーカイブ（#1122）の行を作る。控えは新しい順で、件名・差出人は1通ずつAIDEから取る（取れなかった行は件名なしで残す）。 */
+async function archivedGroupsFor(user: NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>, now: Date): Promise<ArchivedGroup[]> {
+  const entries = await recentArchived(user.id, now).catch(() => []);
+  const loaded = await Promise.all(
+    entries.map(async (entry) => {
+      const mail = await getMail(user, entry.messageId).catch(() => null);
+      const summary = mail && mail.ok ? mail.value.message : null;
+      return {
+        id: entry.messageId,
+        archivedAt: entry.archivedAt,
+        timeLabel: archivedTime.format(new Date(entry.archivedAt)),
+        from: summary?.from ?? null,
+        subject: summary ? summary.subject || "（件名なし）" : null,
+      };
+    }),
+  );
+  return groupArchiveByDay(loaded, now);
 }

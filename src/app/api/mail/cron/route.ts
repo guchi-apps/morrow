@@ -1,6 +1,7 @@
 import { NextResponse, after } from "next/server";
 
 import { hasValidBearer } from "@/lib/bearer-auth";
+import { pruneArchiveLog } from "@/lib/mail/archive-log";
 import { pruneAnalyses } from "@/lib/mail/analysis-store";
 import { pruneListSummaries } from "@/lib/mail/list-summary";
 import { runMailChecks } from "@/lib/mail/triage";
@@ -39,6 +40,8 @@ export async function POST(request: Request) {
     await pruneListSummaries().catch((error: unknown) => console.error("[aide-bot] 一覧の要約の掃除に失敗した", error));
     // 90日を過ぎた保存済みの分析を掃除する（#883）
     await pruneAnalyses().catch((error: unknown) => console.error("[aide-bot] 保存した分析の掃除に失敗した", error));
+    // 7日を過ぎたアーカイブの控えを掃除する（#1122）
+    await pruneArchiveLog().catch((error: unknown) => console.error("[aide-bot] アーカイブの控えの掃除に失敗した", error));
   });
 
   return NextResponse.json({ ran: true });

@@ -339,6 +339,16 @@ async function main() {
 
   console.log(`[aide-bot] ニュースを${TOPIC_SEEDS.length}件投入しました`);
 
+  // 最近のアーカイブ（#1122）。メールの実体はAIDEにしか無いので、控え（IDと時刻だけ）を入れる。画面は件名を取れない行として出る
+  for (const [messageId, hoursAgo] of [["seed-archived-1", 2], ["seed-archived-2", 30]]) {
+    const archivedAt = new Date(now.getTime() - hoursAgo * 60 * 60 * 1000);
+    await db.mailArchiveLog.upsert({
+      where: { userId_messageId: { userId: user.id, messageId } },
+      update: { archivedAt },
+      create: { userId: user.id, messageId, archivedAt },
+    });
+  }
+
   // ニュースの種類（#345）。初期の3種類（`src/lib/topic-categories.ts` の `DEFAULT_TOPIC_CATEGORIES` と
   // 同じ値）に加え、自作の種類と、仕入れを外している種類を1件ずつ入れる（管理画面の各状態を
   // 確かめるため）。`topicCategoriesReady` を立てておかないと、初回の読み出しが3種類を重ねて入れる。

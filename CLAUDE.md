@@ -902,6 +902,15 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
   - 傾向の同一性は `notify`＋`text`（`ruleKey()`）。テストは `test/mail-learn.test.ts`
 - 帯は判定していない・不要と判定したメールにも出す（`mailTriageFor()`）
 
+### 最近のアーカイブ（#1122。#732の例外）
+
+表示切替「最近のアーカイブ」（`?view=archived`）は、Morrowでアーカイブしたメールをアーカイブした順に日ごとに出し、各行から受信トレイへ戻せる。**Gmail/AIDEにアーカイブの日時は無い**ので、Morrowが押した操作を `MailArchiveLog`（メッセージID・時刻だけ。件名・差出人・本文は持たない）に控える。
+
+- 記録は `/api/mail/actions` のarchive成功時と、新着確認の自動アーカイブ（`triage.ts` の `archiveJudged()`）。`inbox`・`trash` の成功で控えを消し、7日を過ぎた分は `/api/mail/cron` の末尾で掃除する（`archive-log.ts`・純粋部は `archive-log-core.ts`・`test/mail-archive-log.test.ts`）。**控えを持つ経路を足すときは削除の契機も揃える**
+- 画面は最大30件を1通ずつ `getMail()`（持ち主照合込み）で取り、取れなかった行は件名なしで残す。AIDEの一覧は引かない（`MAIL_PAGE_VIEWS` の `archived` はAIDEへ渡さない。`isMailViewKey()` は従来のまま）。検索・アカウント絞り込み・ページ送りは持たない
+- Gmailなどで直接アーカイブしたもの・この機能より前のアーカイブは出ない（画面に明記）
+- 同じPRで、確認時刻（「HH:MM確認（15分ごとに確認）」）をタブ行の上の1行へ移し、表示切替のバッジ行は収まらないぶんを横スクロールにした（`mail-search.tsx`）
+
 ### メールの自動アーカイブと購読解除の導線（#942）
 
 学習（#833）の第3の印「アーカイブする」。傾向は `notify: false` に `archive: true` を足した形（`LearnedRule.archive`。`ruleKey()` は `archive:<text>` で「知らせない」と別の傾向）、押した印は `MailFeedback.archive`。
