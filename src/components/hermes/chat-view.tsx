@@ -65,7 +65,7 @@ type Props = {
 const STATUS_TEXT: Record<ChatConnection, string> = {
   unknown: "接続を確認しています…",
   ok: "接続中（Hermes）",
-  unreachable: "Hermesに届きません（サブPCが止まっている可能性があります）",
+  unreachable: "Hermesに届きません（DeskMiniが止まっている可能性があります）",
   hermes_down: "Hermesが応答しません",
   misconfigured: "接続の設定に問題があります",
 };
