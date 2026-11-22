@@ -1,4 +1,5 @@
-import { dashboardWeather } from "@/lib/dashboard/aide";
+import { jstDayKey } from "@/lib/day-key";
+import { dashboardDayWeather } from "@/lib/dashboard/places";
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -11,13 +12,13 @@ function jstDateLabel(now: Date): string {
 /**
  * メニュー上部の情報カード（#719）。日付と今日の天気のひとこと。
  * 親指の届きにくい上側には押すものを置かず、見るだけの情報を出す。
- * 天気はダッシュボードと同じキャッシュ（`dashboardWeather()`）を通るので、AIDEへの呼び出しは増えない。
+ * 天気はダッシュボードと同じ `dashboardDayWeather()`（自宅の地点のOpen-Meteo。#1116）を通り、地点も予報もキャッシュされるので呼び出しは増えない。
  * 取れないとき・未接続のときは天気の行を出さず、日付だけにする（エラー表示にはしない）。
  */
 export async function MenuInfo({ userId }: { userId: string }) {
   const now = new Date();
-  const weather = await dashboardWeather(userId, now);
-  const today = weather.status === "ok" ? weather.today : null;
+  const weather = await dashboardDayWeather(userId, now, jstDayKey(now));
+  const today = weather.status === "ok" ? weather.day : null;
 
   return (
     <div className="mx-4 rounded-[10px] border border-border bg-surface px-3 py-2.5 text-xs">

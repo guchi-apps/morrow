@@ -22,6 +22,7 @@ import { HOUR_PX, layoutTimeline, nowTop } from "@/lib/dashboard/timeline";
 import { tempDelta, type TempDelta } from "@/lib/dashboard/temp-delta";
 import type { DashboardTopic } from "@/lib/dashboard/today";
 import { dayLabel, jstDayKey, jstTimeLabel } from "@/lib/day-key";
+import { OPEN_METEO_ATTRIBUTION } from "@/lib/weather/open-meteo";
 import { RAIN_POP, type RainVerdict } from "@/lib/weather/rain-check";
 import { cn } from "@/lib/utils";
 
@@ -122,7 +123,7 @@ function DayNav({ todayKey, now }: { todayKey: string; now: Date }) {
 
 /**
  * lg以上だけで見せる枠。**中身はサーバーで描いて同じHTMLに入る**ため、天気・予定の取得は
- * 上の1列ぶんと合わせて2回呼ばれるが、`dashboardWeather()` が走っている取得を共有するので
+ * 上の1列ぶんと合わせて2回呼ばれるが、`homeLocation()` が走っている取得を共有するので
  * AIDEへは1本しか出ない。
  */
 function DesktopOnly({ children }: { children: React.ReactNode }) {
@@ -231,7 +232,7 @@ async function WeatherCard({
         />
       </Suspense>
       <p className="text-[0.625rem] text-muted">
-        {weather.status === "ok" && weather.attribution ? weather.attribution : "Weather data by Open-Meteo.com (CC BY 4.0)"}
+        {OPEN_METEO_ATTRIBUTION}
         ・地名: 国土地理院
       </p>
     </Card>
@@ -244,15 +245,11 @@ function WeatherBody({ weather, previous }: { weather: DayWeatherView; previous:
       return <Unconnected />;
     case "failed":
       return <Failed>天気を取得できませんでした。少し待って再読み込みしてください。</Failed>;
-    case "unavailable":
-      return (
-        <Empty>予報がまだ届いていません（AIDE側で取得できていません）。雨か晴れかは分かりません。</Empty>
-      );
     case "none":
-      // 今日・明日以外はAIDEの予報が無く、自宅の地点（AIDEの `location`）が届くまでは引けない（#606）。
+      // 自宅の地点（AIDEの `location`。前回値を覚えている）が届くまでは予報を引けない（#606・#1116）。
       return <Empty>この日の予報はありません（自宅の地点がまだAIDEから届いていません）。</Empty>;
     case "ok":
-      return <WeatherOk today={weather.day} previous={previous} stale={weather.stale} />;
+      return <WeatherOk today={weather.day} previous={previous} />;
   }
 }
 
@@ -267,7 +264,7 @@ function DeltaMark({ delta }: { delta: TempDelta | null }) {
   return <span className={cn("ml-0.5 text-xs font-bold", tone)}>{delta.text}</span>;
 }
 
-function WeatherOk({ today, previous, stale }: { today: WeatherDay; previous: WeatherDay | null; stale: boolean }) {
+function WeatherOk({ today, previous }: { today: WeatherDay; previous: WeatherDay | null }) {
   const rainy = today.pop !== null && today.pop >= RAIN_POP;
   const Icon = rainy ? CloudRain : CloudSun;
   const maxDelta = previous ? tempDelta(today.max, previous.max) : null;
@@ -294,8 +291,6 @@ function WeatherOk({ today, previous, stale }: { today: WeatherDay; previous: We
           </div>
         </div>
       </div>
-
-      {stale && <p className="text-xs text-muted">AIDE側の更新が止まっているため、古い予報の可能性があります。</p>}
     </>
   );
 }
@@ -434,7 +429,6 @@ function segmentNote(segment: PlaceSegment): React.ReactNode {
     <span className="flex items-center gap-1.5">
       <WeatherIcon code={weather.code} className="size-3.5 text-topic" />
       <span>{weather.summary}</span>
-      {segment.daily && <span>・1日の予報</span>}
     </span>
   );
 }

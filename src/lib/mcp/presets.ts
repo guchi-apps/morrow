@@ -78,7 +78,7 @@ export const MCP_PRESETS: McpPreset[] = [
     // 電気・ガスの請求のクラシオへの反映（`kurashio_*`。#1100）は `kurashio-bills:read`（契約候補・保存済みの確認）と
     // `kurashio-bills:write`（登録）。足した後は利用者のAIDEの繋ぎ直しが要る。
     scopes: ["tasks:read", "tasks:write", "kurashio-bills:read", "kurashio-bills:write"],
-    description: "資産と固定費・部屋の状態・VPSとサブPCの稼働・今日の見通し・開発状況",
+    description: "資産と固定費・部屋の状態・VPS・DeskMini・Mac miniの稼働・今日の見通し・開発状況",
     provides: [
       "いまの室温・湿度・CO2（aide_room_sensors）とエアコンの運転状態（aide_aircon_status）",
       // aide#373で `aide_daily_briefing` を畳み、予定は `aide_schedule`、天気はこちらへ分けた。
@@ -87,7 +87,7 @@ export const MCP_PRESETS: McpPreset[] = [
       "予定と空いている時間帯（aide_schedule）。今日から最大14日ぶんで、Googleカレンダーの予定に" +
         "Notionのタスク・日付リマインド・移動が混ざったもの",
       "残高・保有銘柄（aide_balances）と、固定費・引き落とし予定（aide_fixed_costs）",
-      "VPS・サブPCの稼働（aide_host_status）・外形監視（aide_uptime_monitors）・AIやGitHub Actionsの残枠（aide_service_quotas）",
+      "VPS・DeskMini・Mac miniの稼働（aide_host_status）・外形監視（aide_uptime_monitors）・AIやGitHub Actionsの残枠（aide_service_quotas）",
       "開発状況（aide_dev_status）と、リポジトリごとの状況・ラベル（aide_repo_status・aide_repo_labels）",
       "放置しているClaudeのセッション（aide_claude_sessions）",
       // DaySpan（dayspan#550）→ AIDE（aide#243）の順に口が作られ、#185でaide-bot側も配線した。

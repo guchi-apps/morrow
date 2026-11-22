@@ -411,7 +411,7 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
   同じサブスク枠で動くので、APIキーも依存パッケージも増えない（#144で検討中）
 - **アカウントが対応していないモデルは、GPT-5.6系へ1度だけ落としてやり直す**（#358）。`models_cache.json` に載っていても、
   ChatGPTアカウントの契約によっては実行時に `The 'gpt-6-luna' model is not supported when using Codex with a ChatGPT account.`
-  （400）で断られる（サブPCでは通り、本番のアカウントでだけ出た）。`runCodexExec()` が起動の時点でこのエラーが返った回だけ、
+  （400）で断られる（DeskMiniでは通り、本番のアカウントでだけ出た）。`runCodexExec()` が起動の時点でこのエラーが返った回だけ、
   `UNSUPPORTED_MODEL_FALLBACKS`（astra→5.6-sol、sol→5.6-terra、luna→5.6-luna）でやり直す。本文が届いた後は再実行しない。
   使用量の記録のモデル名は指定した方（GPT-6系）のまま。`test/codex-fallback.test.ts` が固定する
 - **利用可能なモデル名を確認できるCLIコマンドは無い。** `~/.codex/models_cache.json` の
@@ -463,7 +463,7 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
   （`rpc-body.ts`）、`Mcp-Session-Id` が返れば付ける。接続は `listConnectedServers()`（トークンの更新もここ）から
   プリセットid `aide` で選ぶ。**`writeTools` に入っている道具は呼ばない**
 - **「取得できなかった」と「無い」を混ぜない**（#214）。読み替えは `src/lib/dashboard/parse.ts`（純粋。
-  `test/dashboard-parse.test.ts`）。天気は `state` ≠ `ok` を「予報が無い」、予定は `configured: false`・
+  `test/dashboard-parse.test.ts`）。天気の予報はOpen-Meteoから直接作る（#1116。AIDEからは自宅の地点だけ）。予定は `configured: false`・
   `complete: false`・`googleConnected: false` を「予定なし」と別に出す。形の読めない応答・通信失敗は赤の「取得できませんでした」
 - **プロセス内で成功5分・失敗1分キャッシュする**（`src/lib/dashboard/aide.ts`。鍵に日本時間の日付を含む）。走っている
   取得は共有する。画面はスマホ用とPC用の2つの並びを描き分けている（CSSで片方を隠す）ので、これが無いとAIDEへ2本ずつ出る。
@@ -482,11 +482,11 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
 
 ### 天気の地点・時間と場所ごとの雨・現在地（#586）
 
-天気カードは、自宅の1日の予報（AIDE）に加えて、今日の予定の移動から作った区間（〜06:30 自宅 → 07:30–17:30 栗東市 →
+天気カードは、自宅の1日の予報（Open-Meteo。#1116）に加えて、今日の予定の移動から作った区間（〜06:30 自宅 → 07:30–17:30 栗東市 →
 18:30〜 自宅）ごとの天気と雨、（天気カード先頭の「現在地」折りたたみ行は#867で削除）明日・明後日の行き先の雨の一覧は#625で外した。
 
-- **地点の名前・座標の正はAIDE**（`aide_weather` の `location`。guchi-apps/aide#673。`parseWeather()` は無ければnull）。AIDEが返すまでは見出しに
-  市町村名を出さず、自宅の区間はAIDEの日別予報で代用する（「1日の予報」と添える）。Morrowの設定で自宅を持つ案は二重管理になるので採らなかった
+- **地点の名前・座標の正はAIDE**（`aide_weather` の `location`。guchi-apps/aide#673。`parseWeatherLocation()` は無ければnull）。Morrowの設定で自宅を持つ案は二重管理になるので採らなかった
+- **今日・明日を含む日別予報はAIDEから読まず、自宅の地点から `forecastAt()` で直接作る**（#1116。AIDEの `weather-sync` が止まると古い予報が出続けたため）。`aide_weather` から読むのは**地点だけ**（`homeLocation()`。`aide.ts`）で、座標つきで読めたら30日プロセス内に覚え（`home-location-core.ts`・`test/home-location.test.ts`）、AIDEが止まっている・届かない回は前回の地点で作る。**再起動と同時にAIDEが落ちていると地点が無く**、画面は「自宅の地点がAIDEから届いていません」を出す（DBへの保存は見送り。マイグレーションが要るため）。地点が無い間は自宅の区間も予報なし（`unresolved`）。「AIDE側の更新が止まっている」の注記・`stale`・「1日の予報」の代用は廃止。出典は `OPEN_METEO_ATTRIBUTION` を常に添える。左メニューの天気（`menu-info.tsx`）も同じ `dashboardDayWeather()`。AIDEの `aide_weather` 自体は朝のブリーフィング・Hermesが読むので残る
 - **行き先の予報と地名は、Morrowのサーバーからキー無しの公開APIを直接叩く**（依存は足していない）。予報はOpen-Meteo
   （`src/lib/weather/open-meteo.ts`。30分キャッシュ）、地名⇔座標は国土地理院の住所検索・逆ジオコーダ・市町村コード表
   （`geocode.ts`。24時間キャッシュ。解決できなかった地名も持つ）。座標は小数2桁（≒1km）に丸めてから外へ送る
@@ -527,7 +527,7 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
 ### 天気ページ（#695）
 
 `/weather` は、登録した地点（自宅は常に先頭）の一覧と地名検索、選んだ地点の**その日の0〜23時**（気温の折れ線・1時間ごとの天気・降水確率・雨量）を出す。
-ダッシュボードの「時間と場所ごと」の地点名（予報を取れた区間だけ。場所不明・自宅の地点が未着・日別予報で代用した行は押せない）は、その地点・その日の詳細へ飛ぶ。
+ダッシュボードの「時間と場所ごと」の地点名（予報を取れた区間だけ。場所不明・自宅の地点が未着の行は押せない）は、その地点・その日の詳細へ飛ぶ。
 
 - **地点はURLに載る**（`/weather?n=<名前>&lat=&lon=&d=`。組み立て・検証は純粋な `src/lib/weather/place-input.ts`・`test/weather-place-input.test.ts`）。登録していない地点（予定の行き先）も座標だけで開け、登録は詳細のボタン（`POST /api/weather/places`）から。座標は小数2桁に丸めて持つ（外へ送る値と同じ。#586の方針）
 - **地点を指定せず `/weather` を開くと、現在地を既定で出す**（#882。`auto-locate.tsx`）。クライアントが `navigator.geolocation` で1回だけ位置を取り（追跡しない）、`/weather?here=1&lat=&lon=`（`hereHref()`・`hereFromQuery()`）へ `router.replace`。サーバーは市町村名だけを `municipalityAt()` で引き（引けなければ「現在地」）、一覧の先頭に「現在地」行を足す。位置は保存もログ出力もせず小数2桁に丸める。iOSの殻は位置の許可を持っている（#587・#641。Swiftの追加は無い）。拒否・失敗・非対応では再要求せず案内を出す。自動取得は素の `/weather`（`d` だけは可）に限る（`shouldAutoLocate()`。検索・地点・現在地の指定があれば取らない）。`here=1` のURLを再読み込みしても座標は取り直さない。殻の位置の利用目的の文言は「ダッシュボードに…」のまま（直すとTestFlightの再ビルドが走るため見送り）。現在地は登録の対象外（登録ボタンを出さない）
@@ -1065,7 +1065,7 @@ AI分析（#766）が、未完了のタスクと前後の予定（`aide_tasks`�
 `/api/chat` は接続を `toCodexMcpServers()` で均し、`runCodexExec()` が `-c mcp_servers.<slug>.url=…` と
 `bearer_token_env_var` で1回ごとに渡す（`src/lib/codex.ts`。**`--ignore-user-config` は
 `~/.codex/config.toml` を読まないだけで、`-c` の明示オーバーライドは独立に効く**）。
-実測はサブPC・`codex-cli 0.152.1`・2026-09-05。
+実測はDeskMini・`codex-cli 0.152.1`・2026-09-05。
 
 - **`default_tools_approval_mode="approve"` が無いと道具を呼べない。** 非対話の `exec` は承認
   ポリシーが `never` で、呼び出しが「MCP tool call requires approval, but approval policy is
@@ -1251,7 +1251,7 @@ Chromeへ繋いだつもりで別セッションのページを自分のログ�
 `ss -ltnp` のPIDで確かめること。
 
 **画面の作り直しやリクエストと利用者の操作が競合する不具合は、CDPの
-`Network.emulateNetworkConditions`（`latency` を1〜2秒）で再現できる**（#155）。サブPCの
+`Network.emulateNetworkConditions`（`latency` を1〜2秒）で再現できる**（#155）。DeskMiniの
 開発サーバーはRSCの取得が0.2秒ほどで終わるため、素のままだと**競合する窓そのものが開かない**
 ——実機のスマホで起きることが手元では一度も起きない、という形になる。
 
