@@ -234,6 +234,10 @@ describe("読み取りの呼び出し（引数は入力の範囲内）", () => {
     assertValid("aide_schedule", { offsetDays: -7, days: 14 });
     assertValid("aide_tasks", { status: "open", limit: 60 });
   });
+  it("チャットに添える今日の状態（#1149。予定は今日から3日ぶん・タスクは未完了60件）", () => {
+    assertValid("aide_schedule", { days: 3 });
+    assertValid("aide_tasks", { status: "open", limit: 60 });
+  });
   it("メールからの予定作成の前後確認（同じ日を1日ぶん）", () => {
     assertValid("aide_schedule", { date: "2026-11-12", days: 1 });
     assertValid("aide_schedule", { date: undefined, days: 1 });
