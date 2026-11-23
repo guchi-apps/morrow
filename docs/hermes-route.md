@@ -66,7 +66,7 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 
 | ブリッジのAPI | Hermesへ | 備考 |
 |---|---|---|
-| `GET /health` | 接続して `gateway.ready` を待つ | `{bridge:"ok", hermes:"ok"\|"down"}`。認証必須 |
+| `GET /health` | 接続して `gateway.ready` を待ち、`mcp.servers.status` を1回読む | `{bridge:"ok", hermes:"ok"\|"down", aide?:"ok"\|"connecting"\|"unavailable"}`（`aide` は判定できた回だけ。#1158）。認証必須 |
 | `POST /turns` `{sessionId?, text, title?}` | `session.create`（無ければ）/ `session.resume` → `prompt.submit` | 応答はSSE。`message.delta`・`tool.start`/`tool.complete`・`approval`・`clarify`・`message.complete`（`usage` 付き）をそのまま種類別に流す |
 | `POST /turns/<id>/approval` `{requestId, choice}` | `approval` リクエストへの回答 | `once`・`deny` だけを通す（`always`・`session` は400。`docs/hermes-actions.md`） |
 | `POST /turns/<id>/interrupt` | `session.interrupt` | |
@@ -223,4 +223,4 @@ AIDEの道具を1本も読み込まず、チャットは「接続中」のまま
     その場合はprofileの `mcp_servers.aide` に `oauth: { timeout: 3600 }` を一時的に足してから始め、済んだら外す。切れた後のcodeは使えない（PKCEの検証値がプロセスと一緒に消える）
   - 再起動後、AIDEへの接続は5分ごとの確認で張り直される（ログに `MCP OAuth 'aide': tokens file changed ... forcing reload` と `aide.gucchii.com/mcp` への200）
 - **既定profileのトークンファイルを写さない。** リフレッシュトークンを2つのprofileで使い回すと、片方が更新した時点でもう片方が失効しうる
-- 接続状態（`/api/hermes/status`）はHermesに届くかだけを見ており、AIDEに繋がっているかは出ない
+- **AIDEの道具が読み込まれているかは #1158 から画面に出る。** ブリッジの `/health` が Hermes の `mcp.servers.status`（キャッシュ済みの状態を読むだけで、接続も認証も始めない）を1回呼び、`aide`（`ok`／`connecting`／`unavailable`）を返す（判定は `src/lib/hermes/aide-health.ts`）。実測（2026-11-23）: 正常時は `aide: connected / tools 33`。`unavailable`（`failed`・`configured`・道具0本）のとき、チャットは赤帯で上の「直し方」を出す。`connecting`・判定できない回・ブリッジが古い回（項目なし）は何も出さない。エラーの文面はブラウザへ渡さない。**ブリッジを更新するまで画面には出ない**（`scripts/update-hermes-bridge.sh`）

@@ -1,4 +1,4 @@
-import type { BridgeEvent, BridgeEventType } from "./contract.ts";
+import type { BridgeEvent, BridgeEventType, HermesUsage } from "./contract.ts";
 import { stripAttachments } from "./prompt-attachment.ts";
 import type { ProposalView } from "./proposal-core.ts";
 import { argLines, isAutoWriteTool, knownToolKey, resultFailed, resultSummary, toolHint, toolLabel, type ArgLine, type ResultSummary } from "./tool-labels.ts";
@@ -45,6 +45,10 @@ export type ChatItem =
       lines: ArgLine[];
       /** 結果の要約（作成物のリンク・失敗の理由）。結果が届いていない・何も取れないときは null。 */
       result: ResultSummary | null;
+      /** 道具を始めた時刻（epochミリ秒。経過秒の表示用。#1158）。復元した控えなど無いときは null。 */
+      startedAt?: number | null;
+      /** 終わるまでにかかった秒（Hermesの `duration_s`）。届かなければ null。 */
+      durationSeconds?: number | null;
     }
   | { kind: "proposal"; id: number; proposal: ProposalView }
   | {
@@ -56,7 +60,16 @@ export type ChatItem =
       status: "waiting" | "once" | "deny";
     }
   | { kind: "clarify"; id: number; text: string }
-  | { kind: "notice"; id: number; tone: "info" | "error"; text: string };
+  | {
+      kind: "notice";
+      id: number;
+      tone: "info" | "error";
+      text: string;
+      /** 失敗したターンの再送（#1158）。`risky` は書き込みが走った可能性がある回で、自動では再送しない。 */
+      retry?: { text: string; risky: boolean };
+    }
+  /** 1ターンのトークン量（#1158。金額は出さない）。 */
+  | { kind: "usage"; id: number; text: string };
 
 export type ChatState = {
   items: ChatItem[];
@@ -65,9 +78,11 @@ export type ChatState = {
   turnId: string | null;
   running: boolean;
   nextId: number;
+  /** 最後にイベントが届いた時刻（「考え中 N秒」の起点。#1158）。 */
+  activityAt?: number | null;
 };
 
-export const initialChatState: ChatState = { items: [], sessionId: null, turnId: null, running: false, nextId: 1 };
+export const initialChatState: ChatState = { items: [], sessionId: null, turnId: null, running: false, nextId: 1, activityAt: null };
 
 /** 前回の会話の履歴（#929）を並びへ戻す。発言の文だけで、道具のチップ・結果カードは復元しない。 */
 export function restoreFromHistory(
@@ -98,8 +113,8 @@ function replaceAt(state: ChatState, index: number, item: ChatItem): ChatState {
 }
 
 /** 利用者の指示を送った（接続できたあと）。 */
-export function startTurn(state: ChatState, text: string): ChatState {
-  return { ...push(state, (id) => ({ kind: "user", id, text })), running: true, turnId: null };
+export function startTurn(state: ChatState, text: string, now: number = Date.now()): ChatState {
+  return { ...push(state, (id) => ({ kind: "user", id, text })), running: true, turnId: null, activityAt: now };
 }
 
 /** 生成中の吹き出しを閉じる（道具・承認など別の要素が挟まるとき）。 */
@@ -118,7 +133,7 @@ export function endTurn(state: ChatState): ChatState {
     if (item.kind === "tool" && item.status === "running") return { ...item, status: "unknown" };
     return item;
   });
-  return { ...state, items, running: false, turnId: null };
+  return { ...state, items, running: false, turnId: null, activityAt: null };
 }
 
 export function addNotice(state: ChatState, tone: "info" | "error", text: string): ChatState {
@@ -149,7 +164,41 @@ function findRunningTool(state: ChatState, name: string | undefined): number {
   return -1;
 }
 
+/** `Array.prototype.reduce` に渡しても第3引数（index）を時刻と取り違えないよう、時刻を取る版と分ける。 */
 export function applyEvent(state: ChatState, event: RelayEvent): ChatState {
+  return applyEventAt(state, event, Date.now());
+}
+
+/** 失敗したターンの再送の材料。書き込みが走った・走ったか分からない回は `risky`。 */
+export function retryOf(state: ChatState): { text: string; risky: boolean } | null {
+  const index = lastUserIndex(state);
+  const user = state.items[index];
+  if (user?.kind !== "user") return null;
+  const after = state.items.slice(index + 1);
+  const risky = after.some(
+    (item) =>
+      (item.kind === "tool" && item.auto && item.status !== "failed") ||
+      item.kind === "proposal" ||
+      (item.kind === "approval" && item.status === "once"),
+  );
+  return { text: user.text, risky };
+}
+
+/** 1ターンのトークン量の1行（入力はキャッシュ込みの総量）。取れなければ null。 */
+export function usageText(usage: HermesUsage | undefined): string | null {
+  if (!usage) return null;
+  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.round(v) : 0);
+  const input = Math.max(n(usage.prompt), n(usage.input) + n(usage.cache_read) + n(usage.cache_write));
+  const output = n(usage.output);
+  if (input + output <= 0) return null;
+  return `今回の使用量: 入力 ${input.toLocaleString("ja-JP")}・出力 ${output.toLocaleString("ja-JP")} トークン`;
+}
+
+export function applyEventAt(state: ChatState, event: RelayEvent, now: number): ChatState {
+  return applyEventInner({ ...state, activityAt: now }, event, now);
+}
+
+function applyEventInner(state: ChatState, event: RelayEvent, now: number): ChatState {
   switch (event.type) {
     case "turn":
       return { ...state, turnId: event.data.turnId, sessionId: event.data.sessionId };
@@ -177,6 +226,8 @@ export function applyEvent(state: ChatState, event: RelayEvent): ChatState {
         auto,
         lines: auto ? argLines(event.data.args) : [],
         result: null,
+        startedAt: now,
+        durationSeconds: null,
       }));
     }
 
@@ -188,6 +239,12 @@ export function applyEvent(state: ChatState, event: RelayEvent): ChatState {
         ...item,
         status: resultFailed(event.data.result) ? "failed" : "done",
         result: item.auto ? resultSummary(event.data.result) : null,
+        durationSeconds:
+          typeof event.data.durationSeconds === "number" && Number.isFinite(event.data.durationSeconds)
+            ? event.data.durationSeconds
+            : item.startedAt
+              ? Math.max(0, (now - item.startedAt) / 1000)
+              : null,
       });
     }
 
@@ -227,11 +284,22 @@ export function applyEvent(state: ChatState, event: RelayEvent): ChatState {
         }
       }
       if (event.data.status === "interrupted") next = addNotice(next, "info", "止めました。");
+      const usage = usageText(event.data.usage);
+      if (usage) next = push(next, (id) => ({ kind: "usage", id, text: usage }));
       return endTurn(next);
     }
 
-    case "error":
-      return endTurn(addNotice(state, "error", event.data.message || "Hermesの実行中にエラーが起きました。"));
+    case "error": {
+      const retry = retryOf(state);
+      const noticed = push(state, (id) => ({
+        kind: "notice",
+        id,
+        tone: "error",
+        text: event.data.message || "Hermesの実行中にエラーが起きました。",
+        ...(retry ? { retry } : {}),
+      }));
+      return endTurn(noticed);
+    }
 
     default:
       return state;

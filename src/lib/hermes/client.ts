@@ -1,5 +1,6 @@
 import { sharedTokenOrEnv } from "@/lib/shared-token";
 import { createHermesClient, HermesError, type HermesClient } from "./client-core.ts";
+import { isAideHealth, type AideHealth } from "./aide-health.ts";
 import type { HealthBody } from "./contract.ts";
 
 /**
@@ -21,7 +22,8 @@ export async function hermesClient(): Promise<HermesClient> {
 
 /** 画面に出す状態（`/health` を30秒キャッシュ。開くたびに叩かない）。 */
 export type HermesStatus =
-  | { state: "ok" }
+  /** `aide`: HermesがAIDEの道具を読み込めているか（#1158）。判定できない・古いブリッジでは無い。 */
+  | { state: "ok"; aide?: AideHealth }
   | { state: "hermes_down" }
   | { state: "unreachable" }
   | { state: "misconfigured" };
@@ -36,7 +38,9 @@ export async function hermesStatus(now: number = Date.now()): Promise<HermesStat
   inflight ??= (async (): Promise<HermesStatus> => {
     try {
       const health = await (await hermesClient()).health();
-      return health.hermes === "ok" ? { state: "ok" } : { state: "hermes_down" };
+      return health.hermes === "ok"
+        ? { state: "ok", ...(isAideHealth(health.aide) ? { aide: health.aide } : {}) }
+        : { state: "hermes_down" };
     } catch (error) {
       if (error instanceof HermesError) {
         if (error.kind === "rejected" || error.kind === "not_configured") {
