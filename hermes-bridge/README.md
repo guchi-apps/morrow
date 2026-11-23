@@ -21,6 +21,8 @@ API: `GET /health`（#1158から、Hermesの `mcp.servers.status` を読んでAI
 
 **Morrowのデプロイでは配られない。** subpcでは `~/apps/morrow-hermes-bridge` のチェックアウトから動くので、このディレクトリを変えたらmainへ入った後に `scripts/update-hermes-bridge.sh` で更新・再起動する（#1145。`docs/hermes-route.md`）。
 
+評価セット（実Hermesで道具の呼び出しを確かめる）は `hermes-bridge/eval/`（`docs/hermes-route.md`「評価セット」）。
+
 `profile/SOUL.md` はMorrow専用profileの `SOUL.md` の正本（#1148。ブリッジのコードからは読まない。反映は `docs/hermes-route.md`）。
 
 テストは `test/hermes-bridge.test.ts`（Hermesの代わりに偽の接続を差し込む）。**実物のHermesでの疎通は #738 の手作業**で確かめる。

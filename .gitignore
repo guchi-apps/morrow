@@ -36,3 +36,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Hermes評価の結果（#1152。ローカルの実行結果。比べるときだけ手で持ち出す）
+/hermes-bridge/eval/results/
