@@ -70,6 +70,7 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 | `POST /turns` `{sessionId?, text, title?}` | `session.create`（無ければ）/ `session.resume` → `prompt.submit` | 応答はSSE。`message.delta`・`tool.start`/`tool.complete`・`approval`・`clarify`・`message.complete`（`usage` 付き）をそのまま種類別に流す |
 | `POST /turns/<id>/approval` `{requestId, choice}` | `approval` リクエストへの回答 | `once`・`deny` だけを通す（`always`・`session` は400。`docs/hermes-actions.md`） |
 | `POST /turns/<id>/interrupt` | `session.interrupt` | |
+| `GET /sessions?ids=a,b,c` | REST `GET /api/sessions/{id}` をidごと（履歴と同じ口） | #1156。渡したid（最大100）の題名・最終更新・件数だけ・最近動いた順。下の「会話の一覧と過去の会話の検索」 |
 | `GET /sessions/<id>/messages?limit=N` | REST `GET /api/sessions/{id}`（`source` の照合）→ `/api/sessions/{id}/messages?order=latest&inline_images=false` | #752。直近N件（既定50・上限100）。下の「会話の履歴」 |
 
 - 接続ごとに `client.capabilities {server_requests:true}` を送る（送らないと承認が聞かれずに取り下げられる。#725）
@@ -103,6 +104,26 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 - **確認カードの状態は入れない。** 正はMorrowのDB（`HermesProposal`）で、画面が突き合わせる
 - 道具の結果の行を落とすので、Hermesからは表示件数の4倍＋1件を読む。読んだページが一杯・絞った結果が件数を超えたら `hasMore`（これより前があるかもしれない）
 - 失敗は他の経路と同じ: 無い・Morrow以外は404 `no_session`、HermesのRESTに届かない・5xxは503 `hermes_down`。Morrow側は応答の形を `parseHistoryBody()` で確かめ、1件でも違えば `bad_response`
+
+## 会話の一覧と過去の会話の検索（#1156）
+
+### 一覧と再開（実装済み）
+
+- ブリッジ `GET /sessions?ids=a,b,c`（`hermes-bridge/sessions.ts`）が、渡されたidごとにHermesの REST `GET /api/sessions/{id}`（履歴と同じ・実物確認済みの口）を読み、**`source` が `morrow` の行だけ**を `{ sessionId, title, lastActiveAt, messageCount }` に絞って最近動いた順で返す。**本文・先頭の抜粋（`preview`）は返さない**（許可リスト）。発言の無い行（件数0）・消えたidは落とす。認証・送信元IPは他の口と同じ。**一覧REST（`/api/sessions?source=`）は使わない**（項目名を実機で確かめていないため。件数で切ってから持ち主で絞ると、他の利用者・持ち主不明の会話に枠を取られて自分の会話が欠ける問題も避けられる）
+- Morrowの `GET /api/hermes/sessions`（`src/app/api/hermes/sessions/route.ts`）が、**`HermesSession`（#937）で自分のidを先に引き**（作成が新しい順に100件まで。それより古い会話は一覧に出ない）、ブリッジへ渡して返す。**他の利用者・持ち主不明（#937以前）・Discordのセッションは載らない。** Morrowのサーバーには題名・件数も保存しない（通り抜けるだけ）
+- 題名は、新しい会話の最初の発言（利用者が打った文だけ。Morrowが足す注記・メール・天気は含めない）の先頭の行から30字までで作り（`session-title.ts`）、ターン開始の `title`（ブリッジが `session.create` へ渡す）で送る。続きの会話では送らない
+- 画面（`SessionList`）は、lg以上は左の列、スマホ・iPadの縦は上の帯の「会話」ボタンから下シート。選ぶと端末の記憶（`session-memory.ts`）のセッションidを差し替え、**既存の履歴の復元（#929）で続きから話せる**。実行中は切り替えない
+- **古いブリッジでは一覧が404 `not_found`（Morrowのログでは `bad_response`＋`HTTP 404`）になる。** マージ後にsubpcで `scripts/update-hermes-bridge.sh` を流す（#1145）
+- セッションの削除・題名の変更は対象外
+
+### 過去の会話の検索（`session_search`。人の作業）
+
+Morrow profile は `session_search`（過去の会話を検索して要約する道具。toolset名も `session_search`）が無効。有効にすると「先週頼んだ引っ越しの件どうなった？」に、Hermesが自分で過去の会話を検索して答えられる。**Morrow側に本文の複製は作らない**（検索はHermesの中で完結する）。`~/.hermes` の変更は人の作業（#762）。
+
+1. morrow profileの `config.yaml` の `platform_toolsets`（Morrowが使うプラットフォームの項目）へ `session_search` を足し、Hermesを再起動する
+2. **対象が morrow profile の会話だけであることを実測する**: `session_search` はprofile自身のセッションDBを引く（`tools/session_search_tool.py`）。Discord（default profile）の会話が結果に混ざらないこと、`source` が `discord` の行が出ないことを、Discordで目印の語を話してからMorrowのチャットで検索して確かめる
+3. 実測は「確認項目」に結果（日付・方法）を書き足す。混ざる場合は有効化を戻し、Issueで報告する
+4. `docs/hermes-actions.md` の道具の分類表に `session_search` を足すときは「読み取り（自動）」とする（外へ書き込まない）
 
 ## 認証
 

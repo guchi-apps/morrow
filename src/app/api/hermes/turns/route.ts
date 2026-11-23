@@ -11,6 +11,7 @@ import { parseProposalEvent } from "@/lib/hermes/proposal-core";
 import { recordHermesTurnUsage } from "@/lib/hermes/record-usage";
 import type { RelayEvent } from "@/lib/hermes/stream-view";
 import { isAutoWriteTool, isProposeTool, knownToolKey, resultFailed } from "@/lib/hermes/tool-labels";
+import { sessionTitleFrom } from "@/lib/hermes/session-title";
 import { claimHermesSession, ownsHermesSession } from "@/lib/hermes/session-owner";
 import { registerTurn, releaseTurn } from "@/lib/hermes/turn-owners";
 import { expireTurnLog, registerTurnLog, TurnLog } from "@/lib/hermes/turn-pump";
@@ -84,7 +85,10 @@ export async function POST(request: Request) {
 
   let events: AsyncGenerator<BridgeEvent>;
   try {
-    events = await (await hermesClient()).startTurn({ ...(continuing ? { sessionId: continuing } : {}), text: prompt });
+    events = await (await hermesClient()).startTurn({
+      ...(continuing ? { sessionId: continuing } : { ...(sessionTitleFrom(text) ? { title: sessionTitleFrom(text) } : {}) }),
+      text: prompt,
+    });
   } catch (error) {
     // 送れなかった指示は溜めない。画面が入力欄へ戻す（#726）
     lastStarts.delete(user.id);

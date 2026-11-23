@@ -329,6 +329,8 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
 - **Hermesの動作は評価セット（#1152。`hermes-bridge/eval/`）で確かめる。** SOUL・許可リスト・注入する文脈を変えたら、評価専用profile（`setup-profile.sh`。本番の `morrow` は書かない）＋AIDEのスタブで実Hermesを回し、**呼ばれた道具の集合**（合否ではない）・探索回数・所要時間を前後で比べる。許可リスト外・禁止道具が呼ばれたときだけ失敗。手順・結果の見方は `docs/hermes-route.md`「評価セット」。サブスク枠を使うので、変えたときだけ回す
 - **履歴（#752）はブリッジの `GET /sessions/<id>/messages` とMorrowの `hermesClient().history()`。チャット画面は #929 から `GET /api/hermes/sessions/<id>/messages` 経由で発言だけを復元する**（#728は実装せずにクローズ）。`source` が `morrow` のセッションだけを、発言者・本文・時刻・道具の名前に絞って返す（`api_content`・推論・道具の引数と結果は返さない）。Morrowは保存しない。詳細は `docs/hermes-route.md`「会話の履歴」
 
+- **会話の一覧と再開（#1156）**: Morrowの `GET /api/hermes/sessions`（**`HermesSession` で自分のidを先に引く**〔新しい順100件。他の利用者・持ち主不明・Discordは載らない〕）→ ブリッジ `GET /sessions?ids=`（idごとに `/api/sessions/{id}` を読み、`source: morrow` の題名・最終更新・件数だけ。本文は返さない）→ `SessionList`（lg以上は左の列・それ未満は「会話」の下シート）。選ぶと記憶のセッションidを差し替えて既存の履歴復元（#929）で続きから話せる。題名は最初の発言の先頭30字（`session-title.ts`）を `title` で送る。**ブリッジの更新が要る**（古いと404）。**過去の会話の検索（`session_search`）はmorrow profileでの有効化が人の作業**（手順・実測項目は `docs/hermes-route.md`）。セッションの削除は対象外
+
 ### Hermesに任せる操作の範囲と承認（#727。設計のみ・未実装）
 
 詳細・道具ごとの分類表は `docs/hermes-actions.md`。**AIDEが道具を増やしたら、その表とprofileの許可リストを揃える。**

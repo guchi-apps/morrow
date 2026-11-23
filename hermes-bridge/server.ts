@@ -5,6 +5,7 @@ import {
   HEARTBEAT_MS,
   HISTORY_DEFAULT_LIMIT,
   HISTORY_MAX_LIMIT,
+  SESSION_LIST_MAX_LIMIT,
   MAX_CONCURRENT_TURNS,
   SESSION_ID_PATTERN,
   TURN_TIMEOUT_MS,
@@ -19,6 +20,7 @@ import { aideHealthFromStatus, type AideHealth } from "../src/lib/hermes/aide-he
 import { authorize, parseAllowedIps } from "./auth.ts";
 import { connectHermes, type HermesLink } from "./hermes-link.ts";
 import { createHistoryReader, HistoryNotFoundError, type HistoryReader } from "./history.ts";
+import { createSessionLister, type SessionLister } from "./sessions.ts";
 import { TurnLimiter } from "./limits.ts";
 import { createProposeMcpServer } from "./propose-mcp.ts";
 import { NoSessionError, openSession, runTurn, type TurnHandle } from "./turn.ts";
@@ -39,6 +41,8 @@ export interface BridgeOptions {
   connect: () => Promise<HermesLink>;
   /** 会話の履歴を読む関数（#752。テストでは差し替える）。未指定なら履歴は503。 */
   history?: HistoryReader;
+  /** 会話の一覧を読む関数（#1156。テストでは差し替える）。未指定なら一覧は503。 */
+  sessions?: SessionLister;
   turnTimeoutMs?: number;
   heartbeatMs?: number;
   maxConcurrent?: number;
@@ -250,6 +254,19 @@ export function createBridgeServer(options: BridgeOptions): Server {
     }
   }
 
+  /** `GET /sessions?ids=a,b,c`（#1156）。渡されたMorrowのセッションの題名・最終更新・件数だけ（最近動いた順）。 */
+  async function handleSessionList(res: ServerResponse, rawIds: string | null): Promise<void> {
+    const ids = rawIds === null || rawIds === "" ? [] : rawIds.split(",");
+    if (ids.length > SESSION_LIST_MAX_LIMIT || !ids.every(isPathSafeSessionId)) return sendError(res, 400, "bad_request");
+    if (!options.sessions) return sendError(res, 503, "hermes_down");
+    try {
+      sendJson(res, 200, await options.sessions(ids));
+    } catch (error) {
+      console.error("[morrow-hermes-bridge] 会話一覧の取得に失敗した", error instanceof Error ? error.message : error);
+      sendError(res, 503, "hermes_down");
+    }
+  }
+
   return createServer((req, res) => {
     const verdict = authorize({
       authorization: req.headers.authorization,
@@ -264,6 +281,7 @@ export function createBridgeServer(options: BridgeOptions): Server {
     const route = (async () => {
       if (req.method === "GET" && url.pathname === "/health") return handleHealth(res);
       if (req.method === "POST" && url.pathname === "/turns") return handleStartTurn(req, res);
+      if (req.method === "GET" && url.pathname === "/sessions") return handleSessionList(res, url.searchParams.get("ids"));
       const historyMatch = /^\/sessions\/([^/]+)\/messages$/.exec(url.pathname);
       if (req.method === "GET" && historyMatch) {
         let sessionId: string;
@@ -305,6 +323,7 @@ function main(): void {
     allowedIps,
     connect: () => connectHermes({ url: hermesUrl, token: hermesToken, timeoutMs: 3_000 }),
     history: createHistoryReader({ url: hermesUrl, token: hermesToken, timeoutMs: 5_000 }),
+    sessions: createSessionLister({ url: hermesUrl, token: hermesToken, timeoutMs: 5_000 }),
   });
   // tailscale serve からはループバックでしか届かない。外へバインドしない
   server.listen(port, "127.0.0.1", () => console.log(`morrow-hermes-bridge: 127.0.0.1:${port}`));
