@@ -231,17 +231,20 @@ async function check(user: CheckUser, now: Date): Promise<MailCheckResult> {
     // 1通ずつ送る（#1134）。届いた件数は端末×通知の合算ではなく、1通でも届いたかで見る
     const results = await Promise.all(pushes.map((push) => sendPushToUser(user.id, push)));
     delivered = Math.max(...results);
+    // メール単位の「知らせた印」。個別通知の分はその通知の結果、「ほか◯通」に回った分は最後の1本の結果（レビュー指摘）
+    const deliveredById = new Map<string, number>();
+    needed.forEach((mail, index) => deliveredById.set(mail.id, results[Math.min(index, results.length - 1)] ?? 0));
     // 送信の試行が終わったので確定する。端末が無い・オフで届かなかった回は notifiedAt=null のまま判定済みにする
     await db.mailTriage.createMany({
       data: rows
         .filter((row) => neededIds.has(row.messageId))
-        .map((row) => ({ ...row, notifiedAt: delivered > 0 ? now : null })),
+        .map((row) => ({ ...row, notifiedAt: (deliveredById.get(row.messageId) ?? 0) > 0 ? now : null })),
       skipDuplicates: true,
     });
     if (delivered > 0) {
       // 別プロセスが先に行を作っていても（skipDuplicates で読み飛ばされても）届けた印は付ける
       await db.mailTriage.updateMany({
-        where: { userId: user.id, messageId: { in: needed.map((mail) => mail.id) }, notifiedAt: null },
+        where: { userId: user.id, messageId: { in: needed.filter((mail) => (deliveredById.get(mail.id) ?? 0) > 0).map((mail) => mail.id) }, notifiedAt: null },
         data: { notifiedAt: now },
       });
       // 記録には件名・差出人を残さない（メールの中身はAIDEにだけ置く）
