@@ -31,8 +31,10 @@ export type RegisteredSubscription = {
  * 一致する登録がちょうど1件だった（名前は一致していないので、画面で確かめてもらう）。
  */
 export type SubscriptionMatch =
-  | { status: "matched"; by: "name" | "amount"; matches: RegisteredSubscription[] }
+  | { status: "matched"; by: "name" | "amount" | "manual"; matches: RegisteredSubscription[] }
   | { status: "none" }
+  /** 利用者が「どの定期払いにも紐づけない」を選んだ（#1130）。 */
+  | { status: "unlinked" }
   | { status: "error" };
 
 /** 候補の上限（行の名前が短いと多く当たりうる）。 */
@@ -140,4 +142,25 @@ export function matchRegistered(query: MatchQuery, registered: RegisteredSubscri
     if (same.length === 1) return { status: "matched", by: "amount", matches: same };
   }
   return { status: "none" };
+}
+
+/** 利用者が手で選んだ紐づけ（#1130）。`subscriptionId` がnullなら「紐づけなし」。 */
+export type ManualLink = { subscriptionId: number | null };
+
+/** 紐づけを手で選べる提案の種類（#1130）。 */
+export const LINKABLE_KINDS = ["payment", "subscription"] as const;
+export type LinkableKind = (typeof LINKABLE_KINDS)[number];
+export const isLinkableKind = (value: unknown): value is LinkableKind => LINKABLE_KINDS.some((k) => k === value);
+
+/**
+ * 手動の選択を自動照合より優先する（#1130）。選んだ登録が（解約などで）一覧から消えていたら、選択は無かったものとして
+ * 自動照合へ戻す（見えない相手を表示しない）。
+ */
+export function resolveMatch(query: MatchQuery, registered: RegisteredSubscription[], link: ManualLink | null): SubscriptionMatch {
+  if (link) {
+    if (link.subscriptionId === null) return { status: "unlinked" };
+    const picked = registered.find((r) => r.id === link.subscriptionId);
+    if (picked) return { status: "matched", by: "manual", matches: [picked] };
+  }
+  return matchRegistered(query, registered);
 }

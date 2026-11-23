@@ -46,25 +46,56 @@ export function useFlowCards(mailId: string) {
       .catch(() => {});
   }, [openKind]);
 
+  /** 照合を取りに行く（#884・#896）。手動の紐づけ（#1130）をサーバーが優先するので、メールIDと種類も送る。 */
+  const fetchMatch = useCallback(
+    (rowId: string, card: Suggestion, query: NonNullable<ReturnType<typeof matchQueryOf>>) =>
+      fetch("/api/mail/flow/subscription-match", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...query, id: mailId, kind: card.kind }),
+      })
+        .then((response) => (response.ok ? (response.json() as Promise<SubscriptionMatch>) : ({ status: "error" } as SubscriptionMatch)))
+        .catch(() => ({ status: "error" }) as SubscriptionMatch)
+        .then((result) => setMatches((current) => ({ ...current, [rowId]: result }))),
+    [mailId],
+  );
+
   useEffect(() => {
     for (const [rowId, { card }] of Object.entries(rows)) {
       // サブスクに加えて家計簿の提案も照合する（#896。定期払いの請求を「登録済み」と出す）
       const query = matchQueryOf(card);
       if (!query) continue;
-      const body = JSON.stringify(query);
-      const key = `${rowId}:${body}`;
+      const key = `${rowId}:${JSON.stringify(query)}`;
       if (asked.current.has(key)) continue;
       asked.current.add(key);
-      fetch("/api/mail/flow/subscription-match", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body,
-      })
-        .then((response) => (response.ok ? (response.json() as Promise<SubscriptionMatch>) : ({ status: "error" } as SubscriptionMatch)))
-        .catch(() => ({ status: "error" }) as SubscriptionMatch)
-        .then((result) => setMatches((current) => ({ ...current, [rowId]: result })));
+      void fetchMatch(rowId, card, query);
     }
-  }, [rows]);
+  }, [rows, fetchMatch]);
+
+  /**
+   * 定期払いの紐づけを手で変える（#1130）。`subscriptionId`: 数＝その定期払い、null＝紐づけなし、"auto"＝自動の判定へ戻す。
+   * 保存できたら照合を取り直す。失敗は文言を返す（成功はnull）。
+   */
+  async function changeLink(rowId: string, subscriptionId: number | null | "auto"): Promise<string | null> {
+    const card = rows[rowId]?.card;
+    const query = card ? matchQueryOf(card) : null;
+    if (!card || !query) return "紐づけ先を変えられませんでした。";
+    try {
+      const response = await fetch("/api/mail/flow/subscription-link", {
+        method: subscriptionId === "auto" ? "DELETE" : "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(subscriptionId === "auto" ? { id: mailId, kind: card.kind } : { id: mailId, kind: card.kind, subscriptionId }),
+      });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        return data?.error ?? "紐づけ先を変えられませんでした。";
+      }
+    } catch {
+      return "通信できませんでした。";
+    }
+    await fetchMatch(rowId, card, query);
+    return null;
+  }
 
   /** `prefix` で始まる行を消して入れ直す（分析し直したとき）。結果の表示も消す。 */
   const replace = useCallback((prefix: string, next: Record<string, FlowRow>) => {
@@ -204,6 +235,7 @@ export function useFlowCards(mailId: string) {
       recommended={openRow?.recommended ?? false}
       outcome={open ? outcomes[open] : undefined}
       match={open ? matches[open] : undefined}
+      onChangeLink={(subscriptionId) => (open ? changeLink(open, subscriptionId) : Promise.resolve(null))}
       calendars={calendars}
       running={open !== null && (running === open || bulkRunning)}
       onEdit={(_kind, key, value) => open && edit(open, key, value)}

@@ -40,6 +40,8 @@ type Props = {
   outcome: CardResult | undefined;
   /** サブスク提案のAsset Managerとの照合結果（#884）。未取得はundefined。 */
   match?: SubscriptionMatch;
+  /** 定期払いの紐づけを手で変える（#1130）。数＝その定期払い・null＝紐づけなし・"auto"＝自動へ戻す。失敗の文言（成功はnull）を返す。 */
+  onChangeLink?: (subscriptionId: number | null | "auto") => Promise<string | null>;
   /** 予定の保存先の候補（#908）。null は未取得・取得できなかった。 */
   calendars?: CalendarChoice[] | null;
   running: boolean;
@@ -144,7 +146,7 @@ function OptionalDateTime({ label, dateKey, timeKey, fields, onEdit }: { label: 
   );
 }
 
-export function FlowSheet({ card, recommended, outcome, match, calendars, running, onEdit, onRun, onOpenSubscription, onClose }: Props) {
+export function FlowSheet({ card, recommended, outcome, match, onChangeLink, calendars, running, onEdit, onRun, onOpenSubscription, onClose }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -198,7 +200,13 @@ export function FlowSheet({ card, recommended, outcome, match, calendars, runnin
             {card.reason && <>　理由: {card.reason}</>}
           </p>
 
-          {found && <RegisteredPanel key={found.map((r) => r.id).join(",")} matches={found} />}
+          {found && <RegisteredPanel key={found.map((r) => r.id).join(",")} matches={found} manual={match?.status === "matched" && match.by === "manual"} />}
+          {match?.status === "unlinked" && (card.kind === "payment" || card.kind === "subscription") && (
+            <p className="rounded-[10px] border border-dashed border-border bg-background px-3 py-2.5 text-xs text-muted">定期払いには紐づけていません。</p>
+          )}
+          {onChangeLink && (card.kind === "payment" || card.kind === "subscription") && match && match.status !== "error" && (
+            <LinkControl key={`${card.kind}:${match.status}`} match={match} onChangeLink={onChangeLink} />
+          )}
 
           {found && card.kind === "payment" && <p className="-mb-1.5 text-xs font-bold text-muted">メールから読み取った値</p>}
           {card.kind === "payment" && <PaymentSummary fields={card.fields} />}
@@ -392,7 +400,7 @@ export function FlowSheet({ card, recommended, outcome, match, calendars, runnin
 }
 
 /** Asset Managerで見つかった登録済みのサブスク（読み取り専用。#884）。候補が複数なら選ぶ。 */
-function RegisteredPanel({ matches }: { matches: RegisteredSubscription[] }) {
+function RegisteredPanel({ matches, manual = false }: { matches: RegisteredSubscription[]; manual?: boolean }) {
   const [picked, setPicked] = useState(0);
   const current = matches[picked] ?? matches[0];
   return (
@@ -408,6 +416,7 @@ function RegisteredPanel({ matches }: { matches: RegisteredSubscription[] }) {
       )}
       <p className="flex flex-wrap items-center gap-2 text-base font-bold">
         {current.name}
+        {manual && <span className="rounded-full bg-background px-2 py-0.5 text-[0.6875rem] font-bold text-accent">手動で設定</span>}
         {current.statusLabel && <span className="rounded-full bg-background px-2 py-0.5 text-[0.6875rem] font-bold text-fair">{current.statusLabel}</span>}
       </p>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
@@ -418,6 +427,82 @@ function RegisteredPanel({ matches }: { matches: RegisteredSubscription[] }) {
           </div>
         ))}
       </dl>
+    </div>
+  );
+}
+
+/**
+ * 定期払いの紐づけを変える・外す（#1130）。押すとAsset Managerの登録済みの一覧を取り、選ばせる。
+ * 保存するのはMorrow上の表示の控えだけで、Asset Managerの登録は変わらない。
+ */
+function LinkControl({ match, onChangeLink }: { match: SubscriptionMatch; onChangeLink: (subscriptionId: number | null | "auto") => Promise<string | null> }) {
+  const [list, setList] = useState<RegisteredSubscription[] | null | "loading">(null);
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const currentId = match.status === "matched" ? match.matches[0].id : null;
+
+  async function openPicker() {
+    setOpen(true);
+    setError(null);
+    setList("loading");
+    try {
+      const response = await fetch("/api/mail/flow/subscription-link");
+      const data = response.ok ? ((await response.json()) as { subscriptions?: RegisteredSubscription[] }) : null;
+      if (data?.subscriptions) setList(data.subscriptions);
+      else {
+        setList(null);
+        setError("Asset Managerの定期払いの一覧を取得できませんでした。");
+      }
+    } catch {
+      setList(null);
+      setError("通信できませんでした。");
+    }
+  }
+
+  async function choose(value: number | null | "auto") {
+    setSaving(true);
+    setError(null);
+    const message = await onChangeLink(value);
+    setSaving(false);
+    if (message) setError(message);
+    else setOpen(false);
+  }
+
+  const optionClass = (on: boolean) => cn("rounded-lg border px-2 py-1.5 text-left text-xs disabled:opacity-50", on ? "border-accent bg-background font-bold" : "border-border");
+  return (
+    <div className="flex flex-col gap-1.5 text-xs">
+      {!open ? (
+        <button type="button" onClick={() => void openPicker()} className="self-start font-bold text-accent hover:underline">
+          {match.status === "matched" ? "違う定期払いにする／紐づけを外す" : "定期払いを選んで紐づける"}
+        </button>
+      ) : (
+        <div className="flex flex-col gap-1.5 rounded-[10px] border border-border px-3 py-2.5" role="radiogroup" aria-label="紐づける定期払い">
+          <p className="text-muted">紐づける定期払いを選んでください（Asset Managerに登録済みのもの）</p>
+          {list === "loading" && <p className="text-muted">一覧を取得しています…</p>}
+          {Array.isArray(list) && list.length === 0 && <p className="text-muted">登録済みの定期払いがありません。</p>}
+          {Array.isArray(list) &&
+            list.map((r) => (
+              <button key={r.id} type="button" role="radio" aria-checked={r.id === currentId} disabled={saving} onClick={() => void choose(r.id)} className={optionClass(r.id === currentId)}>
+                {r.id === currentId && "✓ "}
+                {registeredSummary(r)}
+              </button>
+            ))}
+          <button type="button" role="radio" aria-checked={match.status === "unlinked"} disabled={saving} onClick={() => void choose(null)} className={cn(optionClass(match.status === "unlinked"), "border-dashed text-muted")}>
+            どの定期払いにも紐づけない
+          </button>
+          <div className="flex items-center justify-between gap-2">
+            <button type="button" disabled={saving} onClick={() => void choose("auto")} className="text-muted hover:underline disabled:opacity-50">
+              自動の判定に戻す
+            </button>
+            <button type="button" disabled={saving} onClick={() => setOpen(false)} className="text-muted hover:underline disabled:opacity-50">
+              閉じる
+            </button>
+          </div>
+          <p className="text-[0.6875rem] text-muted">Morrowの表示だけを直します。Asset Managerの登録は変わりません。</p>
+        </div>
+      )}
+      {error && <p className="text-danger">{error}</p>}
     </div>
   );
 }
