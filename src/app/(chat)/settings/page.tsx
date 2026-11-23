@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { AppBadgeCard } from "@/components/settings/app-badge-card";
 import { ConnectionList } from "@/components/settings/connection-list";
 import { PushKindsCard } from "@/components/settings/push-kinds-card";
 import { NotificationSettings } from "@/components/settings/notification-settings";
@@ -52,6 +53,8 @@ export default async function SettingsPage({ searchParams }: Props) {
         />
 
         <PushKindsCard initialDisabled={[...parseDisabledKinds(user.pushDisabledKinds)]} />
+
+        <AppBadgeCard initialEnabled={user.appBadgeEnabled} />
 
         {/* 定時のお知らせの時刻はニュースの画面へ移した（#418）。読む場所のそばで決められるように。 */}
         <p className="text-[0.8125rem] leading-relaxed text-muted">

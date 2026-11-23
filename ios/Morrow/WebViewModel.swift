@@ -46,6 +46,11 @@ final class WebViewModel: NSObject, ObservableObject {
             LocationBridge(), contentWorld: .page, name: LocationBridge.handlerName
         )
 
+        // アプリアイコンのバッジを件数にする口（#1144。`BadgeProvider.swift`）
+        configuration.userContentController.addScriptMessageHandler(
+            BadgeBridge(), contentWorld: .page, name: BadgeBridge.handlerName
+        )
+
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
 

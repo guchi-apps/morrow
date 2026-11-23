@@ -199,6 +199,10 @@ curl -s -b /tmp/cookies.txt -o /dev/null -w '%{http_code}\n' http://localhost:<�
 - `/login`・`/auth`・`/api` は保存しない（`PageCache.key(for:)`）
 - **保存済み画面のリンク（下のタブなど）は、行き先に保存があれば即座にそちらへ切り替える**（#959。`openFromCache()`。本読み込みは続ける）。切り替えないと、読み込みが4秒を超えるまで押しても元の画面のまま動かない
 
+### アプリアイコンのバッジ（#1144）
+
+未読メール件数（メニューのバッジと同じ `unreadMailCount()`。`src/lib/mail/unread-count.ts`）をアイコンへ出す。口は殻の `morrowBadge`（`ios/Morrow/BadgeProvider.swift`）→ `navigator.setAppBadge`（`src/lib/app-badge.ts`）。`AppBadgeSync` が `(chat)` レイアウトで開いたとき・戻ったとき・1分ごとに `GET /api/mail/unread-count` を引いて合わせる（**アプリを閉じている間の新着は反映しない**。APNsの `aps.badge` は未読総数と通知対象がずれるため見送り）。オン・オフは `User.appBadgeEnabled`（既定オン。`PATCH /api/settings/app-badge`・設定画面のスイッチ）。オフの回は件数を取りに行かない。取れなかった回は前の表示のまま（0と混ぜない）。
+
 ### iOSアプリへのAPNs通知（#475）
 
 WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取って `POST /api/push/apns` へ登録し、`sendPushToUser()`

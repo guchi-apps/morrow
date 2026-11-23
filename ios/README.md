@@ -177,3 +177,7 @@ WKWebViewにはWeb Pushが無いため、アプリはAPNsで通知を受ける�
 2. Keys で **APNs認証キー（.p8）** を作る（App Store Connect APIキーとは別物）。Key ID・Team ID（`6AA3WFTR94`）・.p8は1Passwordの `apps/AppStoreConnect` の「Apple Push Notification service (APNs)」セクションに `apns-key-id`・`apns-team-id`・`apns-auth-key`（`AuthKey_XXXX.p8` の中身をbase64で1行）として登録し、`scripts/sync-github-secrets.sh` で同期してデプロイ
 3. 3つのどれかが欠けるとAPNsの経路ごと無効（Web Pushだけが動く）。設定画面のアプリ内表示にもその旨が出る
 4. 実機（TestFlight）で通知の許可 → 設定画面の「試しに送る」で受信を確かめる。**subpcには Xcode が無いので、受信確認は Mac・実機で行う**
+
+## アプリアイコンのバッジ（#1144）
+
+WKWebViewには Badging API が無いので、殻が `BadgeProvider.swift` の口 `morrowBadge`（`WKScriptMessageHandlerWithReply`）で `UNUserNotificationCenter.setBadgeCount` を呼ぶ。Webからは `postMessage({ count })`（0で消す）。Morrowのオリジンのメインフレームにだけ答える。通知の許可（`.badge`）が前提で、無ければOSが表示しない。Web側は `src/lib/app-badge.ts`（口が無ければ `navigator.setAppBadge`）で、未読メール件数を `AppBadgeSync` が開いたとき・戻ったとき・1分ごとに合わせる。**口の名前を変えるときは両方を揃える**（`test/app-badge.test.ts`）。設定の正は `User.appBadgeEnabled`（設定画面のスイッチ）。

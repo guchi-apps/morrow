@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { ChatShell } from "@/components/chat/chat-shell";
+import { AppBadgeSync } from "@/components/app-badge-sync";
 import { MailUnreadBadge } from "@/components/chat/mail-unread-badge";
 import { MenuInfo } from "@/components/chat/menu-info";
 import { APP_VERSION } from "@/lib/app-version";
@@ -45,6 +46,7 @@ export default async function ChatLayout({ children }: { children: React.ReactNo
         </Suspense>
       }
     >
+      <AppBadgeSync enabled={user.appBadgeEnabled} />
       {children}
     </ChatShell>
   );
