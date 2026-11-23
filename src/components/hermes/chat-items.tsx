@@ -16,9 +16,13 @@ type Props = {
   turnId: string | null;
   onApproval: (requestId: string, choice: "once" | "deny") => void;
   onProposalChange: (proposal: ProposalView) => void;
+  /** 失敗したターンの再送（#1158）。押せるのは最後の失敗通知で、実行中でないときだけ渡る。無ければボタンを出さない。 */
+  onRetry?: (retry: { text: string; risky: boolean }) => void;
+  /** 道具の経過秒の基準になる現在時刻（1秒ごとに更新される。#1158）。 */
+  now: number;
 };
 
-export function ChatItemView({ item, turnId, onApproval, onProposalChange }: Props) {
+export function ChatItemView({ item, turnId, onApproval, onProposalChange, onRetry, now }: Props) {
   switch (item.kind) {
     case "user":
       return (
@@ -47,12 +51,22 @@ export function ChatItemView({ item, turnId, onApproval, onProposalChange }: Pro
               <span
                 className={`rounded-full px-2 py-px text-xs font-normal ${item.status === "failed" ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300" : item.status === "unknown" ? "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300" : "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300"}`}
               >
-                {item.status === "failed" ? "失敗した可能性があります" : item.status === "unknown" ? "結果を確認できません" : "自動で実行しました"}
+                {item.status === "failed" ? "失敗しました" : item.status === "unknown" ? "結果を確認できません" : "自動で実行しました"}
               </span>
             </div>
             {item.status === "unknown" && (
               <p className="mt-1.5 text-xs text-muted">
                 途中で止まったため、実行されたか分かりません。予定・タスクの画面で確かめてから、無ければ改めて頼んでください（確かめずに頼み直すと重複することがあります）。
+              </p>
+            )}
+            {item.status === "failed" && item.result?.failure && (
+              <p className="mt-1.5 text-xs text-red-700 dark:text-red-300">理由: {item.result.failure}。実行されていない可能性が高いです。</p>
+            )}
+            {item.status === "done" && item.result?.url && (
+              <p className="mt-1.5 text-xs">
+                <a href={item.result.url} target="_blank" rel="noopener noreferrer" className="text-accent underline">
+                  {item.result.number ? `#${item.result.number} を開く` : "作成したものを開く"}
+                </a>
               </p>
             )}
             {item.lines.length > 0 && (
@@ -81,6 +95,11 @@ export function ChatItemView({ item, turnId, onApproval, onProposalChange }: Pro
           )}
           <span className="truncate">{item.status === "running" ? `${item.label}…` : item.status === "unknown" ? `${item.label}（結果不明）` : item.label}</span>
           {item.hint && <span className="min-w-0 truncate text-muted/70">{item.hint}</span>}
+          {item.status === "running" && item.startedAt ? (
+            <span className="shrink-0 tabular-nums">{elapsedText(now - item.startedAt)}</span>
+          ) : typeof item.durationSeconds === "number" && item.durationSeconds >= 1 ? (
+            <span className="shrink-0 tabular-nums text-muted/70">{Math.round(item.durationSeconds)}秒</span>
+          ) : null}
         </div>
       );
 
@@ -99,14 +118,41 @@ export function ChatItemView({ item, turnId, onApproval, onProposalChange }: Pro
 
     case "notice":
       return (
-        <p
-          role={item.tone === "error" ? "alert" : undefined}
-          className={`self-center text-center text-xs ${item.tone === "error" ? "text-red-700 dark:text-red-400" : "text-muted"}`}
-        >
-          {item.text}
-        </p>
+        <div className="flex flex-col items-center gap-1.5 self-center">
+          <p
+            role={item.tone === "error" ? "alert" : undefined}
+            className={`text-center text-xs ${item.tone === "error" ? "text-red-700 dark:text-red-400" : "text-muted"}`}
+          >
+            {item.text}
+          </p>
+          {item.retry && onRetry && (
+            <>
+              {item.retry.risky && (
+                <p className="max-w-[420px] text-center text-xs text-muted">
+                  途中まで実行された可能性があります。予定・タスクなどの画面で結果を確かめてから、必要なら入力欄で送り直してください（確かめずに送ると重複することがあります）。
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => item.retry && onRetry(item.retry)}
+                className="rounded-md border border-border bg-background px-2.5 py-1 text-xs text-foreground hover:bg-rail-active"
+              >
+                {item.retry.risky ? "指示を入力欄へ戻す" : "もう一度送る"}
+              </button>
+            </>
+          )}
+        </div>
       );
+
+    case "usage":
+      return <p className="self-start text-[11px] tabular-nums text-muted/70">{item.text}</p>;
   }
+}
+
+/** 経過のミリ秒を「N秒」「M分N秒」にする。 */
+export function elapsedText(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  return seconds < 60 ? `${seconds}秒` : `${Math.floor(seconds / 60)}分${seconds % 60}秒`;
 }
 
 /** 返信の本文。http(s)のURLだけ押せるリンクにする（#810）。HTMLは組み立てずReact要素で描く。 */

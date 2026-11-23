@@ -84,6 +84,25 @@ export interface HistoryBody {
   hasMore: boolean;
 }
 
+/**
+ * 会話の一覧の1件（#1156。`GET /sessions`）。題名・最終更新・件数だけで、本文（発言・先頭の抜粋）は持たない。
+ * 持ち主の絞り込みはMorrow側（`HermesSession`）で行う。
+ */
+export interface SessionSummary {
+  sessionId: string;
+  title: string | null;
+  /** 最後に動いた時刻（epochミリ秒）。分からなければ null。 */
+  lastActiveAt: number | null;
+  messageCount: number;
+}
+
+export interface SessionListBody {
+  sessions: SessionSummary[];
+}
+
+/** 一覧で一度に引くセッションidの上限。 */
+export const SESSION_LIST_MAX_LIMIT = 100;
+
 /** 履歴の既定件数と上限。 */
 export const HISTORY_DEFAULT_LIMIT = 50;
 export const HISTORY_MAX_LIMIT = 100;
@@ -102,6 +121,8 @@ export function isPathSafeSessionId(value: string): boolean {
 export interface HealthBody {
   bridge: "ok";
   hermes: "ok" | "down";
+  /** HermesがAIDEの道具を読み込めているか（#1158）。判定できない回・古いブリッジでは無い。 */
+  aide?: "ok" | "connecting" | "unavailable";
 }
 
 /** 1ターン全体の上限（ブリッジ側）。承認待ちの上限（300秒）を含む。 */

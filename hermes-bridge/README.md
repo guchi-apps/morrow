@@ -16,8 +16,14 @@ pnpm hermes-bridge   # node hermes-bridge/server.ts
 | `MORROW_HERMES_PROPOSE_MCP_PORT` | 任意。提案用の何もしないMCP（`morrow_propose_action`）の待受ポート（127.0.0.1の `/mcp`。外へ出さない）。Morrow専用profileの `mcp_servers` の接続先にする |
 | `MORROW_HERMES_BRIDGE_ALLOWED_IPS` | 許可する送信元（`X-Forwarded-For`）をカンマ区切りで。**空なら全部403** |
 
-API: `GET /health`・`POST /turns`（SSE）・`POST /turns/<id>/approval`（`once`・`deny` だけ）・`POST /turns/<id>/interrupt`・`GET /sessions/<id>/messages?limit=N`（#752。直近N件・既定50・上限100）。
+API: `GET /health`（#1158から、Hermesの `mcp.servers.status` を読んでAIDEの道具の読み込み状態 `aide` も返す）・`POST /turns`（SSE）・`POST /turns/<id>/approval`（`once`・`deny` だけ）・`POST /turns/<id>/interrupt`・`GET /sessions/<id>/messages?limit=N`（#752。直近N件・既定50・上限100）。
 1セッション1ターン（409）・全体2本（429）・1ターン10分・15秒ハートビート・切断で中断。
+
+**Morrowのデプロイでは配られない。** subpcでは `~/apps/morrow-hermes-bridge` のチェックアウトから動くので、このディレクトリを変えたらmainへ入った後に `scripts/update-hermes-bridge.sh` で更新・再起動する（#1145。`docs/hermes-route.md`）。
+
+評価セット（実Hermesで道具の呼び出しを確かめる）は `hermes-bridge/eval/`（`docs/hermes-route.md`「評価セット」）。
+
+`profile/SOUL.md` はMorrow専用profileの `SOUL.md` の正本（#1148。ブリッジのコードからは読まない。反映は `docs/hermes-route.md`）。
 
 テストは `test/hermes-bridge.test.ts`（Hermesの代わりに偽の接続を差し込む）。**実物のHermesでの疎通は #738 の手作業**で確かめる。
 `session.create` / `session.resume` の応答の項目名（`session_id`・`stored_session_id`）は実測前の想定で、疎通で違えば `turn.ts` の `openSession()` を直す。

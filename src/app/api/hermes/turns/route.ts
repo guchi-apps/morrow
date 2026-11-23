@@ -11,6 +11,7 @@ import { parseProposalEvent } from "@/lib/hermes/proposal-core";
 import { recordHermesTurnUsage } from "@/lib/hermes/record-usage";
 import type { RelayEvent } from "@/lib/hermes/stream-view";
 import { isAutoWriteTool, isProposeTool, knownToolKey, resultFailed } from "@/lib/hermes/tool-labels";
+import { sessionTitleFrom } from "@/lib/hermes/session-title";
 import { claimHermesSession, ownsHermesSession } from "@/lib/hermes/session-owner";
 import { registerTurn, releaseTurn } from "@/lib/hermes/turn-owners";
 import { expireTurnLog, registerTurnLog, TurnLog } from "@/lib/hermes/turn-pump";
@@ -21,6 +22,7 @@ import { mailContextFor } from "@/lib/mail/chat-context";
 import { isPushKindEnabled } from "@/lib/push/kinds-server";
 import { sendPushToUser } from "@/lib/push/subscriptions";
 import { parseChatLocation } from "@/lib/weather/chat-context-core";
+import { markTodayInjected, todayContextFor } from "@/lib/hermes/today-context";
 import { weatherContextFor } from "@/lib/weather/chat-context";
 
 /**
@@ -77,11 +79,16 @@ export async function POST(request: Request) {
   const mailContext = await mailContextFor(user, text).catch(() => null);
   // 天気について聞く指示なら、現在地（無ければ自宅）の予報を添える（#930。失敗してもターンは止めない）
   const weatherContext = await weatherContextFor(user.id, text, parseChatLocation(body?.location));
-  const prompt = buildPrompt([notes.text, mailContext?.prompt, weatherContext?.prompt], text);
+  // 予定・タスクなど今日の状態を聞く指示なら、取得済みの値を添える（#1149。同じ会話・同じ日は一度だけ。失敗してもターンは止めない）
+  const todayContext = await todayContextFor(user.id, continuing, text);
+  const prompt = buildPrompt([notes.text, mailContext?.prompt, weatherContext?.prompt, todayContext?.prompt], text);
 
   let events: AsyncGenerator<BridgeEvent>;
   try {
-    events = await (await hermesClient()).startTurn({ ...(continuing ? { sessionId: continuing } : {}), text: prompt });
+    events = await (await hermesClient()).startTurn({
+      ...(continuing ? { sessionId: continuing } : { ...(sessionTitleFrom(text) ? { title: sessionTitleFrom(text) } : {}) }),
+      text: prompt,
+    });
   } catch (error) {
     // 送れなかった指示は溜めない。画面が入力欄へ戻す（#726）
     lastStarts.delete(user.id);
@@ -98,6 +105,7 @@ export async function POST(request: Request) {
   const log = new TurnLog<RelayEvent>();
   if (mailContext) log.push({ type: "notice", data: { text: mailContext.label } });
   if (weatherContext) log.push({ type: "notice", data: { text: weatherContext.label } });
+  if (todayContext) log.push({ type: "notice", data: { text: todayContext.label } });
 
   // 最初の `turn` イベントをレスポンスより前に受け、ターンIDをヘッダーで渡す（#1005）。
   // 本文を読み始める前の「止める」・画面離脱でも、画面がinterruptと再接続に使うidを持てる
@@ -123,6 +131,7 @@ export async function POST(request: Request) {
         lastStarts.delete(user.id);
         return NextResponse.json({ error: "会話を始められませんでした。もう一度お試しください。", kind: "hermes_down" }, { status: 502 });
       }
+      if (todayContext) markTodayInjected(user.id, sessionIdOfTurn, todayContext.day);
       registerTurn(turnId, user.id);
       registerTurnLog(turnId, user.id, log as TurnLog<unknown>);
       log.push(turn);
