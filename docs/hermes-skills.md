@@ -6,6 +6,8 @@
 **検証は本番の `morrow` profile に触れず、検証用の `morrow-eval`（`hermes profile create morrow-eval --clone-from morrow --no-alias`）で行った。**
 `morrow` の `config.yaml`・`memories/`・`skills/` は変更されていない（更新時刻が実測前のまま）。
 
+> **#1154で、この実測の結果を使った承認フローを実装した**（`docs/hermes-route.md`「スキルの確認・承認」）。
+
 ## 結論
 
 - **Morrowの画面で承認する形は組める。** 書き込みは `<HERMES_HOME>/pending/{skills,memory}/<id>.json` に保留され、

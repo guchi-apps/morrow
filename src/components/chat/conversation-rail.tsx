@@ -1,6 +1,6 @@
 "use client";
 
-import { Cpu, LayoutDashboard, Mail, MessageSquare, Newspaper, Settings, Sun } from "lucide-react";
+import { Cpu, LayoutDashboard, Sparkles, Mail, MessageSquare, Newspaper, Settings, Sun } from "lucide-react";
 import Link from "next/link";
 
 import { AppLogo } from "@/components/brand/app-icon";
@@ -24,6 +24,7 @@ type Props = {
   pendingProposalCount: number;
   /** モデルの画面を開いているか（#349）。 */
   isModelsActive: boolean;
+  isSkillsActive: boolean;
   /** 溜まっているニュースの件数（#144）。0のときは数字を出さない。 */
   topicCount: number;
   userLabel: string;
@@ -50,6 +51,7 @@ export function ConversationRail({
   isChatActive,
   pendingProposalCount,
   isModelsActive,
+  isSkillsActive,
   topicCount,
   userLabel,
   userEmail,
@@ -160,6 +162,20 @@ export function ConversationRail({
         >
           <Cpu className="size-3.5 text-muted" aria-hidden="true" />
           モデル
+        </Link>
+
+        {/* Hermesが作ったスキルの確認・承認（#1154）。 */}
+        <Link
+          href="/skills"
+          onClick={onNavigate}
+          aria-current={isSkillsActive ? "page" : undefined}
+          className={cn(
+            "mx-2.5 mt-2 flex items-center gap-1.5 rounded-[9px] px-2.5 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+            isSkillsActive && "bg-rail-active",
+          )}
+        >
+          <Sparkles className="size-3.5 text-muted" aria-hidden="true" />
+          スキル
         </Link>
 
         {/* 外部サービスとの接続（#46）ほか。下部に置く。 */}

@@ -21,6 +21,7 @@ import { authorize, parseAllowedIps } from "./auth.ts";
 import { connectHermes, type HermesLink } from "./hermes-link.ts";
 import { createHistoryReader, HistoryNotFoundError, type HistoryReader } from "./history.ts";
 import { createSessionLister, type SessionLister } from "./sessions.ts";
+import { createSkillStore, SkillNotFoundError, SkillRejectedError, type SkillStore } from "./skills.ts";
 import { TurnLimiter } from "./limits.ts";
 import { createProposeMcpServer } from "./propose-mcp.ts";
 import { NoSessionError, openSession, runTurn, type TurnHandle } from "./turn.ts";
@@ -43,6 +44,8 @@ export interface BridgeOptions {
   history?: HistoryReader;
   /** 会話の一覧を読む関数（#1156。テストでは差し替える）。未指定なら一覧は503。 */
   sessions?: SessionLister;
+  /** Hermesが作るスキルの確認・承認（#1154。テストでは差し替える）。未指定ならスキルの口は503。 */
+  skills?: SkillStore;
   turnTimeoutMs?: number;
   heartbeatMs?: number;
   maxConcurrent?: number;
@@ -267,6 +270,46 @@ export function createBridgeServer(options: BridgeOptions): Server {
     }
   }
 
+  /** スキルの口（#1154）。保留の一覧・承認・却下、登録済みの一覧・削除。 */
+  async function handleSkills(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
+    const pendingAction = /^\/skills\/pending\/([0-9a-f]{8})\/(approve|discard)$/.exec(pathname);
+    const installed = /^\/skills\/installed\/([^/]+)$/.exec(pathname);
+    const isRoute = pathname === "/skills/pending" || pathname === "/skills/installed" || pendingAction || installed;
+    if (!isRoute) return false;
+    const skills = options.skills;
+    if (!skills) {
+      sendError(res, 503, "hermes_down");
+      return true;
+    }
+    try {
+      if (req.method === "GET" && pathname === "/skills/pending") sendJson(res, 200, { pending: await skills.listPending() });
+      else if (req.method === "GET" && pathname === "/skills/installed") sendJson(res, 200, { skills: await skills.listInstalled() });
+      else if (req.method === "POST" && pendingAction) {
+        if (pendingAction[2] === "approve") await skills.approve(pendingAction[1]);
+        else await skills.discard(pendingAction[1]);
+        sendJson(res, 200, { ok: true });
+      } else if (req.method === "DELETE" && installed) {
+        let name: string;
+        try {
+          name = decodeURIComponent(installed[1]);
+        } catch {
+          sendError(res, 400, "bad_request");
+          return true;
+        }
+        await skills.removeInstalled(name);
+        sendJson(res, 200, { ok: true });
+      } else sendJson(res, 404, { error: "not_found" });
+    } catch (error) {
+      if (error instanceof SkillNotFoundError) sendError(res, 404, "skill_not_found");
+      else if (error instanceof SkillRejectedError) sendError(res, 409, "skill_rejected", error.message);
+      else {
+        console.error("[morrow-hermes-bridge] スキルの処理に失敗した", error instanceof Error ? error.message : error);
+        sendError(res, 503, "hermes_down");
+      }
+    }
+    return true;
+  }
+
   return createServer((req, res) => {
     const verdict = authorize({
       authorization: req.headers.authorization,
@@ -280,6 +323,7 @@ export function createBridgeServer(options: BridgeOptions): Server {
     const url = new URL(req.url ?? "/", "http://bridge");
     const route = (async () => {
       if (req.method === "GET" && url.pathname === "/health") return handleHealth(res);
+      if (await handleSkills(req, res, url.pathname)) return;
       if (req.method === "POST" && url.pathname === "/turns") return handleStartTurn(req, res);
       if (req.method === "GET" && url.pathname === "/sessions") return handleSessionList(res, url.searchParams.get("ids"));
       const historyMatch = /^\/sessions\/([^/]+)\/messages$/.exec(url.pathname);
@@ -324,7 +368,12 @@ function main(): void {
     connect: () => connectHermes({ url: hermesUrl, token: hermesToken, timeoutMs: 3_000 }),
     history: createHistoryReader({ url: hermesUrl, token: hermesToken, timeoutMs: 5_000 }),
     sessions: createSessionLister({ url: hermesUrl, token: hermesToken, timeoutMs: 5_000 }),
+    // スキルの確認・承認（#1154）。profileのディレクトリが分からなければ立てない（口は503）
+    skills: process.env.MORROW_HERMES_HOME
+      ? createSkillStore({ hermesHome: process.env.MORROW_HERMES_HOME, connect: () => connectHermes({ url: hermesUrl, token: hermesToken, timeoutMs: 3_000 }) })
+      : undefined,
   });
+  if (!process.env.MORROW_HERMES_HOME) console.warn("MORROW_HERMES_HOME が未設定のため、スキルの確認・承認の口は503を返します");
   // tailscale serve からはループバックでしか届かない。外へバインドしない
   server.listen(port, "127.0.0.1", () => console.log(`morrow-hermes-bridge: 127.0.0.1:${port}`));
 
