@@ -84,6 +84,26 @@ export interface HistoryBody {
   hasMore: boolean;
 }
 
+/**
+ * 会話の一覧の1件（#1156。`GET /sessions`）。題名・最終更新・件数だけで、本文（発言・先頭の抜粋）は持たない。
+ * 持ち主の絞り込みはMorrow側（`HermesSession`）で行う。
+ */
+export interface SessionSummary {
+  sessionId: string;
+  title: string | null;
+  /** 最後に動いた時刻（epochミリ秒）。分からなければ null。 */
+  lastActiveAt: number | null;
+  messageCount: number;
+}
+
+export interface SessionListBody {
+  sessions: SessionSummary[];
+}
+
+/** 一覧の既定件数と上限（Hermesの `limit` の上限が100）。 */
+export const SESSION_LIST_DEFAULT_LIMIT = 50;
+export const SESSION_LIST_MAX_LIMIT = 100;
+
 /** 履歴の既定件数と上限。 */
 export const HISTORY_DEFAULT_LIMIT = 50;
 export const HISTORY_MAX_LIMIT = 100;

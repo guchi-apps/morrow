@@ -1,10 +1,11 @@
 "use client";
 
-import { Loader2, Plus, SendHorizontal, Square } from "lucide-react";
+import { History, Loader2, Plus, SendHorizontal, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ChatItemView, elapsedText } from "@/components/hermes/chat-items";
 import { ProposalCard } from "@/components/hermes/proposal-card";
+import { SessionList } from "@/components/hermes/session-list";
 import { locateOnce } from "@/lib/geolocation";
 import { isAideHealth, type AideHealth } from "@/lib/hermes/aide-health";
 import { describeHermesError, type ChatConnection } from "@/lib/hermes/errors";
@@ -172,6 +173,9 @@ export function ChatView({ userId, initialPending }: Props) {
   const [restoring, setRestoring] = useState(() => snapshot === null && loadSessionId(browserStorage(), userId) !== null);
   const [restoreFailed, setRestoreFailed] = useState(false);
   const [resumed, setResumed] = useState(snapshot !== null);
+  // スマホの会話一覧（下シート）の開閉（#1156）
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const sheetRef = useRef<HTMLDialogElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const turnRef = useRef<string | null>(null);
   // サーバーから受けたイベントの数と、ターンが終わったか（#1000。切れたあと続きから受け直す位置）
@@ -355,6 +359,13 @@ export function ChatView({ userId, initialPending }: Props) {
   }, [chat.sessionId, userId]);
 
   useEffect(() => {
+    const dialog = sheetRef.current;
+    if (!dialog) return;
+    if (sheetOpen && !dialog.open) dialog.showModal();
+    if (!sheetOpen && dialog.open) dialog.close();
+  }, [sheetOpen]);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [chat.items, chat.running]);
 
@@ -532,7 +543,8 @@ export function ChatView({ userId, initialPending }: Props) {
     }, 8000);
   }, []);
 
-  const newConversation = useCallback(() => {
+  // 会話の切り替えの共通の後始末（新しい会話・過去の会話を開く）。実行中のターンを止め、復元中の取り直しを取り消す
+  const resetConversation = useCallback(() => {
     // 実行中のターンは、止める操作と同じく先にinterruptを送る（接続を閉じるだけではサーバーが続ける。#1005）
     const turnId = turnRef.current;
     if (turnId && !endedRef.current) {
@@ -547,11 +559,31 @@ export function ChatView({ userId, initialPending }: Props) {
     restoreAbortRef.current = null;
     setRestoring(false);
     setRestoreFailed(false);
-    clearSessionId(browserStorage());
     clearChatSnapshot();
     setResumed(false);
     setChat(initialChatState);
   }, []);
+
+  const newConversation = useCallback(() => {
+    resetConversation();
+    clearSessionId(browserStorage());
+  }, [resetConversation]);
+
+  // 過去の会話を開く（#1156）。覚えるidを差し替えて、既存の履歴の復元で続きから話せる状態にする
+  const openConversation = useCallback(
+    (sessionId: string) => {
+      if (sessionId === chatRef.current.sessionId) {
+        setSheetOpen(false);
+        return;
+      }
+      resetConversation();
+      saveSessionId(browserStorage(), userId, sessionId);
+      setRestoring(true);
+      setSheetOpen(false);
+      startRestore();
+    },
+    [resetConversation, startRestore, userId],
+  );
 
   const onProposalChange = useCallback((proposal: ProposalView) => setChat((s) => updateProposal(s, proposal)), []);
   const onRetry = useCallback(
@@ -573,8 +605,23 @@ export function ChatView({ userId, initialPending }: Props) {
   const aideDown = connection === "ok" && aide === "unavailable";
   const empty = chat.items.length === 0 && pending.length === 0 && !restoring;
 
+  // 一覧を取り直す合図: 会話が変わった・実行が終わったとき
+  const listKey = `${chat.sessionId ?? ""}:${chat.running ? "run" : "idle"}`;
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1">
+      <aside className="hidden w-[260px] shrink-0 overflow-y-auto border-r border-border p-2 lg:block" aria-label="会話の一覧">
+        <SessionList currentId={chat.sessionId} refreshKey={listKey} disabled={busy} onSelect={openConversation} />
+      </aside>
+      <dialog
+        ref={sheetRef}
+        onClose={() => setSheetOpen(false)}
+        aria-label="会話の一覧"
+        className="fixed inset-x-0 bottom-[var(--keyboard-inset)] top-auto m-0 mx-auto max-h-[min(85dvh,calc(var(--app-height)-1rem))] w-full max-w-[560px] overflow-y-auto rounded-t-[18px] border border-border bg-surface p-3 text-foreground backdrop:bg-black/55 md:inset-y-0 md:my-auto md:h-fit md:rounded-[18px]"
+      >
+        {sheetOpen && <SessionList currentId={chat.sessionId} refreshKey={listKey} disabled={busy} onSelect={openConversation} />}
+      </dialog>
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div
         className={`flex items-center justify-between gap-2 border-b border-border px-4 py-1.5 text-xs lg:px-7 ${
           connection === "ok"
@@ -593,6 +640,15 @@ export function ChatView({ userId, initialPending }: Props) {
               再試行
             </button>
           ) : null}
+          <button
+            type="button"
+            onClick={() => setSheetOpen(true)}
+            aria-haspopup="dialog"
+            className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-foreground hover:bg-rail-active lg:hidden"
+          >
+            <History className="size-3" aria-hidden="true" />
+            会話
+          </button>
           <button
             type="button"
             onClick={newConversation}
@@ -700,6 +756,7 @@ export function ChatView({ userId, initialPending }: Props) {
           </button>
         </div>
       </form>
+    </div>
     </div>
   );
 }

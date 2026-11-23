@@ -7,6 +7,11 @@ import {
   type HealthBody,
   type HistoryBody,
   type HistoryMessage,
+  type SessionListBody,
+  type SessionSummary,
+  SESSION_LIST_DEFAULT_LIMIT,
+  SESSION_LIST_MAX_LIMIT,
+  isPathSafeSessionId,
   type TurnRequestBody,
 } from "./contract.ts";
 import { readBridgeEvents } from "./sse.ts";
@@ -118,6 +123,29 @@ export function parseHistoryBody(body: unknown, sessionId: string): HistoryBody 
   };
 }
 
+/** 会話の一覧の応答の形を確かめ、知っている項目だけで組み直す（#1156）。1件でも違えば null。 */
+export function parseSessionList(body: unknown): SessionListBody | null {
+  if (typeof body !== "object" || body === null) return null;
+  const list = (body as { sessions?: unknown }).sessions;
+  if (!Array.isArray(list)) return null;
+  const sessions: SessionSummary[] = [];
+  for (const item of list) {
+    if (typeof item !== "object" || item === null) return null;
+    const row = item as Record<string, unknown>;
+    if (typeof row.sessionId !== "string" || !isPathSafeSessionId(row.sessionId)) return null;
+    if (row.title !== null && typeof row.title !== "string") return null;
+    if (row.lastActiveAt !== null && (typeof row.lastActiveAt !== "number" || !Number.isFinite(row.lastActiveAt))) return null;
+    if (typeof row.messageCount !== "number" || !Number.isFinite(row.messageCount)) return null;
+    sessions.push({
+      sessionId: row.sessionId,
+      title: row.title,
+      lastActiveAt: row.lastActiveAt,
+      messageCount: Math.max(0, Math.trunc(row.messageCount)),
+    });
+  }
+  return { sessions };
+}
+
 export function createHermesClient(config: HermesClientConfig) {
   const doFetch = config.fetchImpl ?? fetch;
   const connectTimeoutMs = config.connectTimeoutMs ?? CONNECT_TIMEOUT_MS;
@@ -193,6 +221,16 @@ export function createHermesClient(config: HermesClientConfig) {
       const parsed = parseHistoryBody(await response.json().catch(() => null), sessionId);
       if (!parsed) throw new HermesError("bad_response", "ブリッジの履歴の形が不正");
       return parsed;
+    },
+
+    /** 会話の一覧（#1156）。Morrowのセッションだけ・最近動いた順。持ち主の絞り込みは呼び出し側（`HermesSession`）。 */
+    async listSessions(options: { limit?: number; signal?: AbortSignal } = {}): Promise<SessionSummary[]> {
+      const limit = Math.min(SESSION_LIST_MAX_LIMIT, Math.max(1, Math.trunc(options.limit ?? SESSION_LIST_DEFAULT_LIMIT)));
+      const response = await request(`/sessions?limit=${limit}`, { method: "GET", signal: options.signal });
+      if (!response.ok) throw await failureOf(response);
+      const parsed = parseSessionList(await response.json().catch(() => null));
+      if (!parsed) throw new HermesError("bad_response", "ブリッジの会話一覧の形が不正");
+      return parsed.sessions;
     },
 
     async answerApproval(turnId: string, requestId: string, choice: ApprovalChoice, signal?: AbortSignal): Promise<void> {
