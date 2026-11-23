@@ -5,6 +5,7 @@ import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { FlowRowList } from "@/components/mail/flow-group";
 import type { FlowCards, FlowRow } from "@/components/mail/use-flow-cards";
 import type { MailChatReply } from "@/lib/mail/chat-core";
+import { orderChatExamples } from "@/lib/mail/chat-examples";
 import { recommendedIndex } from "@/lib/mail/flow-group";
 
 /**
@@ -17,7 +18,6 @@ import { recommendedIndex } from "@/lib/mail/flow-group";
  * - 型だけをimportする（`chat-core.ts` の値は読み込まない）
  */
 
-const EXAMPLES = ["支払期限はいつ？", "返信の文を考えて", "予定にして"];
 /** 入力の上限（サーバーの `CHAT_MESSAGE_LIMIT` と同じ）。 */
 const INPUT_MAX = 500;
 
@@ -82,6 +82,12 @@ export function MailChat({ id, analyzing, flow }: { id: string; analyzing: boole
   }
 
   const blocked = analyzing || sending;
+  // 分析の提案（`a-` の行。指示の行は `c` 始まり）の種類に合う候補を先頭へ
+  const examples = orderChatExamples(
+    Object.entries(flow.rows)
+      .filter(([rowId]) => !rowId.startsWith("c"))
+      .map(([, row]) => row.card.kind),
+  );
 
   return (
     <div className="border-t border-border pt-2">
@@ -117,14 +123,18 @@ export function MailChat({ id, analyzing, flow }: { id: string; analyzing: boole
       )}
 
       {turns.length === 0 && (
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          {EXAMPLES.map((example) => (
+        // 折り返さず1行の横スクロール。右端をフェードさせて続きがあることを示す（#1138）
+        <div
+          aria-label="頼み方の候補"
+          className="mb-2 flex gap-1.5 overflow-x-auto overscroll-x-contain pb-1 [-webkit-mask-image:linear-gradient(90deg,#000_calc(100%-1.75rem),transparent)] [mask-image:linear-gradient(90deg,#000_calc(100%-1.75rem),transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          {examples.map((example) => (
             <button
               key={example}
               type="button"
               disabled={blocked}
               onClick={() => void send(example)}
-              className="rounded-full border border-border bg-background px-2.5 py-1 text-[0.6875rem] transition-colors hover:bg-rail-active disabled:opacity-50"
+              className="shrink-0 whitespace-nowrap rounded-full border border-border bg-background px-2.5 py-1 text-[0.6875rem] transition-colors hover:bg-rail-active disabled:opacity-50"
             >
               {example}
             </button>
@@ -143,8 +153,9 @@ export function MailChat({ id, analyzing, flow }: { id: string; analyzing: boole
           value={input}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={onKeyDown}
-          placeholder={analyzing ? "分析が終わってから送れます" : "このメールについて頼みたいことを書く…"}
-          className="field-sizing-content max-h-40 min-h-9 flex-1 resize-none rounded-[10px] border border-border bg-background px-2.5 py-2 text-sm"
+          placeholder={analyzing ? "分析が終わってから送れます" : "頼みたいことを書く…"}
+          // 入力文字は16px（iOSの自動拡大を避ける下限。globals.css）のまま、プレースホルダーだけ小さくする（#1138）
+          className="field-sizing-content max-h-40 min-h-9 flex-1 resize-none rounded-[10px] border border-border bg-background px-2.5 py-2 text-sm placeholder:text-xs"
         />
         <button
           type="submit"
