@@ -41,10 +41,10 @@ model User {
   pushDisabledKinds String @default("") @db.VarChar(200)
 
   /// 「必要なメール」の基準（#683）。利用者が書く自由記述で、判定のプロンプトへそのまま入る。空文字なら既定の基準。
-  mailCriteria  String    @default("") @db.VarChar(600)
+  mailCriteria     String    @default("") @db.VarChar(600)
   /// メールの新着確認の既読位置（#683）。これ以降に受信したものを新着として判定する。nullは一度も確認していない
   /// （初回は位置を置くだけで、溜まっている過去分は通知しない）。一覧が `partial` の回は進めない。
-  mailCheckedAt DateTime?
+  mailCheckedAt    DateTime?
   /// メールに付けた印（知らせる／知らせない）からAIが読み取った傾向（#833）。`learn-core.ts` の `LearnedRule[]`。
   /// 判定のプロンプトへ基準と並べて入る。**件名・本文は持たず、傾向の文だけ**。nullは未学習。
   mailLearnedRules Json?
@@ -52,24 +52,25 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  apiUsages         ApiUsage[]
-  mcpConnections    McpConnection[]
-  pushSubscriptions PushSubscription[]
-  apnsDevices       ApnsDevice[]
-  notificationLogs  NotificationLog[]
-  scheduledPushes   ScheduledPush[]
-  weatherPlaces     WeatherPlace[]
-  topics            Topic[]
-  mailTriages       MailTriage[]
-  mailFeedbacks     MailFeedback[]
-  mailArchiveLogs   MailArchiveLog[]
-  mailFlowRecords   MailFlowRecord[]
-  mailLinks         MailLink[]
-  mailListSummaries MailListSummary[]
-  mailAnalyses      MailAnalysisResult[]
-  hermesProposals   HermesProposal[]
-  hermesSessions    HermesSession[]
-  hermesActionLogs  HermesActionLog[]
+  apiUsages             ApiUsage[]
+  mcpConnections        McpConnection[]
+  pushSubscriptions     PushSubscription[]
+  apnsDevices           ApnsDevice[]
+  notificationLogs      NotificationLog[]
+  scheduledPushes       ScheduledPush[]
+  weatherPlaces         WeatherPlace[]
+  topics                Topic[]
+  mailTriages           MailTriage[]
+  mailFeedbacks         MailFeedback[]
+  mailArchiveLogs       MailArchiveLog[]
+  mailSubscriptionLinks MailSubscriptionLink[]
+  mailFlowRecords       MailFlowRecord[]
+  mailLinks             MailLink[]
+  mailListSummaries     MailListSummary[]
+  mailAnalyses          MailAnalysisResult[]
+  hermesProposals       HermesProposal[]
+  hermesSessions        HermesSession[]
+  hermesActionLogs      HermesActionLog[]
 }
 
 // --- APIの消費量（#51） ---
@@ -464,7 +465,7 @@ model MailFeedback {
   /// true＝知らせる、false＝知らせない。
   notify    Boolean
   /// 「知らせない」のうち、受信トレイからアーカイブしてほしい印（#942）。
-  archive   Boolean  @default(false)
+  archive   Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -611,4 +612,27 @@ model MailArchiveLog {
 
   @@unique([userId, messageId])
   @@index([userId, archivedAt])
+}
+
+// --- メールの提案と定期払いの手動の紐づけ（#1130） ---
+// 家計簿・サブスクの提案シートは名前・金額の自動照合で定期払いを表示するが、外れたときに利用者が直せるよう、
+// 押した選択（別の定期払い・紐づけなし）だけを控える。台帳（Asset Manager）の複製の正ではなく、Morrow上の表示の控え。
+// 件名・差出人・本文は持たない。Asset Manager側の登録は変えない。
+
+model MailSubscriptionLink {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// AIDEのメッセージID（最大320文字）。
+  messageId      String @db.VarChar(320)
+  /// 提案の種類（payment＝家計簿・subscription＝サブスク）。
+  kind           String @db.VarChar(20)
+  /// 選んだ定期払いのid（Asset Manager）。null＝どの定期払いにも紐づけない。
+  subscriptionId Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, messageId, kind])
 }

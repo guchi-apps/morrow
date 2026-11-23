@@ -39,6 +39,7 @@ export function FlowRowButton({ card, recommended, registered, receipt = null, m
               {found.length === 1 ? "Asset Managerに登録済み" : `Asset Managerに候補${found.length}件`}
               {/* 名前では見つからず金額だけで当てた回（#896）。同じものか確かめてもらう */}
               {match?.status === "matched" && match.by === "amount" && "（金額で照合）"}
+              {match?.status === "matched" && match.by === "manual" && "（手動）"}
             </span>
           )}
           {!registered && receipt && <span className="rounded-full bg-accent-surface px-2 py-0.5 text-[0.625rem] font-bold text-accent">{receipt === "pending" ? "確認待ち" : "取り込み済み"}</span>}
