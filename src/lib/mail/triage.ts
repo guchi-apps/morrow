@@ -20,7 +20,7 @@ import {
   TRIAGE_BATCH_LIMIT,
   applyCardRule,
   buildTriagePrompt,
-  composeMailPush,
+  composeMailPushes,
   nextMailCursor,
   parseTriageReply,
   selectCandidates,
@@ -227,8 +227,10 @@ async function check(user: CheckUser, now: Date): Promise<MailCheckResult> {
 
   let delivered = 0;
   if (needed.length > 0) {
-    const payload = composeMailPush(needed);
-    delivered = await sendPushToUser(user.id, { ...payload, tag: MAIL_NOTICE_KIND });
+    const pushes = composeMailPushes(needed, MAIL_NOTICE_KIND);
+    // 1通ずつ送る（#1134）。届いた件数は端末×通知の合算ではなく、1通でも届いたかで見る
+    const results = await Promise.all(pushes.map((push) => sendPushToUser(user.id, push)));
+    delivered = Math.max(...results);
     // 送信の試行が終わったので確定する。端末が無い・オフで届かなかった回は notifiedAt=null のまま判定済みにする
     await db.mailTriage.createMany({
       data: rows
@@ -250,7 +252,7 @@ async function check(user: CheckUser, now: Date): Promise<MailCheckResult> {
             userId: user.id,
             kind: MAIL_NOTICE_KIND,
             dedupeKey,
-            title: payload.title,
+            title: pushes.length === 1 ? pushes[0]!.title : `必要なメール（${needed.length}通）`,
             body: `${needed.length}通`,
             deliveredCount: delivered,
           },

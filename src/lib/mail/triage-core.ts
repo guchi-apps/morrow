@@ -192,6 +192,34 @@ export function composeMailPush(mails: NeededMail[]): { title: string; body: str
   };
 }
 
+/** 1回に個別の通知として送るメールの上限。超えた分は「ほか◯通」の1本にまとめる（#1134）。 */
+export const MAIL_PUSH_INDIVIDUAL_LIMIT = 5;
+
+export type MailPushItem = { title: string; body: string; url: string; tag: string };
+
+/**
+ * 必要なメールの通知を1通ずつに分ける（#1134）。どの通知を押しても、そのメールの画面（`/mail/<id>`）が開く。
+ * 上限を超えた分は「ほか◯通」の1本にして一覧へ飛ばす。`tag` はメールごとに変え、同時に届いても上書きし合わない。
+ */
+export function composeMailPushes(mails: NeededMail[], tagPrefix: string): MailPushItem[] {
+  const head = mails.slice(0, MAIL_PUSH_INDIVIDUAL_LIMIT);
+  const items: MailPushItem[] = head.map((mail) => ({
+    ...composeMailPush([mail]),
+    tag: `${tagPrefix}:${mail.id}`,
+  }));
+  const rest = mails.slice(MAIL_PUSH_INDIVIDUAL_LIMIT);
+  if (rest.length > 0) {
+    const composed = composeMailPush(rest.length === 1 ? [rest[0]!] : rest);
+    items.push({
+      title: rest.length === 1 ? composed.title : `ほか${rest.length}通の必要なメール`,
+      body: composed.body,
+      url: rest.length === 1 ? composed.url : "/mail",
+      tag: `${tagPrefix}:rest`,
+    });
+  }
+  return items;
+}
+
 /**
  * 次の既読位置。**一覧が `partial`（一部のアカウントが読めない）・判定しきれなかった回は進めない**——欠けた分を
  * 次の確認で拾い直すため（判定済みの表があるので、進めなくても二重には知らせない）。
