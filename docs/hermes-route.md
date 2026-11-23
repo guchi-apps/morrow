@@ -185,6 +185,8 @@ Morrow専用profileの `SOUL.md` は、**リポジトリの `hermes-bridge/profi
 指示文は保証にならない。実行の可否は許可リストと確認カードが決める（`docs/hermes-actions.md`）。
 文面を変えるときは `src/lib/persona.ts` の `SECRETARY_VOICE_RULES` と `HERMES_PROPOSAL_TOOLS`（`proposal-core.ts`）に揃える（`test/hermes-soul.test.ts` が道具名と要点を見る）。
 
+**developではなくmainのファイルを使うので、develop→mainのリリース後に実施する。** 先に試すときは `origin/main` を、PRのコミットのSHAへ替える（`scripts/update-hermes-bridge.sh <コミット>` と同じ考え方）。確認チェックリストは反映後に行う。
+
 反映（subpcで。ブリッジの更新〔#1145〕と同じチェックアウトを使う）:
 
 ```bash

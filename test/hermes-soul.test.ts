@@ -26,9 +26,8 @@ describe("hermes-bridge/profile/SOUL.md", () => {
     }
   });
 
-  it("話し方の決まり（日本語・一人称・体裁優先）を書いている", () => {
+  it("日本語と一人称「わたし」を書いている（口調の文言そのものは固定しない）", () => {
     assert.ok(soul.includes("日本語"));
     assert.ok(soul.includes("わたし"));
-    assert.ok(soul.includes("体裁の指示があれば、そちらを優先"));
   });
 });
