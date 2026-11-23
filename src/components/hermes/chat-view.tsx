@@ -1,11 +1,12 @@
 "use client";
 
-import { Plus, SendHorizontal, Square } from "lucide-react";
+import { Loader2, Plus, SendHorizontal, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ChatItemView } from "@/components/hermes/chat-items";
+import { ChatItemView, elapsedText } from "@/components/hermes/chat-items";
 import { ProposalCard } from "@/components/hermes/proposal-card";
 import { locateOnce } from "@/lib/geolocation";
+import { isAideHealth, type AideHealth } from "@/lib/hermes/aide-health";
 import { describeHermesError, type ChatConnection } from "@/lib/hermes/errors";
 import {
   addPendingInterrupt,
@@ -70,14 +71,29 @@ const STATUS_TEXT: Record<ChatConnection, string> = {
   misconfigured: "接続の設定に問題があります",
 };
 
-async function fetchStatus(): Promise<ChatConnection> {
+type ChatStatus = { state: ChatConnection; aide: AideHealth | null };
+
+async function fetchStatus(): Promise<ChatStatus> {
   try {
     const response = await fetch("/api/hermes/status", { cache: "no-store" });
-    const data = (await response.json().catch(() => null)) as { state?: ChatConnection } | null;
-    return response.ok && data?.state ? data.state : "unreachable";
+    const data = (await response.json().catch(() => null)) as { state?: ChatConnection; aide?: unknown } | null;
+    if (!response.ok || !data?.state) return { state: "unreachable", aide: null };
+    return { state: data.state, aide: isAideHealth(data.aide) ? data.aide : null };
   } catch {
-    return "unreachable";
+    return { state: "unreachable", aide: null };
   }
+}
+
+/** 実行中の表示（「◯◯を確認中 N秒」「考え中 N秒」）。本文を流している間・実行中でない間は null。 */
+function progressText(chat: ChatState, now: number): string | null {
+  if (!chat.running) return null;
+  const running = [...chat.items].reverse().find((item) => item.kind === "tool" && item.status === "running");
+  if (running?.kind === "tool") return null; // 道具のチップが自分で経過秒を出す
+  const last = chat.items.at(-1);
+  if (last?.kind === "assistant" && !last.done) return null;
+  if (last?.kind === "approval" && last.status === "waiting") return null;
+  if (!chat.activityAt) return "考え中…";
+  return `考え中 ${elapsedText(now - chat.activityAt)}`;
 }
 
 /** 現在地を1回だけ取る（追跡しない。8秒で諦める。iOSの殻では端末の位置情報。#1087）。拒否・失敗・非対応はnull（サーバーが自宅の天気で代える）。 */
@@ -149,6 +165,9 @@ export function ChatView({ userId, initialPending }: Props) {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [connection, setConnection] = useState<ChatConnection>("unknown");
+  const [aide, setAide] = useState<AideHealth | null>(null);
+  // 道具・考え中の経過秒を動かす時計（実行中だけ1秒ごと。#1158）
+  const [now, setNow] = useState(() => Date.now());
   const [pending, setPending] = useState(initialPending);
   const [restoring, setRestoring] = useState(() => snapshot === null && loadSessionId(browserStorage(), userId) !== null);
   const [restoreFailed, setRestoreFailed] = useState(false);
@@ -173,21 +192,32 @@ export function ChatView({ userId, initialPending }: Props) {
     chatRef.current = chat;
   }, [chat]);
 
+  const applyStatus = useCallback((status: ChatStatus) => {
+    setConnection(status.state);
+    setAide(status.aide);
+  }, []);
+
   const retryStatus = useCallback(() => {
     setConnection("unknown");
-    void fetchStatus().then(setConnection);
-  }, []);
+    void fetchStatus().then(applyStatus);
+  }, [applyStatus]);
+
+  useEffect(() => {
+    if (!chat.running) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [chat.running]);
 
   useEffect(() => {
     let active = true;
-    void fetchStatus().then((state) => {
-      if (active) setConnection(state);
+    void fetchStatus().then((status) => {
+      if (active) applyStatus(status);
     });
     // 別アプリから戻った・回線が戻ったときは、接続状態を取り直す（#930。裏にいる間に通信が切られて「届きません」のまま残るため）
     const recheck = () => {
       if (document.visibilityState === "hidden") return;
-      void fetchStatus().then((state) => {
-        if (active) setConnection(state);
+      void fetchStatus().then((status) => {
+        if (active) applyStatus(status);
       });
     };
     document.addEventListener("visibilitychange", recheck);
@@ -199,7 +229,7 @@ export function ChatView({ userId, initialPending }: Props) {
       window.removeEventListener("online", recheck);
       abortRef.current?.abort();
     };
-  }, []);
+  }, [applyStatus]);
 
   // 前回の会話を取り直す（#929）。通信の揺れで落ちた回はやり直し（#976）、尽きたら読み直しボタンを出す
   const restore = useCallback(
@@ -397,8 +427,8 @@ export function ChatView({ userId, initialPending }: Props) {
     return () => controller.abort();
   }, [resumeFrom, resume]);
 
-  const send = useCallback(async () => {
-    const text = input.trim();
+  const send = useCallback(async (override?: string) => {
+    const text = (override ?? input).trim();
     if (text === "" || sendBlocked) return;
     setSending(true);
     setInput("");
@@ -450,7 +480,7 @@ export function ChatView({ userId, initialPending }: Props) {
             "アプリを離れるなどで接続が切れ、続きを受けられませんでした。途中まで実行された可能性があるので、結果を確認してから送り直してください。",
           ),
         );
-        void fetchStatus().then(setConnection);
+        void fetchStatus().then(applyStatus);
       }
     } catch {
       if (!controller.signal.aborted) {
@@ -464,7 +494,7 @@ export function ChatView({ userId, initialPending }: Props) {
               "アプリを離れるなどで接続が切れ、実行が途中で止まりました。途中まで実行された可能性があるので、結果を確認してから送り直してください。",
             ),
           );
-          void fetchStatus().then(setConnection);
+          void fetchStatus().then(applyStatus);
         } else {
           setInput(text);
           setConnection("unreachable");
@@ -476,7 +506,7 @@ export function ChatView({ userId, initialPending }: Props) {
       setSending(false);
       if (abortRef.current === controller) abortRef.current = null;
     }
-  }, [input, sendBlocked, chat.sessionId, consume, resume]);
+  }, [input, sendBlocked, chat.sessionId, consume, resume, applyStatus]);
 
   const stop = useCallback(async () => {
     const controller = abortRef.current;
@@ -524,9 +554,23 @@ export function ChatView({ userId, initialPending }: Props) {
   }, []);
 
   const onProposalChange = useCallback((proposal: ProposalView) => setChat((s) => updateProposal(s, proposal)), []);
+  const onRetry = useCallback(
+    (retry: { text: string; risky: boolean }) => {
+      // 書き込みが走った可能性がある回は自動で送らず、入力欄へ戻して確かめてから送ってもらう（#930）
+      if (retry.risky) setInput(retry.text);
+      else void send(retry.text);
+    },
+    [send],
+  );
   const onApproval = useCallback((requestId: string, choice: "once" | "deny") => setChat((s) => answerApproval(s, requestId, choice)), []);
 
   const unreachable = connection === "unreachable" || connection === "hermes_down";
+  // 失敗の通知の「もう一度」は、最後の項目で実行中でないときだけ出す（古い失敗から再送させない）
+  const lastItem = chat.items.at(-1);
+  const retryItemId = !busy && lastItem?.kind === "notice" && lastItem.retry ? lastItem.id : null;
+  // 実行中の道具があればその経過、無ければ最後のイベントからの待ち（本文を流している間は出さない）
+  const progress = progressText(chat, now);
+  const aideDown = connection === "ok" && aide === "unavailable";
   const empty = chat.items.length === 0 && pending.length === 0 && !restoring;
 
   return (
@@ -559,6 +603,13 @@ export function ChatView({ userId, initialPending }: Props) {
           </button>
         </span>
       </div>
+
+      {aideDown && (
+        <div role="alert" className="border-b border-border bg-red-50 px-4 py-1.5 text-xs text-red-800 lg:px-7 dark:bg-red-950 dark:text-red-300">
+          AIDEの道具が読み込まれていません。予定・タスクなどは確認できず、天気はウェブ検索での答えになります。
+          AIDEのログインが切れている可能性があります。subpcで <code>hermes -p morrow mcp login aide</code> を実行し、Hermesを再起動してください（手順は docs/hermes-route.md）。
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:px-7">
         <div className="mx-auto flex max-w-[760px] flex-col gap-2.5">
@@ -595,8 +646,22 @@ export function ChatView({ userId, initialPending }: Props) {
           )}
 
           {chat.items.map((item) => (
-            <ChatItemView key={item.id} item={item} turnId={chat.turnId} onApproval={onApproval} onProposalChange={onProposalChange} />
+            <ChatItemView
+              key={item.id}
+              item={item}
+              turnId={chat.turnId}
+              onApproval={onApproval}
+              onProposalChange={onProposalChange}
+              onRetry={item.id === retryItemId ? onRetry : undefined}
+              now={now}
+            />
           ))}
+          {progress && (
+            <p role="status" className="flex items-center gap-1.5 self-start text-xs text-muted">
+              <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+              {progress}
+            </p>
+          )}
           <div ref={bottomRef} />
         </div>
       </div>

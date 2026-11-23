@@ -15,6 +15,7 @@ import {
   type HealthBody,
   type TurnRequestBody,
 } from "../src/lib/hermes/contract.ts";
+import { aideHealthFromStatus, type AideHealth } from "../src/lib/hermes/aide-health.ts";
 import { authorize, parseAllowedIps } from "./auth.ts";
 import { connectHermes, type HermesLink } from "./hermes-link.ts";
 import { createHistoryReader, HistoryNotFoundError, type HistoryReader } from "./history.ts";
@@ -92,14 +93,21 @@ export function createBridgeServer(options: BridgeOptions): Server {
 
   async function handleHealth(res: ServerResponse): Promise<void> {
     let hermes: HealthBody["hermes"] = "down";
+    let aide: AideHealth | null = null;
     try {
       const link = await options.connect();
-      link.close();
       hermes = "ok";
+      try {
+        // キャッシュ済みの状態を読むだけ（接続も認証も始めない）。古いHermesでメソッドが無い・形が読めない回は無しのまま
+        aide = aideHealthFromStatus(await link.rpc("mcp.servers.status", {}));
+      } catch {
+        // 判定できない
+      }
+      link.close();
     } catch {
       // 繋がらない
     }
-    const body: HealthBody = { bridge: "ok", hermes };
+    const body: HealthBody = { bridge: "ok", hermes, ...(aide ? { aide } : {}) };
     sendJson(res, 200, body);
   }
 

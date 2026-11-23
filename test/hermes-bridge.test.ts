@@ -498,6 +498,22 @@ describe("認証とルーティング", () => {
     });
     assert.deepEqual(await down.client.health(), { bridge: "ok", hermes: "down" });
 
+    // AIDEの道具の読み込み状態（#1158）。Hermesの mcp.servers.status を読むだけで、Hermesの変更はしない
+    const aideLink = (entry: Record<string, unknown>) => async () =>
+      new FakeLink((_link, method) => (method === "mcp.servers.status" ? { servers: [{ name: "aide", ...entry }] } : {}));
+    const connected = await startBridge(aideLink({ status: "connected", connected: true, tools: 33 }));
+    assert.deepEqual(await connected.client.health(), { bridge: "ok", hermes: "ok", aide: "ok" });
+    const noTools = await startBridge(aideLink({ status: "failed", connected: false, tools: 0, error: "secret detail" }));
+    const body = await noTools.client.health();
+    assert.deepEqual(body, { bridge: "ok", hermes: "ok", aide: "unavailable" });
+    const broken = await startBridge(async () =>
+      new FakeLink((_link, method) => {
+        if (method === "mcp.servers.status") throw new Error("method not found");
+        return {};
+      }),
+    );
+    assert.deepEqual(await broken.client.health(), { bridge: "ok", hermes: "ok" });
+
     for (const path of ["/tools.configure", "/api/sessions", "/sessions/x"]) {
       const response = await fetch(`${ok.baseUrl}${path}`, { method: "POST", headers: { authorization: `Bearer ${TOKEN}`, "x-forwarded-for": CLIENT_IP } });
       assert.equal(response.status, 404, path);

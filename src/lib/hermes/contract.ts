@@ -102,6 +102,8 @@ export function isPathSafeSessionId(value: string): boolean {
 export interface HealthBody {
   bridge: "ok";
   hermes: "ok" | "down";
+  /** HermesがAIDEの道具を読み込めているか（#1158）。判定できない回・古いブリッジでは無い。 */
+  aide?: "ok" | "connecting" | "unavailable";
 }
 
 /** 1ターン全体の上限（ブリッジ側）。承認待ちの上限（300秒）を含む。 */
