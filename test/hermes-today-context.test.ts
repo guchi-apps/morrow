@@ -5,6 +5,7 @@ import { stripAttachments, buildPrompt } from "@/lib/hermes/prompt-attachment";
 import {
   formatTodayContext,
   InjectionMemory,
+  INJECTION_TTL_MS,
   mentionsToday,
   pickTasks,
   scheduleOfDay,
@@ -125,5 +126,11 @@ describe("InjectionMemory", () => {
     assert.equal(m.has("u", "s", "2026-11-24"), false);
     assert.equal(m.has("u", "other", "2026-11-23"), false);
     assert.equal(m.has("v", "s", "2026-11-23"), false);
+  });
+  it("30分を過ぎたら添え直す", () => {
+    const m = new InjectionMemory();
+    m.mark("u", "s", "2026-11-23", 0);
+    assert.equal(m.has("u", "s", "2026-11-23", INJECTION_TTL_MS - 1), true);
+    assert.equal(m.has("u", "s", "2026-11-23", INJECTION_TTL_MS), false);
   });
 });
