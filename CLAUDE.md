@@ -310,6 +310,7 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
 詳細は `docs/hermes-route.md`。実装・設定を足すときはまずそこを読む。
 
 - **VPS→subpcの順向きで、tailnet越しにsubpc上の中継（ブリッジ）を叩く。** Hermes（`hermes -p morrow serve --isolated`）もブリッジも127.0.0.1に閉じ、外へ出すのは `tailscale serve` の専用ポートだけ
+- **Morrow profileの `SOUL.md` の正本は `hermes-bridge/profile/SOUL.md`**（#1148。提案ルール・口調・できないこと。subpcへは人が反映する。手順・確認表は `docs/hermes-route.md`）
 - **AIDEのOAuthトークンはprofileごと**（#809）。Morrow profileで `hermes -p morrow mcp login aide` を通していないと、チャットは「接続中」のままAIDEの道具が使えない（「予定を確認できない」と答える）。見分け方は `docs/hermes-route.md`
 - **ブリッジはMorrowのデプロイでは配られない**（#1145）。`hermes-bridge/`・`contract.ts` を変えたPRがmainへ入ったら、subpcで `scripts/update-hermes-bridge.sh` を流す。忘れると新しいAPIが404 `not_found`（Morrowのログでは `bad_response`＋`HTTP 404`）になる——#1145の「前回の会話を読み込めませんでした」は、ブリッジが履歴API（#752）以前の版のままだったため
 - **Hermesへ直接繋がない。** tailscale serveはHostヘッダーを書き換えず、ループバックにバインドしたHermesはHost違いを400で弾く（2026-11-08実測）。またHermesのトークンは設定の書き換えまでできる管理者権限なので、VPSへ置かない

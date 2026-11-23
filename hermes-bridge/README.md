@@ -21,5 +21,7 @@ API: `GET /health`・`POST /turns`（SSE）・`POST /turns/<id>/approval`（`onc
 
 **Morrowのデプロイでは配られない。** subpcでは `~/apps/morrow-hermes-bridge` のチェックアウトから動くので、このディレクトリを変えたらmainへ入った後に `scripts/update-hermes-bridge.sh` で更新・再起動する（#1145。`docs/hermes-route.md`）。
 
+`profile/SOUL.md` はMorrow専用profileの `SOUL.md` の正本（#1148。ブリッジのコードからは読まない。反映は `docs/hermes-route.md`）。
+
 テストは `test/hermes-bridge.test.ts`（Hermesの代わりに偽の接続を差し込む）。**実物のHermesでの疎通は #738 の手作業**で確かめる。
 `session.create` / `session.resume` の応答の項目名（`session_id`・`stored_session_id`）は実測前の想定で、疎通で違えば `turn.ts` の `openSession()` を直す。

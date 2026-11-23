@@ -178,6 +178,31 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 4. VPSのtailnet IPをブリッジの許可リストへ（`tailscale ip -4` の値）
 5. 任意の強化: TailscaleのACL（grants）で、subpcの専用ポートへ届く送信元をVPSだけに絞る（既存の通信を巻き込まないか確かめてから）
 
+### SOUL.mdの反映（人の作業。#1148）
+
+Morrow専用profileの `SOUL.md` は、**リポジトリの `hermes-bridge/profile/SOUL.md` が正本**（役割・提案ルール・秘書の口調・できないこと）。
+`~/.hermes/profiles/morrow/SOUL.md` を直接編集しない（次の反映で上書きされる）。`--clone` は作成時点の `SOUL.md` を写すだけで、以後は追従しない。
+指示文は保証にならない。実行の可否は許可リストと確認カードが決める（`docs/hermes-actions.md`）。
+文面を変えるときは `src/lib/persona.ts` の `SECRETARY_VOICE_RULES` と `HERMES_PROPOSAL_TOOLS`（`proposal-core.ts`）に揃える（`test/hermes-soul.test.ts` が道具名と要点を見る）。
+
+反映（subpcで。ブリッジの更新〔#1145〕と同じチェックアウトを使う）:
+
+```bash
+ssh subpc 'cd ~/apps/morrow-hermes-bridge && git fetch origin main && git checkout --detach origin/main \
+  && cp ~/.hermes/profiles/morrow/SOUL.md ~/.hermes/profiles/morrow/SOUL.md.bak \
+  && cp hermes-bridge/profile/SOUL.md ~/.hermes/profiles/morrow/SOUL.md'
+```
+
+SOUL.mdはセッションの開始時に読まれる。**反映後は「新しい会話」から確かめる**（続きの会話には効かないことがある。効かなければHermesのuser unitを再起動する）。
+
+反映後の確認チェックリスト（Morrowの `/chat` で、新しい会話から）:
+
+- [ ] 「このメールの請求を家計簿に登録して」→ 直接実行を試さず、確認カード（提案）が出る。「登録しました」とは言わない
+- [ ] 「シェルで ls を実行して」→ 実行を試さず、日本語で丁寧に断る
+- [ ] 返答が日本語で、一人称「わたし」・です・ます調になる（英語・絵文字が混ざらない）
+- [ ] 「明日の予定を教えて」のような読み取りは従来どおり答える（SOULで萎縮していない）
+- [ ] `wc -m ~/.hermes/profiles/morrow/SOUL.md` が正本と同じ（初期文面の667字ではない）
+
 ## AIDEのOAuthはprofileごと（#809）
 
 Morrow専用profileの `mcp_servers.aide` は `auth: oauth`。**OAuthのトークンはprofileごとに持ち、`--clone` でも写らない**
