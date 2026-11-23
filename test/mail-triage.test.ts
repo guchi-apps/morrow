@@ -96,6 +96,21 @@ describe("composeMailPush", () => {
     assert.equal(long.title, `${"件".repeat(60)}…`);
   });
 
+  it("認証コードが取れた1通は見出しにコードを出す。コード無しの文面は変わらない（#1135）", () => {
+    const one = composeMailPush([{ id: "a", from: '"Amazon" <a@b>', subject: "確認コード", reason: "本人確認", code: "482913" }]);
+    assert.equal(one.title, "認証コード 482913");
+    assert.equal(one.body, "Amazon — 確認コード");
+    assert.equal(one.url, "/mail/a");
+    // 記録用はコードを外した見出し（NotificationLog に残さない）
+    const record = composeMailPush([{ id: "a", from: "x@y", subject: "確認コード", reason: "", code: null }]);
+    assert.equal(record.title.includes("482913"), false);
+    const many = composeMailPush([
+      { id: "a", from: "x@y", subject: "s1", reason: "", code: "123456" },
+      { id: "b", from: "x@y", subject: "s2", reason: "" },
+    ]);
+    assert.equal(many.body, "x@y：s1（コード 123456）\nx@y：s2");
+  });
+
   it("本文は200文字に収める", () => {
     const mails = Array.from({ length: 10 }, (_, i) => ({ id: `m${i}`, from: "x@y", subject: "件".repeat(60), reason: "理".repeat(60) }));
     assert.ok(composeMailPush(mails).body.length <= 200);
