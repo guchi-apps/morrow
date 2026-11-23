@@ -47,12 +47,22 @@ export function ChatItemView({ item, turnId, onApproval, onProposalChange }: Pro
               <span
                 className={`rounded-full px-2 py-px text-xs font-normal ${item.status === "failed" ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300" : item.status === "unknown" ? "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300" : "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300"}`}
               >
-                {item.status === "failed" ? "失敗した可能性があります" : item.status === "unknown" ? "結果を確認できません" : "自動で実行しました"}
+                {item.status === "failed" ? "失敗しました" : item.status === "unknown" ? "結果を確認できません" : "自動で実行しました"}
               </span>
             </div>
             {item.status === "unknown" && (
               <p className="mt-1.5 text-xs text-muted">
                 途中で止まったため、実行されたか分かりません。予定・タスクの画面で確かめてから、無ければ改めて頼んでください（確かめずに頼み直すと重複することがあります）。
+              </p>
+            )}
+            {item.status === "failed" && item.result?.failure && (
+              <p className="mt-1.5 text-xs text-red-700 dark:text-red-300">理由: {item.result.failure}。実行されていない可能性が高いです。</p>
+            )}
+            {item.status === "done" && item.result?.url && (
+              <p className="mt-1.5 text-xs">
+                <a href={item.result.url} target="_blank" rel="noopener noreferrer" className="text-accent underline">
+                  {item.result.number ? `#${item.result.number} を開く` : "作成したものを開く"}
+                </a>
               </p>
             )}
             {item.lines.length > 0 && (

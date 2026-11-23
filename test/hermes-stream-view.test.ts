@@ -16,7 +16,7 @@ import {
   type ChatState,
   type RelayEvent,
 } from "@/lib/hermes/stream-view";
-import { argLines, isAutoWriteTool, isProposeTool, knownToolKey, resultFailed, toolHint, toolLabel } from "@/lib/hermes/tool-labels";
+import { argLines, isAutoWriteTool, isProposeTool, knownToolKey, resultFailed, resultSummary, toolHint, toolLabel } from "@/lib/hermes/tool-labels";
 
 /** チャット画面の状態の畳み込み・道具の表示名・失敗の読み替え（#794）。 */
 
@@ -207,6 +207,47 @@ describe("道具の表示名", () => {
     assert.ok(!resultFailed({ ok: true }));
     assert.ok(!resultFailed("done"));
     assert.ok(!resultFailed(undefined));
+  });
+
+  it("包まれた結果（入れ子のJSON・MCPのcontent・HTTPエラーの文言）でも失敗と読む（#1142）", () => {
+    assert.ok(resultFailed({ result: '{"ok":false,"error":"GitHub 403"}' }));
+    assert.ok(resultFailed(JSON.stringify({ result: JSON.stringify({ error: "forbidden" }) })));
+    assert.ok(resultFailed({ content: [{ type: "text", text: "GitHubへの起票が HTTP 403 で失敗" }] }));
+    assert.ok(resultFailed({ status: "error" }));
+    assert.ok(!resultFailed({ result: '{"ok":true,"url":"https://github.com/guchi-apps/morrow/issues/1","error":null}' }));
+  });
+
+  it("結果の要約: 失敗の理由と作成されたIssueのリンクを取り出す（#1142）", () => {
+    const failed = resultSummary({ content: [{ type: "text", text: "GitHubへの起票が HTTP 403 で失敗" }] });
+    assert.equal(failed?.failure, "HTTP 403");
+    assert.equal(failed?.url, null);
+    const withMessage = resultSummary({ ok: false, error: "権限が足りません" });
+    assert.equal(withMessage?.failure, "権限が足りません");
+    const ok = resultSummary({ result: '{"ok":true,"url":"https://github.com/guchi-apps/morrow/issues/1200"}' });
+    assert.equal(ok?.url, "https://github.com/guchi-apps/morrow/issues/1200");
+    assert.equal(ok?.number, 1200);
+    assert.equal(ok?.failure, null);
+    assert.equal(resultSummary({ ok: true }), null);
+    assert.equal(resultSummary({ url: "https://evil.example.com/issues/1" })?.url ?? null, null);
+  });
+
+  it("Issue作成の結果カードにリポジトリとラベルを出す（#1142）", () => {
+    const lines = argLines({ repo: "morrow", title: "件名", body: "本文", labels: ["70.needs-decision"] });
+    assert.deepEqual(lines.slice(0, 2), [
+      { label: "リポジトリ", value: "guchi-apps/morrow" },
+      { label: "件名", value: "件名" },
+    ]);
+    assert.ok(lines.some((l) => l.label === "ラベル" && l.value === "70.needs-decision"));
+    assert.equal(argLines({ repo: "guchi-apps/aide" })[0].value, "guchi-apps/aide");
+  });
+
+  it("tool.completeで自動書き込みの失敗理由が項目に載る（#1142）", () => {
+    const state = run([
+      { type: "tool.start", data: { name: "aide_create_issue", args: { repo: "morrow", title: "t" } } },
+      { type: "tool.complete", data: { name: "aide_create_issue", result: "GitHubへの起票が HTTP 403 で失敗" } },
+    ]);
+    const item = state.items.find((i) => i.kind === "tool");
+    assert.ok(item?.kind === "tool" && item.status === "failed" && item.result?.failure === "HTTP 403");
   });
 });
 

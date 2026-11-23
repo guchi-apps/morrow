@@ -189,6 +189,7 @@ export function toolHint(name: string | undefined | null, rawArgs: unknown): str
 
 /** 結果カードに出す引数の項目名。ここに無い項目（冪等キー・version・ID類）は出さない。 */
 const ARG_LABELS: Record<string, string> = {
+  repo: "リポジトリ",
   title: "件名",
   name: "名称",
   date: "日付",
@@ -210,7 +211,11 @@ const ARG_LABELS: Record<string, string> = {
   mode: "モード",
   temperature: "設定温度",
   tentative: "仮の予定",
+  labels: "ラベル",
 };
+
+/** 起票先のowner。AIDEの `aide_create_issue` は owner を含まない名前だけを受ける（`guchi-apps` 固定）。 */
+const REPO_OWNER = "guchi-apps";
 
 export type ArgLine = { label: string; value: string };
 
@@ -240,24 +245,118 @@ export function argLines(rawArgs: unknown): ArgLine[] {
   if (typeof args !== "object" || args === null || Array.isArray(args)) return [];
   const lines: ArgLine[] = [];
   for (const [key, label] of Object.entries(ARG_LABELS)) {
-    const value = show((args as Record<string, unknown>)[key]);
+    const raw = (args as Record<string, unknown>)[key];
+    let value: string | null;
+    if (key === "repo") {
+      const name = show(raw);
+      value = name === null ? null : name.includes("/") ? name : `${REPO_OWNER}/${name}`;
+    } else if (key === "labels" && Array.isArray(raw)) {
+      const names = raw.map((x) => show(x)).filter((x): x is string => x !== null);
+      value = names.length > 0 ? show(names.join(", ")) : null;
+    } else {
+      value = show(raw);
+    }
     if (value !== null) lines.push({ label, value });
     if (lines.length >= 6) break;
   }
   return lines;
 }
 
+const MAX_DEPTH = 5;
+const HTTP_ERROR = /HTTP\s*([45]\d\d)/i;
+
+/**
+ * 結果に入れ子で含まれる値を平らに集める。文字列がJSONなら開く（Hermesは `{"result":"<JSON文字列>"}` や
+ * MCPの `content[].text` のように包んで返すことがあり、形は決め打ちできない）。
+ */
+function nodesOf(value: unknown, depth = 0, out: unknown[] = []): unknown[] {
+  if (depth > MAX_DEPTH || out.length > 200) return out;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        return nodesOf(JSON.parse(trimmed), depth + 1, out);
+      } catch {
+        // JSONでなければ文字列として扱う
+      }
+    }
+    out.push(value);
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const v of value) nodesOf(v, depth + 1, out);
+    return out;
+  }
+  if (typeof value === "object" && value !== null) {
+    out.push(value);
+    for (const v of Object.values(value as Record<string, unknown>)) nodesOf(v, depth + 1, out);
+  }
+  return out;
+}
+
+function recordFailed(r: Record<string, unknown>): boolean {
+  if (r.isError === true || r.ok === false || r.success === false) return true;
+  if (typeof r.status === "string" && /^(error|failed|failure)$/i.test(r.status)) return true;
+  if (typeof r.error === "string" && r.error !== "") return true;
+  return typeof r.error === "object" && r.error !== null;
+}
+
 /** 道具の結果が失敗に見えるか。形が分からないときは false（成功扱いで赤を出さない）。 */
 export function resultFailed(result: unknown): boolean {
-  let value: unknown = result;
-  if (typeof result === "string") {
-    try {
-      value = JSON.parse(result);
-    } catch {
-      return /^error\b/i.test(result.trim());
+  for (const node of nodesOf(result)) {
+    if (typeof node === "string") {
+      if (/^error\b/i.test(node.trim()) || HTTP_ERROR.test(node)) return true;
+    } else if (recordFailed(node as Record<string, unknown>)) {
+      return true;
     }
   }
-  if (typeof value !== "object" || value === null) return false;
-  const record = value as Record<string, unknown>;
-  return record.isError === true || record.ok === false || (typeof record.error === "string" && record.error !== "");
+  return false;
+}
+
+export type ResultSummary = {
+  /** 失敗の短い理由（HTTPのステータス・エラー文）。失敗に見えないときは null。 */
+  failure: string | null;
+  /** 作成物のURL（GitHubのIssueなど）。https のものだけ。 */
+  url: string | null;
+  /** 作成物の番号（Issue番号など）。 */
+  number: number | null;
+};
+
+const GITHUB_ISSUE_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:issues|pull)\/(\d+)(?:[#?].*)?$/;
+const REASON_LIMIT = 80;
+
+/** 結果カードに添える要約（作成されたIssueのリンク・失敗の理由）。何も取れなければ null。 */
+export function resultSummary(result: unknown): ResultSummary | null {
+  let failure: string | null = null;
+  let url: string | null = null;
+  let number: number | null = null;
+  const failed = resultFailed(result);
+  for (const node of nodesOf(result)) {
+    if (typeof node === "string") {
+      const http = HTTP_ERROR.exec(node);
+      if (failed && failure === null && http) failure = `HTTP ${http[1]}`;
+      const found = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:issues|pull)\/\d+/.exec(node);
+      if (found && url === null) url = found[0];
+      continue;
+    }
+    const r = node as Record<string, unknown>;
+    if (failed && failure === null) {
+      const text = [r.error, r.message, r.reason].find((x): x is string => typeof x === "string" && x.trim() !== "");
+      if (text) failure = clipReason(text);
+    }
+    for (const key of ["url", "html_url", "issueUrl"]) {
+      const v = r[key];
+      if (url === null && typeof v === "string" && GITHUB_ISSUE_URL.test(v)) url = v;
+    }
+    if (number === null && typeof r.number === "number" && Number.isInteger(r.number) && r.number > 0) number = r.number;
+  }
+  if (url !== null && number === null) number = Number(GITHUB_ISSUE_URL.exec(url)?.[1] ?? "") || null;
+  if (failure === null && failed) failure = "理由は分かりません";
+  if (failure === null && url === null && number === null) return null;
+  return { failure: failed ? failure : null, url: failed ? null : url, number: failed ? null : number };
+}
+
+function clipReason(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > REASON_LIMIT ? `${flat.slice(0, REASON_LIMIT)}…` : flat;
 }
