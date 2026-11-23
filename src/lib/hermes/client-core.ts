@@ -9,7 +9,6 @@ import {
   type HistoryMessage,
   type SessionListBody,
   type SessionSummary,
-  SESSION_LIST_DEFAULT_LIMIT,
   SESSION_LIST_MAX_LIMIT,
   isPathSafeSessionId,
   type TurnRequestBody,
@@ -223,10 +222,14 @@ export function createHermesClient(config: HermesClientConfig) {
       return parsed;
     },
 
-    /** 会話の一覧（#1156）。Morrowのセッションだけ・最近動いた順。持ち主の絞り込みは呼び出し側（`HermesSession`）。 */
-    async listSessions(options: { limit?: number; signal?: AbortSignal } = {}): Promise<SessionSummary[]> {
-      const limit = Math.min(SESSION_LIST_MAX_LIMIT, Math.max(1, Math.trunc(options.limit ?? SESSION_LIST_DEFAULT_LIMIT)));
-      const response = await request(`/sessions?limit=${limit}`, { method: "GET", signal: options.signal });
+    /**
+     * 会話の一覧（#1156）。渡したid（呼び出し側が `HermesSession` で先に絞った自分のもの。最大100）の題名・最終更新・件数を、
+     * 最近動いた順で返す。Morrowのセッションでないid・消えたidは含まれない。
+     */
+    async listSessions(ids: string[], options: { signal?: AbortSignal } = {}): Promise<SessionSummary[]> {
+      const wanted = ids.slice(0, SESSION_LIST_MAX_LIMIT);
+      if (wanted.length === 0) return [];
+      const response = await request(`/sessions?ids=${wanted.map(encodeURIComponent).join(",")}`, { method: "GET", signal: options.signal });
       if (!response.ok) throw await failureOf(response);
       const parsed = parseSessionList(await response.json().catch(() => null));
       if (!parsed) throw new HermesError("bad_response", "ブリッジの会話一覧の形が不正");

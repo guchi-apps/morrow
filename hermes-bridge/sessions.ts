@@ -2,12 +2,12 @@ import { SESSION_LIST_MAX_LIMIT, isPathSafeSessionId, type SessionListBody, type
 import { SESSION_SOURCE } from "./turn.ts";
 
 /**
- * 会話の一覧（#1156）。Hermesの REST `GET /api/sessions?source=morrow&order=recent` を読み、
- * **`source` が `morrow` の行だけ**を、題名・最終更新・件数に絞って返す。**本文・先頭の抜粋（`preview`）は返さない**。
- * 認証・応答の形の扱いは履歴（`history.ts`）と同じ。持ち主（Morrowの利用者）の絞り込みはMorrow側（`HermesSession`）で行う。
+ * 会話の一覧（#1156）。Morrowが渡したセッションid（自分の `HermesSession`）それぞれについて、Hermesの REST
+ * `GET /api/sessions/{id}`（履歴〔`history.ts`〕と同じ・実物で確認済みの口）を読み、**`source` が `morrow` の行だけ**を
+ * 題名・最終更新・件数に絞って最近動いた順で返す。**本文・先頭の抜粋（`preview`）は返さない**。
+ * 「件数で切ってから持ち主で絞る」と他の利用者・持ち主不明の会話が枠を先に使って自分の会話が欠けるため、
+ * 持ち主での絞り込みはidを渡す側（Morrow）が先に行い、ここはidの題名等を引くだけ。
  */
-
-export type SessionLister = (limit: number) => Promise<SessionListBody>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -30,19 +30,29 @@ export function projectSessions(rows: unknown): SessionSummary[] {
   return out;
 }
 
+export type SessionLister = (ids: string[]) => Promise<SessionListBody>;
+
 export function createSessionLister(options: { url: string; token: string; timeoutMs: number; fetchImpl?: typeof fetch }): SessionLister {
   const doFetch = options.fetchImpl ?? fetch;
-  return async (limit) => {
-    const n = Math.min(SESSION_LIST_MAX_LIMIT, Math.max(1, limit));
-    const path = `/api/sessions?source=${encodeURIComponent(SESSION_SOURCE)}&order=recent&min_messages=1&limit=${n}`;
-    const response = await doFetch(new URL(path, options.url), {
+
+  async function detail(id: string): Promise<unknown> {
+    const response = await doFetch(new URL(`/api/sessions/${encodeURIComponent(id)}`, options.url), {
       headers: { "x-hermes-session-token": options.token, accept: "application/json" },
       signal: AbortSignal.timeout(options.timeoutMs),
     });
+    if (response.status === 404) return null; // 消えたセッションは一覧から外れるだけ
     const body: unknown = await response.json().catch(() => null);
-    if (response.status !== 200 || !isRecord(body) || !Array.isArray(body.sessions)) {
-      throw new Error(`会話一覧の取得に失敗した（HTTP ${response.status}）`);
-    }
-    return { sessions: projectSessions(body.sessions) };
+    if (response.status !== 200 || !isRecord(body)) throw new Error(`会話の取得に失敗した（HTTP ${response.status}）`);
+    return body;
+  }
+
+  return async (ids) => {
+    const wanted = [...new Set(ids)].filter(isPathSafeSessionId).slice(0, SESSION_LIST_MAX_LIMIT);
+    const results = await Promise.allSettled(wanted.map(detail));
+    // 全部失敗したときだけ失敗にする（一部が読めなくても、読めた分は出す）
+    if (wanted.length > 0 && results.every((r) => r.status === "rejected")) throw new Error("会話の取得に失敗した");
+    const rows = results.flatMap((r) => (r.status === "fulfilled" && r.value !== null ? [r.value] : []));
+    const sessions = projectSessions(rows).sort((a, b) => (b.lastActiveAt ?? 0) - (a.lastActiveAt ?? 0));
+    return { sessions };
   };
 }

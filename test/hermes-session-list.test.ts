@@ -35,22 +35,38 @@ describe("会話一覧の絞り込み（#1156）", () => {
     assert.ok(!JSON.stringify(out).includes("秘密"));
   });
 
-  it("HermesのRESTへsource=morrow・新しい順で、トークン付きで読む", async () => {
+  it("渡したidごとに /api/sessions/{id} を読み、Morrow以外・消えたidを外して新しい順に返す", async () => {
     const seen: { path: string; token: string | undefined }[] = [];
+    const rows: Record<string, unknown> = {
+      old: { id: "old", source: "morrow", title: "古い", message_count: 1, last_active: 5 },
+      new: { id: "new", source: "morrow", title: "新しい", message_count: 2, last_active: 9 },
+      disc: { id: "disc", source: "discord", title: "別", message_count: 2, last_active: 99 },
+    };
     const hermes = createHttpServer((req, res) => {
       seen.push({ path: req.url ?? "", token: req.headers["x-hermes-session-token"] as string | undefined });
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ sessions: [{ id: "m1", source: "morrow", title: "t", message_count: 1, last_active: 5 }] }));
+      const row = rows[(req.url ?? "").replace("/api/sessions/", "")];
+      res.writeHead(row ? 200 : 404, { "content-type": "application/json" });
+      res.end(JSON.stringify(row ?? { detail: "not found" }));
     });
     await new Promise<void>((r) => hermes.listen(0, "127.0.0.1", r));
     servers.push(hermes);
     const url = `http://127.0.0.1:${(hermes.address() as AddressInfo).port}`;
-    const body = await createSessionLister({ url, token: "tok", timeoutMs: 2000 })(30);
-    assert.equal(body.sessions.length, 1);
-    assert.equal(seen[0].token, "tok");
-    assert.match(seen[0].path, /source=morrow/);
-    assert.match(seen[0].path, /order=recent/);
-    assert.match(seen[0].path, /limit=30/);
+    const body = await createSessionLister({ url, token: "tok", timeoutMs: 2000 })(["old", "new", "disc", "gone", "..", "old"]);
+    assert.deepEqual(body.sessions.map((x) => x.sessionId), ["new", "old"]);
+    assert.equal(seen.length, 4); // 重複と不正なid（..）は読まない
+    assert.ok(seen.every((r) => r.token === "tok"));
+  });
+
+  it("全部読めなかったときだけ失敗にする", async () => {
+    const hermes = createHttpServer((_req, res) => {
+      res.writeHead(500);
+      res.end("{}");
+    });
+    await new Promise<void>((r) => hermes.listen(0, "127.0.0.1", r));
+    servers.push(hermes);
+    const url = `http://127.0.0.1:${(hermes.address() as AddressInfo).port}`;
+    await assert.rejects(createSessionLister({ url, token: "t", timeoutMs: 2000 })(["a"]));
+    assert.deepEqual((await createSessionLister({ url, token: "t", timeoutMs: 2000 })([])).sessions, []);
   });
 });
 
@@ -72,14 +88,15 @@ describe("ブリッジの GET /sessions とクライアント", () => {
     return { baseUrl, client: createHermesClient({ baseUrl, token: "t", fetchImpl }), fetchImpl };
   }
 
-  it("一覧を返し、limitを検証する", async () => {
-    const { client, baseUrl } = await start(async (limit) => ({
-      sessions: [{ sessionId: `l${limit}`, title: null, lastActiveAt: null, messageCount: 1 }],
+  it("渡したidを受けて一覧を返し、不正なidは400", async () => {
+    const { client, baseUrl } = await start(async (ids) => ({
+      sessions: ids.map((id) => ({ sessionId: id, title: null, lastActiveAt: null, messageCount: 1 })),
     }));
-    assert.equal((await client.listSessions({ limit: 7 }))[0].sessionId, "l7");
-    assert.equal((await client.listSessions({ limit: 500 }))[0].sessionId, "l100");
-    const bad = await fetch(`${baseUrl}/sessions?limit=abc`, { headers: { authorization: "Bearer t", "x-forwarded-for": "100.64.0.9" } });
-    assert.equal(bad.status, 400);
+    assert.deepEqual((await client.listSessions(["a", "b"])).map((x) => x.sessionId), ["a", "b"]);
+    assert.deepEqual(await client.listSessions([]), []);
+    const headers = { authorization: "Bearer t", "x-forwarded-for": "100.64.0.9" };
+    assert.equal((await fetch(`${baseUrl}/sessions?ids=a,..`, { headers })).status, 400);
+    assert.equal((await fetch(`${baseUrl}/sessions?ids=${Array.from({ length: 101 }, (_, i) => `s${i}`).join(",")}`, { headers })).status, 400);
   });
 
   it("認証・送信元を既存の口と揃える", async () => {
@@ -92,9 +109,9 @@ describe("ブリッジの GET /sessions とクライアント", () => {
     const { client } = await start(async () => {
       throw new Error("down");
     });
-    await assert.rejects(client.listSessions(), (e: unknown) => e instanceof HermesError && e.kind === "hermes_down");
+    await assert.rejects(client.listSessions(["a"]), (e: unknown) => e instanceof HermesError && e.kind === "hermes_down");
     const none = await start();
-    await assert.rejects(none.client.listSessions(), (e: unknown) => e instanceof HermesError && e.kind === "hermes_down");
+    await assert.rejects(none.client.listSessions(["a"]), (e: unknown) => e instanceof HermesError && e.kind === "hermes_down");
   });
 });
 

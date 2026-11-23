@@ -100,8 +100,7 @@ export interface SessionListBody {
   sessions: SessionSummary[];
 }
 
-/** 一覧の既定件数と上限（Hermesの `limit` の上限が100）。 */
-export const SESSION_LIST_DEFAULT_LIMIT = 50;
+/** 一覧で一度に引くセッションidの上限。 */
 export const SESSION_LIST_MAX_LIMIT = 100;
 
 /** 履歴の既定件数と上限。 */

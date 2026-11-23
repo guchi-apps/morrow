@@ -5,7 +5,6 @@ import {
   HEARTBEAT_MS,
   HISTORY_DEFAULT_LIMIT,
   HISTORY_MAX_LIMIT,
-  SESSION_LIST_DEFAULT_LIMIT,
   SESSION_LIST_MAX_LIMIT,
   MAX_CONCURRENT_TURNS,
   SESSION_ID_PATTERN,
@@ -255,17 +254,13 @@ export function createBridgeServer(options: BridgeOptions): Server {
     }
   }
 
-  /** `GET /sessions?limit=N`（#1156）。Morrowのセッションだけ・題名と最終更新と件数だけ。 */
-  async function handleSessionList(res: ServerResponse, rawLimit: string | null): Promise<void> {
-    let limit = SESSION_LIST_DEFAULT_LIMIT;
-    if (rawLimit !== null) {
-      if (!/^\d{1,3}$/.test(rawLimit)) return sendError(res, 400, "bad_request");
-      limit = Number(rawLimit);
-      if (limit < 1 || limit > SESSION_LIST_MAX_LIMIT) return sendError(res, 400, "bad_request");
-    }
+  /** `GET /sessions?ids=a,b,c`（#1156）。渡されたMorrowのセッションの題名・最終更新・件数だけ（最近動いた順）。 */
+  async function handleSessionList(res: ServerResponse, rawIds: string | null): Promise<void> {
+    const ids = rawIds === null || rawIds === "" ? [] : rawIds.split(",");
+    if (ids.length > SESSION_LIST_MAX_LIMIT || !ids.every(isPathSafeSessionId)) return sendError(res, 400, "bad_request");
     if (!options.sessions) return sendError(res, 503, "hermes_down");
     try {
-      sendJson(res, 200, await options.sessions(limit));
+      sendJson(res, 200, await options.sessions(ids));
     } catch (error) {
       console.error("[morrow-hermes-bridge] 会話一覧の取得に失敗した", error instanceof Error ? error.message : error);
       sendError(res, 503, "hermes_down");
@@ -286,7 +281,7 @@ export function createBridgeServer(options: BridgeOptions): Server {
     const route = (async () => {
       if (req.method === "GET" && url.pathname === "/health") return handleHealth(res);
       if (req.method === "POST" && url.pathname === "/turns") return handleStartTurn(req, res);
-      if (req.method === "GET" && url.pathname === "/sessions") return handleSessionList(res, url.searchParams.get("limit"));
+      if (req.method === "GET" && url.pathname === "/sessions") return handleSessionList(res, url.searchParams.get("ids"));
       const historyMatch = /^\/sessions\/([^/]+)\/messages$/.exec(url.pathname);
       if (req.method === "GET" && historyMatch) {
         let sessionId: string;
