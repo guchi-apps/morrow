@@ -8,11 +8,14 @@ import {
   addNotice,
   answerApproval,
   applyEvent,
+  applyEventAt,
   clarifyText,
   endTurn,
   initialChatState,
   RELAY_EVENT_TYPES,
+  retryOf,
   startTurn,
+  usageText,
   type ChatState,
   type RelayEvent,
 } from "@/lib/hermes/stream-view";
@@ -260,5 +263,83 @@ describe("失敗の読み替え（#214）", () => {
     for (const kind of ["no_session", "session_busy", "bridge_busy", "turn_not_found"] as const) {
       assert.equal(describeHermesError(kind).connection, null);
     }
+  });
+});
+
+describe("進捗・使用量・再送（#1158）", () => {
+  const T0 = 1_000_000;
+
+  it("道具は始めた時刻を持ち、完了で所要秒を持つ（reasoning・tool.progressは畳まない）", () => {
+    let state = startTurn(initialChatState, "予定は？", T0);
+    state = applyEventAt(state, { type: "tool.start", data: { name: "aide_schedule", args: {} } }, T0 + 1000);
+    state = applyEventAt(state, { type: "reasoning.delta", data: { text: "秘密の推論" } }, T0 + 2000);
+    state = applyEventAt(state, { type: "tool.progress", data: { preview: "メール本文" } }, T0 + 3000);
+    const running = state.items.find((i) => i.kind === "tool");
+    assert.ok(running?.kind === "tool" && running.status === "running" && running.startedAt === T0 + 1000);
+    assert.equal(JSON.stringify(state.items).includes("秘密の推論"), false);
+    assert.equal(JSON.stringify(state.items).includes("メール本文"), false);
+    assert.equal(state.activityAt, T0 + 3000);
+
+    state = applyEventAt(state, { type: "tool.complete", data: { name: "aide_schedule", result: { ok: true }, durationSeconds: 4.2 } }, T0 + 5000);
+    const done = state.items.find((i) => i.kind === "tool");
+    assert.ok(done?.kind === "tool" && done.status === "done" && done.durationSeconds === 4.2);
+  });
+
+  it("所要秒が届かなければ開始からの差で補い、ターンの終わりで時計を止める", () => {
+    let state = startTurn(initialChatState, "x", T0);
+    state = applyEventAt(state, { type: "tool.start", data: { name: "aide_schedule", args: {} } }, T0);
+    state = applyEventAt(state, { type: "tool.complete", data: { name: "aide_schedule", result: {} } }, T0 + 3000);
+    const done = state.items.find((i) => i.kind === "tool");
+    assert.ok(done?.kind === "tool" && done.durationSeconds === 3);
+    state = applyEventAt(state, { type: "message.complete", data: { text: "ok", status: "complete" } }, T0 + 4000);
+    assert.equal(state.activityAt, null);
+    assert.equal(state.running, false);
+  });
+
+  it("reduce に渡しても index を時刻と取り違えない", () => {
+    const events: RelayEvent[] = [{ type: "tool.start", data: { name: "aide_schedule", args: {} } }];
+    const state = events.reduce(applyEvent, startTurn(initialChatState, "x"));
+    const tool = state.items.find((i) => i.kind === "tool");
+    assert.ok(tool?.kind === "tool" && typeof tool.startedAt === "number" && tool.startedAt > 1_000_000_000_000);
+  });
+
+  it("使用量はターンの終わりに1行だけ出し、取れなければ出さない", () => {
+    assert.equal(usageText({ input: 1200, cache_read: 800, output: 40 }), "今回の使用量: 入力 2,000・出力 40 トークン");
+    assert.equal(usageText({ prompt: 5000, input: 100, output: 7 }), "今回の使用量: 入力 5,000・出力 7 トークン");
+    assert.equal(usageText(undefined), null);
+    assert.equal(usageText({}), null);
+    const withUsage = run([{ type: "message.complete", data: { text: "はい", status: "complete", usage: { input: 10, output: 5 } } }]);
+    assert.equal(withUsage.items.filter((i) => i.kind === "usage").length, 1);
+    const without = run([{ type: "message.complete", data: { text: "はい", status: "complete" } }]);
+    assert.equal(without.items.some((i) => i.kind === "usage"), false);
+  });
+
+  it("失敗した回は再送の材料を持つ。書き込みが走った可能性があれば risky", () => {
+    const readOnly = run([
+      { type: "tool.start", data: { name: "aide_schedule", args: {} } },
+      { type: "error", data: { reason: "hermes_error", message: "失敗" } },
+    ]);
+    const notice = readOnly.items.at(-1);
+    assert.ok(notice?.kind === "notice" && notice.retry?.text === "こんにちは" && notice.retry.risky === false);
+
+    const wrote = run([
+      { type: "tool.start", data: { name: "mcp_aide_aide_create_event", args: { title: "x" } } },
+      { type: "error", data: { reason: "hermes_error", message: "失敗" } },
+    ]);
+    assert.equal(retryOf(wrote)?.risky, true);
+    const wroteNotice = wrote.items.at(-1);
+    assert.ok(wroteNotice?.kind === "notice" && wroteNotice.retry?.risky === true);
+
+    const proposed = run([
+      { type: "proposal", data: { proposal } },
+      { type: "error", data: { reason: "hermes_down", message: "切れた" } },
+    ]);
+    assert.equal(retryOf(proposed)?.risky, true);
+  });
+
+  it("addNotice（接続切れなど）は再送を持たない", () => {
+    const state = addNotice(startTurn(initialChatState, "x"), "error", "切れた");
+    const notice = state.items.at(-1);
+    assert.ok(notice?.kind === "notice" && notice.retry === undefined);
   });
 });

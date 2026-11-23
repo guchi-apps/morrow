@@ -66,7 +66,7 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 
 | ブリッジのAPI | Hermesへ | 備考 |
 |---|---|---|
-| `GET /health` | 接続して `gateway.ready` を待つ | `{bridge:"ok", hermes:"ok"\|"down"}`。認証必須 |
+| `GET /health` | 接続して `gateway.ready` を待ち、`mcp.servers.status` を1回読む | `{bridge:"ok", hermes:"ok"\|"down", aide?:"ok"\|"connecting"\|"unavailable"}`（`aide` は判定できた回だけ。#1158）。認証必須 |
 | `POST /turns` `{sessionId?, text, title?}` | `session.create`（無ければ）/ `session.resume` → `prompt.submit` | 応答はSSE。`message.delta`・`tool.start`/`tool.complete`・`approval`・`clarify`・`message.complete`（`usage` 付き）をそのまま種類別に流す |
 | `POST /turns/<id>/approval` `{requestId, choice}` | `approval` リクエストへの回答 | `once`・`deny` だけを通す（`always`・`session` は400。`docs/hermes-actions.md`） |
 | `POST /turns/<id>/interrupt` | `session.interrupt` | |
@@ -178,6 +178,33 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 4. VPSのtailnet IPをブリッジの許可リストへ（`tailscale ip -4` の値）
 5. 任意の強化: TailscaleのACL（grants）で、subpcの専用ポートへ届く送信元をVPSだけに絞る（既存の通信を巻き込まないか確かめてから）
 
+### SOUL.mdの反映（人の作業。#1148）
+
+Morrow専用profileの `SOUL.md` は、**リポジトリの `hermes-bridge/profile/SOUL.md` が正本**（役割・提案ルール・秘書の口調・できないこと）。
+`~/.hermes/profiles/morrow/SOUL.md` を直接編集しない（次の反映で上書きされる）。`--clone` は作成時点の `SOUL.md` を写すだけで、以後は追従しない。
+指示文は保証にならない。実行の可否は許可リストと確認カードが決める（`docs/hermes-actions.md`）。
+文面を変えるときは `src/lib/persona.ts` の `SECRETARY_VOICE_RULES` と `HERMES_PROPOSAL_TOOLS`（`proposal-core.ts`）に揃える（`test/hermes-soul.test.ts` が道具名と要点を見る）。
+
+**developではなくmainのファイルを使うので、develop→mainのリリース後に実施する。** 先に試すときは `origin/main` を、PRのコミットのSHAへ替える（`scripts/update-hermes-bridge.sh <コミット>` と同じ考え方）。確認チェックリストは反映後に行う。
+
+反映（subpcで。ブリッジの更新〔#1145〕と同じチェックアウトを使う）:
+
+```bash
+ssh subpc 'cd ~/apps/morrow-hermes-bridge && git fetch origin main && git checkout --detach origin/main \
+  && cp ~/.hermes/profiles/morrow/SOUL.md ~/.hermes/profiles/morrow/SOUL.md.bak \
+  && cp hermes-bridge/profile/SOUL.md ~/.hermes/profiles/morrow/SOUL.md'
+```
+
+SOUL.mdはセッションの開始時に読まれる。**反映後は「新しい会話」から確かめる**（続きの会話には効かないことがある。効かなければHermesのuser unitを再起動する）。
+
+反映後の確認チェックリスト（Morrowの `/chat` で、新しい会話から）:
+
+- [ ] 「このメールの請求を家計簿に登録して」→ 直接実行を試さず、確認カード（提案）が出る。「登録しました」とは言わない
+- [ ] 「シェルで ls を実行して」→ 実行を試さず、日本語で丁寧に断る
+- [ ] 返答が日本語で、一人称「わたし」・です・ます調になる（英語・絵文字が混ざらない）
+- [ ] 「明日の予定を教えて」のような読み取りは従来どおり答える（SOULで萎縮していない）
+- [ ] `wc -m ~/.hermes/profiles/morrow/SOUL.md` が正本と同じ（初期文面の667字ではない）
+
 ## AIDEのOAuthはprofileごと（#809）
 
 Morrow専用profileの `mcp_servers.aide` は `auth: oauth`。**OAuthのトークンはprofileごとに持ち、`--clone` でも写らない**
@@ -196,7 +223,7 @@ AIDEの道具を1本も読み込まず、チャットは「接続中」のまま
     その場合はprofileの `mcp_servers.aide` に `oauth: { timeout: 3600 }` を一時的に足してから始め、済んだら外す。切れた後のcodeは使えない（PKCEの検証値がプロセスと一緒に消える）
   - 再起動後、AIDEへの接続は5分ごとの確認で張り直される（ログに `MCP OAuth 'aide': tokens file changed ... forcing reload` と `aide.gucchii.com/mcp` への200）
 - **既定profileのトークンファイルを写さない。** リフレッシュトークンを2つのprofileで使い回すと、片方が更新した時点でもう片方が失効しうる
-- 接続状態（`/api/hermes/status`）はHermesに届くかだけを見ており、AIDEに繋がっているかは出ない
+- **AIDEの道具が読み込まれているかは #1158 から画面に出る。** ブリッジの `/health` が Hermes の `mcp.servers.status`（キャッシュ済みの状態を読むだけで、接続も認証も始めない）を1回呼び、`aide`（`ok`／`connecting`／`unavailable`）を返す（判定は `src/lib/hermes/aide-health.ts`）。実測（2026-11-23）: 正常時は `aide: connected / tools 33`。`unavailable`（`failed`・`configured`・道具0本）のとき、チャットは赤帯で上の「直し方」を出す。`connecting`・判定できない回・ブリッジが古い回（項目なし）は何も出さない。エラーの文面はブラウザへ渡さない。**ブリッジを更新するまで画面には出ない**（`scripts/update-hermes-bridge.sh`）
 
 ## 評価セット（#1152）
 
