@@ -13,7 +13,8 @@
 #   scripts/update-hermes-bridge.sh            # origin/main へ
 #   scripts/update-hermes-bridge.sh <コミット>  # 版を指定（戻すとき）
 #
-# 再起動の数秒の間、進行中のターンは切れる（ブリッジは切断で中断する）。チャットを使っていないときに流す。
+# 再起動の数秒の間、進行中のターンは切れる（ブリッジは切断で中断する）。ブリッジには進行中のターンを数えるAPIが無いので、
+# ブリッジのポートに張られたままの接続（ターンはSSEで張りっぱなし）があれば止まる。承知で流すときは FORCE=1。
 set -euo pipefail
 
 BRIDGE_DIR="${MORROW_HERMES_BRIDGE_DIR:-$HOME/apps/morrow-hermes-bridge}"
@@ -38,13 +39,21 @@ after=$(git rev-parse --short HEAD)
 echo "ブリッジ: $before -> $after"
 git log --oneline "$before..$after" -- hermes-bridge src/lib/hermes/contract.ts || true
 
-systemctl --user restart "$UNIT"
-
-# /health は認証の内側。トークンと許可済みの送信元（tailscale serveが付ける X-Forwarded-For）を真似て叩く
 set -a
 # shellcheck disable=SC1090
 . "$ENV_FILE"
 set +a
+
+open_conns=$(ss -Htn state established "( sport = :${MORROW_HERMES_BRIDGE_PORT} )" | wc -l)
+if [ "$open_conns" -gt 0 ] && [ "${FORCE:-0}" != "1" ]; then
+  echo "エラー: ブリッジへの接続が ${open_conns} 本あります（進行中のターンの可能性）。終わってから流すか、FORCE=1 を付けてください。" >&2
+  echo "（版は $after へ切り替え済みで、再起動だけしていません）" >&2
+  exit 1
+fi
+
+systemctl --user restart "$UNIT"
+
+# /health は認証の内側。トークンと許可済みの送信元（tailscale serveが付ける X-Forwarded-For）を真似て叩く
 client_ip="${MORROW_HERMES_BRIDGE_ALLOWED_IPS%%,*}"
 for _ in $(seq 1 15); do
   if body=$(curl -fsS --max-time 10 \
