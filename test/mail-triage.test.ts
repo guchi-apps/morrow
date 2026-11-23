@@ -9,6 +9,7 @@ import {
   applyCardRule,
   buildTriagePrompt,
   composeMailPush,
+  composeMailPushes,
   nextMailCursor,
   normalizeAmount,
   normalizeMailCriteria,
@@ -96,9 +97,51 @@ describe("composeMailPush", () => {
     assert.equal(long.title, `${"件".repeat(60)}…`);
   });
 
+  it("認証コードが取れた1通は見出しにコードを出す。コード無しの文面は変わらない（#1135）", () => {
+    const one = composeMailPush([{ id: "a", from: '"Amazon" <a@b>', subject: "確認コード", reason: "本人確認", code: "482913" }]);
+    assert.equal(one.title, "認証コード 482913");
+    assert.equal(one.body, "Amazon — 確認コード");
+    assert.equal(one.url, "/mail/a");
+    // 記録用はコードを外した見出し（NotificationLog に残さない）
+    const record = composeMailPush([{ id: "a", from: "x@y", subject: "確認コード", reason: "", code: null }]);
+    assert.equal(record.title.includes("482913"), false);
+    const many = composeMailPush([
+      { id: "a", from: "x@y", subject: "s1", reason: "", code: "123456" },
+      { id: "b", from: "x@y", subject: "s2", reason: "" },
+    ]);
+    assert.equal(many.body, "x@y：s1（コード 123456）\nx@y：s2");
+  });
+
   it("本文は200文字に収める", () => {
     const mails = Array.from({ length: 10 }, (_, i) => ({ id: `m${i}`, from: "x@y", subject: "件".repeat(60), reason: "理".repeat(60) }));
     assert.ok(composeMailPush(mails).body.length <= 200);
+  });
+});
+
+describe("composeMailPushes と認証コード（#1135）", () => {
+  it("個別通知にはコードが出て、コードを外した記録用の見出しには出ない", () => {
+    const mail = { id: "a", from: "x@y", subject: "確認コード", reason: "", code: "482913" };
+    assert.equal(composeMailPushes([mail], "mail-notice")[0]!.title, "認証コード 482913");
+    assert.equal(composeMailPushes([{ ...mail, code: null }], "mail-notice")[0]!.title.includes("482913"), false);
+  });
+});
+
+describe("composeMailPushes（#1134）", () => {
+  const mk = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `m${i}`, from: "x@y", subject: `s${i}`, reason: "" }));
+  it("複数通でも1通ずつ、そのメールの画面へ飛ぶ通知になる", () => {
+    const items = composeMailPushes(mk(3), "mail-notice");
+    assert.deepEqual(items.map((i) => i.url), ["/mail/m0", "/mail/m1", "/mail/m2"]);
+    assert.equal(new Set(items.map((i) => i.tag)).size, 3);
+  });
+  it("上限を超えた分は「ほか◯通」の1本で一覧へ", () => {
+    const items = composeMailPushes(mk(8), "mail-notice");
+    assert.equal(items.length, 6);
+    assert.equal(items[5]!.url, "/mail");
+    assert.equal(items[5]!.title, "ほか3通の必要なメール");
+  });
+  it("上限超えが1通だけならそのメールの画面へ", () => {
+    const items = composeMailPushes(mk(6), "mail-notice");
+    assert.equal(items[5]!.url, "/mail/m5");
   });
 });
 

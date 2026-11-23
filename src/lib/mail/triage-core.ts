@@ -165,10 +165,20 @@ export function parseTriageReply(answer: string, keys: readonly string[]): Map<s
   return result;
 }
 
-export type NeededMail = { id: string; from: string; subject: string; reason: string };
+export type NeededMail = { id: string; from: string; subject: string; reason: string; code?: string | null };
 
 /** 通知の文面。1通なら本文の画面へ、複数なら一覧へ飛ばす。 */
 export function composeMailPush(mails: NeededMail[]): { title: string; body: string; url: string } {
+  // 認証コードが取れた1通は、見出しにコードを出す（#1135。ロック画面だけで入力できるように）。理由は落とし、件名は本文へ
+  if (mails.length === 1 && mails[0]!.code) {
+    const mail = mails[0]!;
+    const body = `${flattenText(senderName(mail.from), 30)} — ${flattenText(mail.subject, 60) || "（件名なし）"}`;
+    return {
+      title: `認証コード ${mail.code}`,
+      body: body.length > PUSH_BODY_LIMIT ? `${body.slice(0, PUSH_BODY_LIMIT - 1)}…` : body,
+      url: `/mail/${encodeURIComponent(mail.id)}`,
+    };
+  }
   // 1通のときは、見出しに件名を出す（#1007。「必要なメール（1通）」では中身が分からない）。本文は差出人と理由
   if (mails.length === 1) {
     const mail = mails[0]!;
@@ -182,7 +192,8 @@ export function composeMailPush(mails: NeededMail[]): { title: string; body: str
   }
   const lines = mails.map((mail) => {
     const subject = flattenText(mail.subject, 60) || "（件名なし）";
-    return `${flattenText(senderName(mail.from), 30)}：${subject}${mail.reason ? ` — ${mail.reason}` : ""}`;
+    const code = mail.code ? `（コード ${mail.code}）` : "";
+    return `${flattenText(senderName(mail.from), 30)}：${subject}${mail.reason ? ` — ${mail.reason}` : ""}${code}`;
   });
   const body = lines.join("\n");
   return {
@@ -190,6 +201,34 @@ export function composeMailPush(mails: NeededMail[]): { title: string; body: str
     body: body.length > PUSH_BODY_LIMIT ? `${body.slice(0, PUSH_BODY_LIMIT - 1)}…` : body,
     url: mails.length === 1 ? `/mail/${encodeURIComponent(mails[0]!.id)}` : "/mail",
   };
+}
+
+/** 1回に個別の通知として送るメールの上限。超えた分は「ほか◯通」の1本にまとめる（#1134）。 */
+export const MAIL_PUSH_INDIVIDUAL_LIMIT = 5;
+
+export type MailPushItem = { title: string; body: string; url: string; tag: string };
+
+/**
+ * 必要なメールの通知を1通ずつに分ける（#1134）。どの通知を押しても、そのメールの画面（`/mail/<id>`）が開く。
+ * 上限を超えた分は「ほか◯通」の1本にして一覧へ飛ばす。`tag` はメールごとに変え、同時に届いても上書きし合わない。
+ */
+export function composeMailPushes(mails: NeededMail[], tagPrefix: string): MailPushItem[] {
+  const head = mails.slice(0, MAIL_PUSH_INDIVIDUAL_LIMIT);
+  const items: MailPushItem[] = head.map((mail) => ({
+    ...composeMailPush([mail]),
+    tag: `${tagPrefix}:${mail.id}`,
+  }));
+  const rest = mails.slice(MAIL_PUSH_INDIVIDUAL_LIMIT);
+  if (rest.length > 0) {
+    const composed = composeMailPush(rest.length === 1 ? [rest[0]!] : rest);
+    items.push({
+      title: rest.length === 1 ? composed.title : `ほか${rest.length}通の必要なメール`,
+      body: composed.body,
+      url: rest.length === 1 ? composed.url : "/mail",
+      tag: `${tagPrefix}:rest`,
+    });
+  }
+  return items;
 }
 
 /**
