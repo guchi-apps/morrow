@@ -33,7 +33,13 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const history = await (await hermesClient()).history(id);
     return NextResponse.json({ messages: history.messages, hasMore: history.hasMore });
   } catch (error) {
-    const failure = describeHermesError(error instanceof HermesError ? error.kind : "unreachable");
+    // 画面は「読み込めませんでした」としか出さないので、原因の切り分け用にログへ残す（#1145。古いブリッジが履歴APIを持たず
+    // 404 `not_found`→`bad_response` になっていたのが、画面からもログからも見えなかった）。会話の本文・トークンは含まない
+    const kind = error instanceof HermesError ? error.kind : "unreachable";
+    if (kind !== "no_session") {
+      console.warn(`[hermes] 履歴の取得に失敗（${kind}）`, error instanceof Error ? error.message : String(error));
+    }
+    const failure = describeHermesError(kind);
     return NextResponse.json({ error: failure.message, kind: failure.kind }, { status: failure.status });
   }
 }
