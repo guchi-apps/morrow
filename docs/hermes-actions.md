@@ -78,6 +78,7 @@ Hermesが台帳へ触れる経路はAIDEのMCP（`https://aide.gucchii.com/mcp`�
   繰り返しの親（シリーズ全体）はDaySpanが409で断るので、1回分を超えて広がらない。説明文の「変更前に復唱して確認を取る」は、
   チャットの中の復唱と利用者の返事で満たす（Morrowのカードは挟まない）。**DaySpan側で前の値に戻せない項目が増えたら、承認側へ移す**
 - 結果カードには、ストリームの `tool.start` の引数（何をどう変えたか）をその場で出す。Morrowの記録には値を残さない（「実行の記録」）
+- **結果カードの項目（#1142）**: Issue作成（`aide_create_issue`）は起票先を「リポジトリ（`guchi-apps/<名前>`）」「ラベル」の行で出し、成功なら結果から取れたIssueのリンク、失敗なら短い理由（`HTTP 403` など）を添える（`resultSummary()`。`tool-labels.ts`）。**失敗判定（`resultFailed()`）は結果の形を決め打ちしない**——`{"result":"<JSON文字列>"}`・MCPの `content[].text`・`ok:false`・`error`・`HTTP 4xx/5xx` の文言を入れ子まで読む。以前は包まれた失敗を読めず、GitHubの403でも「自動で実行しました」と出ていた。理由・リンクは画面のstateにだけ持つ（本文・URLをMorrowに残さない）
 
 ### Hermes組み込みの道具（#814）
 

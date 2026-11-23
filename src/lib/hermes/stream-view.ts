@@ -1,7 +1,7 @@
 import type { BridgeEvent, BridgeEventType } from "./contract.ts";
 import { stripAttachments } from "./prompt-attachment.ts";
 import type { ProposalView } from "./proposal-core.ts";
-import { argLines, isAutoWriteTool, knownToolKey, resultFailed, toolHint, toolLabel, type ArgLine } from "./tool-labels.ts";
+import { argLines, isAutoWriteTool, knownToolKey, resultFailed, resultSummary, toolHint, toolLabel, type ArgLine, type ResultSummary } from "./tool-labels.ts";
 
 /**
  * チャット画面の状態（#794。純粋）。ブリッジのイベント（MorrowのRoute Handlerが中継する）を、画面の並びへ畳み込む。
@@ -43,6 +43,8 @@ export type ChatItem =
       /** 取り消せる書き込み（自動実行）。結果カードで出す。 */
       auto: boolean;
       lines: ArgLine[];
+      /** 結果の要約（作成物のリンク・失敗の理由）。結果が届いていない・何も取れないときは null。 */
+      result: ResultSummary | null;
     }
   | { kind: "proposal"; id: number; proposal: ProposalView }
   | {
@@ -174,6 +176,7 @@ export function applyEvent(state: ChatState, event: RelayEvent): ChatState {
         status: "running",
         auto,
         lines: auto ? argLines(event.data.args) : [],
+        result: null,
       }));
     }
 
@@ -181,7 +184,11 @@ export function applyEvent(state: ChatState, event: RelayEvent): ChatState {
       const index = findRunningTool(state, event.data.name);
       const item = state.items[index];
       if (item?.kind !== "tool") return state;
-      return replaceAt(state, index, { ...item, status: resultFailed(event.data.result) ? "failed" : "done" });
+      return replaceAt(state, index, {
+        ...item,
+        status: resultFailed(event.data.result) ? "failed" : "done",
+        result: item.auto ? resultSummary(event.data.result) : null,
+      });
     }
 
     case "proposal": {
