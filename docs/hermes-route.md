@@ -82,6 +82,12 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 - Node標準の `http`・`WebSocket`（Node 22以降）で足り、依存は増えない
 - **置き場（#737で確定）**: コードはmorrowの `hermes-bridge/`（契約の型は `src/lib/hermes/contract.ts` を相対importで共有）、
   systemdのunit・`tailscale serve` の設定はsubpcリポジトリ（VOICEVOXと同じ扱い）。起動は `pnpm hermes-bridge`（`hermes-bridge/README.md`）
+- **ブリッジはMorrowのデプロイでは配られない**（#1145）。subpcの専用チェックアウト（`~/apps/morrow-hermes-bridge`。unitの `WorkingDirectory`）を手で進める。
+  **`hermes-bridge/`（と共有する `src/lib/hermes/contract.ts`）を変えたPRがmainへ入ったら、subpcで `scripts/update-hermes-bridge.sh` を流す**
+  （`origin/main` へ切り替え→`systemctl --user restart morrow-hermes-bridge`→`/health` の確認。引数でコミットを渡せば戻せる）。
+  #1145では11/8の版（#779）のまま止まっていて履歴APIが無く、チャットが毎回「前回の会話を読み込めませんでした」になった。
+  **見分け方**: ブリッジが知らないパスには404 `{"error":"not_found"}` を返し、Morrowは `bad_response` として扱う（Morrowのログに
+  `[hermes] 履歴の取得に失敗（bad_response）` が出る）。ブリッジの版は `git -C ~/apps/morrow-hermes-bridge log -1` で見る
 - **宛先 `HERMES_BRIDGE_URL`（#737で確定）**: GitHub変数 `vars.HERMES_BRIDGE_URL` を `deploy.yml` が `.env` へ渡す（tailnet名をGitに入れない）。未登録だと空になり、クライアントは `not_configured`
 
 ## 会話の履歴（#752）
