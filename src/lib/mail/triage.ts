@@ -5,6 +5,7 @@ import { modelFor } from "@/lib/chat-model-server";
 import { runCodexRecorded } from "@/lib/codex-run";
 import { db } from "@/lib/db";
 import { prefetchAnalysesSafely } from "@/lib/mail/analyze";
+import { extractSecurityCode } from "@/lib/mail/security-code";
 import { deleteListSummaries, summarizeMissingSafely } from "@/lib/mail/list-summary";
 import { isPushKindEnabled } from "@/lib/push/kinds-server";
 import { sendPushToUser, usersWithSubscriptions } from "@/lib/push/subscriptions";
@@ -208,7 +209,11 @@ async function check(user: CheckUser, now: Date): Promise<MailCheckResult> {
     rows.push({ userId: user.id, messageId: message.id, needed: decision.needed, reason: decision.reason });
     // アーカイブは「アーカイブの傾向があり、知らせない」と判定したものだけ（#942）。受信トレイにあるものに限る
     if (!decision.needed && decision.archive && hasArchiveRule && message.labelIds.includes("INBOX")) toArchive.push(message.id);
-    if (decision.needed) needed.push({ id: message.id, from: message.from, subject: message.subject, reason: decision.reason });
+    if (decision.needed) {
+      // 認証コードは件名・冒頭から取り出して通知にだけ載せる（#1135。保存しない）
+      const code = extractSecurityCode(message.subject, message.snippet);
+      needed.push({ id: message.id, from: message.from, subject: message.subject, reason: decision.reason, code });
+    }
   }
   // 1回に載せきれなかった分は、判定を省いたものとして記録する（溜まった分で通知が溢れないように）
   for (const message of overflow) rows.push({ userId: user.id, messageId: message.id, needed: false, reason: "" });
@@ -234,6 +239,8 @@ async function check(user: CheckUser, now: Date): Promise<MailCheckResult> {
     // メール単位の「知らせた印」。個別通知の分はその通知の結果、「ほか◯通」に回った分は最後の1本の結果（レビュー指摘）
     const deliveredById = new Map<string, number>();
     needed.forEach((mail, index) => deliveredById.set(mail.id, results[Math.min(index, results.length - 1)] ?? 0));
+    // 記録にはコードを含めない（#1135）。コードを外した通知の見出しを使う
+    const recordPushes = composeMailPushes(needed.map((mail) => ({ ...mail, code: null })), MAIL_NOTICE_KIND);
     // 送信の試行が終わったので確定する。端末が無い・オフで届かなかった回は notifiedAt=null のまま判定済みにする
     await db.mailTriage.createMany({
       data: rows
@@ -255,7 +262,7 @@ async function check(user: CheckUser, now: Date): Promise<MailCheckResult> {
             userId: user.id,
             kind: MAIL_NOTICE_KIND,
             dedupeKey,
-            title: pushes.length === 1 ? pushes[0]!.title : `必要なメール（${needed.length}通）`,
+            title: recordPushes.length === 1 ? recordPushes[0]!.title : `必要なメール（${needed.length}通）`,
             body: `${needed.length}通`,
             deliveredCount: delivered,
           },

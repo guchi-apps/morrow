@@ -165,10 +165,20 @@ export function parseTriageReply(answer: string, keys: readonly string[]): Map<s
   return result;
 }
 
-export type NeededMail = { id: string; from: string; subject: string; reason: string };
+export type NeededMail = { id: string; from: string; subject: string; reason: string; code?: string | null };
 
 /** 通知の文面。1通なら本文の画面へ、複数なら一覧へ飛ばす。 */
 export function composeMailPush(mails: NeededMail[]): { title: string; body: string; url: string } {
+  // 認証コードが取れた1通は、見出しにコードを出す（#1135。ロック画面だけで入力できるように）。理由は落とし、件名は本文へ
+  if (mails.length === 1 && mails[0]!.code) {
+    const mail = mails[0]!;
+    const body = `${flattenText(senderName(mail.from), 30)} — ${flattenText(mail.subject, 60) || "（件名なし）"}`;
+    return {
+      title: `認証コード ${mail.code}`,
+      body: body.length > PUSH_BODY_LIMIT ? `${body.slice(0, PUSH_BODY_LIMIT - 1)}…` : body,
+      url: `/mail/${encodeURIComponent(mail.id)}`,
+    };
+  }
   // 1通のときは、見出しに件名を出す（#1007。「必要なメール（1通）」では中身が分からない）。本文は差出人と理由
   if (mails.length === 1) {
     const mail = mails[0]!;
@@ -182,7 +192,8 @@ export function composeMailPush(mails: NeededMail[]): { title: string; body: str
   }
   const lines = mails.map((mail) => {
     const subject = flattenText(mail.subject, 60) || "（件名なし）";
-    return `${flattenText(senderName(mail.from), 30)}：${subject}${mail.reason ? ` — ${mail.reason}` : ""}`;
+    const code = mail.code ? `（コード ${mail.code}）` : "";
+    return `${flattenText(senderName(mail.from), 30)}：${subject}${mail.reason ? ` — ${mail.reason}` : ""}${code}`;
   });
   const body = lines.join("\n");
   return {
