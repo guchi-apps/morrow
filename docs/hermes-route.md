@@ -125,6 +125,27 @@ Morrow profile は `session_search`（過去の会話を検索して要約する
 3. 実測は「確認項目」に結果（日付・方法）を書き足す。混ざる場合は有効化を戻し、Issueで報告する
 4. `docs/hermes-actions.md` の道具の分類表に `session_search` を足すときは「読み取り（自動）」とする（外へ書き込まない）
 
+## スキルの確認・承認（#1154）
+
+Hermesが作る「再利用できる手順（スキル）」は、**Morrowの画面（`/skills`）で内容を見て承認するまで1つも登録されない**。実測は `docs/hermes-skills.md`（#1153）。
+
+- **仕組み（第一案）**: morrow profileで `skills.write_approval: true` にすると、`skill_manage` の書き込みは `<HERMES_HOME>/pending/skills/<id>.json`（`id`・`summary`・`origin`・`created_at`・`payload`）へ保留され、直接は書かれない。ブリッジ（`hermes-bridge/skills.ts`）が保留を**ファイルから直接読み**（`command.dispatch` の `skills pending` は構造化されていない）、差分だけ `skills diff <id>` で取る。承認・却下は `command.dispatch`（`skills approve|reject <id>`）。`arg` は `pending`・`diff`・`approve`・`reject`＋8桁hexだけを通す（管理者権限の経路のため）
+- **ブリッジのAPI**: `GET /skills/pending`・`POST /skills/pending/<id>/approve|discard`・`GET /skills/installed`・`DELETE /skills/installed/<name>`。失敗は `skill_not_found`（404）・`skill_rejected`（409。Hermesが適用しなかった・同梱スキルの削除）
+- **Morrow**: `/skills`（確認カード＋登録済み一覧）、`POST /api/hermes/skills/pending/<id>`（`{ action: approve|discard, confirmed }`）、`DELETE /api/hermes/skills/installed/<name>`。**承認のたびに保留をブリッジから読み直して `validatePendingSkill()`（`skill-core.ts`）で検証し直す**（画面の申告は信じない）。説明は60字以内・本文の合計2万字以内・名前は `^[a-z0-9][a-z0-9._-]{0,63}$`・操作10件まで・パスに `..`／絶対パス不可。個人情報らしき文字列（`detectSensitive()`。電話・メール・カード・口座・住所・トークン）は本文で強調し、あれば `confirmed: true` が無ければ承認を断る（検出は補助で安全の保証ではない）
+- **同梱スキルへのpatch提案も保留に入る**（#1153）。カードに「同梱スキルの変更」と出し、差分を必ず見せる
+- **削除できるのはHermesが作ったものだけ**（`.bundled_manifest` に載る同梱は不可）。ブリッジが `skills/` 配下の同名ディレクトリを1つに決められたときだけ消す
+- **却下・期限切れで保留を残さない**: 却下はHermesの `reject`（消えなければブリッジが保留ファイルを消す）。7日（`PENDING_TTL_MS`）を過ぎた保留は一覧のたびに消す
+- **通知 `hermes-skill`（#488の種類）**: ターン中に `skill_manage` の `tool.complete` が `"staged": true` を返したら、ターン終了時に1回だけ送る（押すと `/skills`）。**ナッジの自動見直しが会話の後に作った保留は通知されない**（`/skills` を開いて分かる。メニューのバッジは未実装）
+- **`skills.guard_agent_created` は有効にしていない**（既定の無効のまま）。有効にするかは、subpcで実Hermesを使った実測の後に決める
+- **保留はprofile単位で、利用者ごとに分けない**（Morrowは実質1人運用）。ログイン許可済みの利用者なら誰でも承認できる
+
+### 手作業（人の作業。マージ後）
+
+1. subpcでブリッジを更新する（`scripts/update-hermes-bridge.sh`）。ブリッジの環境に `MORROW_HERMES_HOME=<morrow profileのパス>` を足して再起動（systemdのunitのEnvironment）
+2. Morrow profileでスキルを有効化し、書き込み承認を入れる（**入力トークンが約7,700増える**。#1153）:
+   `hermes -p morrow tools enable skills --platform cli` → `hermes -p morrow config set skills.write_approval true` → `hermes -p morrow serve` の再起動
+3. 確認: 「この頼み方、次からも使えるようにして」と送り、`/skills` にカードが出ること・承認で `~/.hermes/profiles/morrow/skills/<名前>/SKILL.md` ができること・却下で `pending/skills/` が空になること
+
 ## 認証
 
 ### 比較

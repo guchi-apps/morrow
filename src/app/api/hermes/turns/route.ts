@@ -180,6 +180,7 @@ async function pumpTurn(options: {
   const currentSessionId = options.sessionId;
   let toolCount = 0;
   let proposalsCreated = 0;
+  let skillsStaged = 0;
 
   try {
     for await (const event of events) {
@@ -210,6 +211,10 @@ async function pumpTurn(options: {
 
       if (event.type === "tool.complete") {
         if (isProposeTool(event.data.name)) continue;
+        // スキルの作成・変更が保留に入った（#1154。`skills.write_approval` で `{"staged":true}` が返る）
+        if (event.data.name === "skill_manage" && /"staged"\s*:\s*true/.test(typeof event.data.result === "string" ? event.data.result : JSON.stringify(event.data.result ?? ""))) {
+          skillsStaged += 1;
+        }
         if (isAutoWriteTool(event.data.name) && event.data.name) {
           await recordAutoAction({
             userId: user.id,
@@ -236,6 +241,22 @@ async function pumpTurn(options: {
     }
     log.finish();
     if (proposalsCreated > 0) await notifyPending(user.id, proposalsCreated);
+    if (skillsStaged > 0) await notifySkillPending(user.id, skillsStaged);
+  }
+}
+
+/** スキル案の確認待ちを知らせる（1ターンにつき1回。押すとスキルの画面を開くだけ。種類がオフなら送らない）。 */
+async function notifySkillPending(userId: string, count: number): Promise<void> {
+  try {
+    if (!(await isPushKindEnabled(userId, "hermes-skill"))) return;
+    await sendPushToUser(userId, {
+      title: "スキルの確認待ちがあります",
+      body: count === 1 ? "Hermesが作ったスキル案が1件、確認を待っています。" : `Hermesが作ったスキル案が${count}件、確認を待っています。`,
+      url: "/skills",
+      tag: "hermes-skill",
+    });
+  } catch (error) {
+    console.error("[aide-bot] スキルの確認待ちの通知を送れなかった", error instanceof Error ? error.message : error);
   }
 }
 

@@ -11,6 +11,7 @@ export const PUSH_KINDS = [
   "scheduled-push",
   "mail-notice",
   "hermes-approval",
+  "hermes-skill",
 ] as const;
 
 export type PushKind = (typeof PUSH_KINDS)[number];
@@ -55,6 +56,17 @@ export const PUSH_KIND_INFO: Record<PushKind, PushKindInfo> = {
       title: "確認待ちがあります",
       body: "（見本）チャットを開いて、内容を確かめてください。",
       url: "/chat",
+    },
+  },
+  // Hermesが作ったスキル案の確認待ち（#1154）。押すとスキルの画面を開くだけで、通知から直接は承認しない。
+  "hermes-skill": {
+    label: "スキルの確認待ち",
+    hint: "チャットでHermesが「次からも使える手順（スキル）」の案を作ったとき、登録してよいか確認を求めます。押すとスキルの画面が開きます。",
+    when: "Hermesがスキル案を作ったとき",
+    sample: {
+      title: "スキルの確認待ちがあります",
+      body: "（見本）スキルの画面を開いて、内容を確かめてください。",
+      url: "/skills",
     },
   },
 };

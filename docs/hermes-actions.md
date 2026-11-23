@@ -226,3 +226,10 @@ Morrowに「誰が・いつ・何を」だけを残す（#683の `MailTriage` �
   #728（画面）の確認カードはこの文書を前提に作る
 - **AIDEの道具の注釈と冪等キー**（`guchi-apps/aide`）: `readOnlyHint` の宣言と、`aide_create_event`・`aide_update_event` への `idempotencyKey`。guchi-apps/aide#823
 - **profileの設定**（人の作業）: 上の表の値を #738 の手順に足す
+
+## スキルの作成・変更（#1154）
+
+`skill_manage`（スキルの作成・書き換え・削除）は「取り消せない書き込み」ではなく**自己書き換え**として別に扱う。道具の許可リストでは分けられない
+（`skills` ツールセット単位でしか外せない。#1153）ため、`skills.write_approval: true` で**常に保留に入れ、Morrowの確認カード（`/skills`）で利用者が内容を見て承認した分だけ登録する**。
+Hermesの `approval`（`once`・`deny`）や `morrow_propose_action` の確認カードとは別の経路（`docs/hermes-route.md`「スキルの確認・承認」）。
+記録は持たない（保留はHermes側のファイル。確定したら消える）。

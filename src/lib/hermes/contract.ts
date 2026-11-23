@@ -53,6 +53,8 @@ export type BridgeErrorReason =
   | "session_busy" // 409: 同じセッションで別のターンが走っている
   | "bridge_busy" // 429: ブリッジ全体の同時実行の上限
   | "turn_not_found" // 404: 承認・中断の宛先のターンが無い
+  | "skill_not_found" // 404: スキルの保留・登録済みスキルが無い（#1154）
+  | "skill_rejected" // 409: Hermesが承認を適用しなかった・同梱スキルの削除（#1154）
   | "timeout" // 1ターン10分の上限
   | "hermes_error"; // Hermesがエラーで終えた
 
