@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { sizeLabel } from "@/components/mail/mail-format";
+import { SalarySheet } from "@/components/mail/salary-sheet";
 import { checkAttachmentName, categoryLabel, categoryOf, type AttachmentCategory, type AttachmentCheck } from "@/lib/mail/attachment-check";
 import { attachmentUrl } from "@/lib/mail/body-images";
 import type { MailAttachment } from "@/lib/mail/contract";
@@ -15,6 +16,7 @@ import { cn } from "@/lib/utils";
  * - 「保存」「見る」を押すと、Morrowのサーバーが中身を検査（`?mode=check`）してから進める。`caution` は理由のシートで確かめてから保存、
  *   `danger` は保存させない。開けるのは検査で問題が無かった画像・PDFだけ
  * - `attachmentId` が無い（AIDEの取り出し口が無い版）ものはファイル名だけ
+ * - PDFは「給与明細として取り込む」からAsset Managerの給与台帳へ送れる（#1170。`SalarySheet`）
  */
 
 type RowState =
@@ -38,6 +40,7 @@ export function MailAttachments({ messageId, attachments }: { messageId: string;
   const [rows, setRows] = useState<Record<number, RowState>>({});
   const [confirm, setConfirm] = useState<{ index: number; check: AttachmentCheck } | null>(null);
   const [viewing, setViewing] = useState<{ src: string; name: string } | null>(null);
+  const [salary, setSalary] = useState<{ messageId: string; attachmentId: string; filename: string } | null>(null);
 
   if (attachments.length === 0) return null;
 
@@ -97,6 +100,7 @@ export function MailAttachments({ messageId, attachments }: { messageId: string;
             onDownload={() => void run(index, "download")}
             onView={() => void run(index, "view")}
             onConfirm={(check) => setConfirm({ index, check })}
+            onSalary={() => file.attachmentId && setSalary({ messageId, attachmentId: file.attachmentId, filename: file.filename })}
           />
         ))}
       </ul>
@@ -113,6 +117,7 @@ export function MailAttachments({ messageId, attachments }: { messageId: string;
         }}
       />
       <ImageViewer image={viewing} onClose={() => setViewing(null)} />
+      {salary && <SalarySheet target={salary} onClose={() => setSalary(null)} />}
     </section>
   );
 }
@@ -135,12 +140,14 @@ function AttachmentRow({
   onDownload,
   onView,
   onConfirm,
+  onSalary,
 }: {
   file: MailAttachment;
   state: RowState;
   onDownload: () => void;
   onView: () => void;
   onConfirm: (check: AttachmentCheck) => void;
+  onSalary: () => void;
 }) {
   const category = categoryOf(file.filename, file.mimeType);
   const icon = ICON[category];
@@ -173,6 +180,11 @@ function AttachmentRow({
         )}
         {state.status === "error" && <p className="mt-1 text-[0.6875rem] text-danger">{state.message}</p>}
         {!available && <p className="mt-0.5 text-[0.6875rem] text-muted">このメールの添付は、まだ取り出せません。</p>}
+        {available && category === "pdf" && verdict !== "danger" && (
+          <button type="button" onClick={onSalary} className="mt-1 text-[0.6875rem] text-accent underline underline-offset-2">
+            💴 給与明細としてAsset Managerへ取り込む
+          </button>
+        )}
       </div>
       {available && (
         <div className="ml-auto flex shrink-0 gap-1.5">

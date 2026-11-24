@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import { normalizeSuggestion, toolCallFor } from "@/lib/mail/suggest-core";
 import { importArgs, normalizeUtilityBill } from "@/lib/mail/utility-bill-core";
+import { salaryCommitArgs, salaryPreviewArgs } from "@/lib/mail/salary-core";
 import { cardConfirmArgs } from "@/lib/mail/withdrawal-core";
 
 /**
@@ -52,6 +53,24 @@ const SCHEMAS: Record<string, Schema> = {
     },
     required: ["paymentDate", "amount", "sourceKey"],
   },
+  // #1170。2026-11-24に ~/apps/aide の src/mcp/tools/salary-agent.ts（inputSchema）から写した。
+  // mailbox はAIDE側で `^[^\s@]+@[^\s@]+$`・255字、pdfBase64 はデコード後700,000バイトまで（ここでは形だけ見る）
+  asset_manager_salary_preview: {
+    props: { mailbox: { type: "string", maxLength: 255, pattern: /^[^\s@]+@[^\s@]+$/ }, gmailMessageId: { type: "string", maxLength: 255 }, pdfBase64: { type: "string" } },
+    required: ["mailbox", "gmailMessageId", "pdfBase64"],
+  },
+  asset_manager_salary_approval_status: { props: { previewId: { type: "string", pattern: /^[A-Za-z0-9_-]{1,64}$/ } }, required: ["previewId"] },
+  asset_manager_salary_commit: {
+    props: {
+      mailbox: { type: "string", maxLength: 255, pattern: /^[^\s@]+@[^\s@]+$/ },
+      gmailMessageId: { type: "string", maxLength: 255 },
+      pdfBase64: { type: "string" },
+      previewId: { type: "string", pattern: /^[A-Za-z0-9_-]{1,64}$/ },
+      previewToken: { type: "string", maxLength: 4096 },
+    },
+    required: ["mailbox", "gmailMessageId", "pdfBase64", "previewId", "previewToken"],
+  },
+  asset_manager_salary_lookup: { props: { salaryId: { type: "string", pattern: /^[A-Za-z0-9_-]{1,64}$/ } }, required: ["salaryId"] },
   // #1100。2026-11-19に ~/apps/aide の src/mcp/tools/kurashio-bills.ts（inputSchema）から写した
   kurashio_utility_bill_contracts: { props: { kind: { type: "string", enum: ["electricity", "gas"] } }, required: ["kind"] },
   kurashio_get_utility_bill: {
@@ -318,5 +337,19 @@ describe("電気・ガスの請求のクラシオへの反映の呼び出し（#
   it("登録（使用量あり・なし。受信日付き）", () => {
     assertValid("kurashio_import_utility_bill", importArgs(bill, "k1", "msg-1", Date.parse("2026-11-05T09:12:00+09:00")));
     assertValid("kurashio_import_utility_bill", importArgs({ ...bill, usageValue: null, usageUnit: null, planName: null, sourceLabel: null }, "k1", "msg-1", null));
+  });
+});
+
+describe("給与明細PDFの取り込みの呼び出し（#1170）", () => {
+  const source = { mailbox: "someone@example.com", pdfBase64: "JVBERi0xLjQK" };
+  it("解析・保存（追加アカウントの接頭辞付きのメールIDでも範囲内）", () => {
+    for (const id of ["18c3f0a1b2d4e5f6", "sub~123"]) {
+      assertValid("asset_manager_salary_preview", salaryPreviewArgs(source, id));
+      assertValid("asset_manager_salary_commit", salaryCommitArgs(source, id, "cm1preview", "tok.abc"));
+    }
+  });
+  it("承認状態・読み戻し", () => {
+    assertValid("asset_manager_salary_approval_status", { previewId: "cm1preview" });
+    assertValid("asset_manager_salary_lookup", { salaryId: "cm1salary" });
   });
 });

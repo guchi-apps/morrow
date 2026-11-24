@@ -950,6 +950,18 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 - **応答の種類は中身の署名で決める**（申告の `mimeType` は信じない）。その場で開けるのは `safe` の画像（png/jpeg/gif/webp）とPDFだけで、SVG・HTMLは常に保存。応答は `nosniff`・`CSP: sandbox` 固定（PDFを開くときだけ `sandbox` を外す。Chromeが表示しないため）。`Content-Disposition` のファイル名は `attachmentDisposition()` で無害化する
 - **iOSの殻は `Content-Disposition: attachment` の応答と `?mode=download` を `WKDownload` で受け、共有シートを開く**（`WebViewModel.swift`。一時フォルダに置き、閉じたら消す）。殻を変えずにWebだけで保存させると、WKWebViewは何もしない
 
+### 給与明細PDFをAsset Managerへ取り込む（#1170）
+
+メール詳細の添付欄で、PDFの行の「💴 給与明細としてAsset Managerへ取り込む」から、AIDEの給与専用の道具（`asset_manager_salary_*`。aide#725・#728）で給与台帳へ登録する。口は `POST /api/mail/salary`（`action: preview|commit`）、サーバーは `src/lib/mail/salary.ts`、純粋部は `salary-core.ts`（`test/mail-salary.test.ts`）、シートは `salary-sheet.tsx`。
+
+- 流れ: preview（PDFを解析し、Asset Managerに承認待ちの記録を作る）→ 本人が**Asset Managerの承認画面**で支給日を確定して承認 → Morrowで「承認したので登録する」→ `approval_status` が `approved` のときだけPDFを取り直して commit → `lookup` で読み戻す。**承認はMorrowでは代行しない**
+- PDFは毎回AIDEのメールAPIから取り直し（持ち主照合）、Morrowの検査で `safe` のPDF・700KBまでだけ送る。パスワード付き（`needs_password`）・読めない・大きいものはAsset Managerの手動の画面（`/salaries/new`）へ案内する
+- **`previewToken` はブラウザへ渡さず、プロセス内に30分だけ持つ**（再起動で消えたら解析からやり直し）。金額・氏名はDB・ログに残さない（#732）
+- `approvalUrl` は `safeApprovalUrl()` でAsset Managerのオリジン・承認画面のパスだけを通す
+- **保存の結果が分からない回（時間切れ・`unknown`）は再送しない。** 同じメール・PDFでpreviewを引き直し、`existing.alreadyImportedSalaryId` で登録の有無を確かめて出す（引き直しは前の承認を無効にする）
+- `mailbox` はAIDE応答の `owner`（追加アカウントはメッセージIDの `<鍵>~` で区別される）。冪等の鍵なので変えない
+- 書き込みの道具は `SALARY_WRITE_TOOLS`（preview・commit）だけの入口から呼ぶ。AIDE接続のscopeに `salary-agent:read`・`salary-agent:write` を足したので、**利用者のAIDEの繋ぎ直しが要る**
+
 ### メール詳細の操作と要約（#717）
 
 - **本文を開いた時点で未読なら自動で既読にする**（#835。`MailDetailActions` のeffect。開いたメールごとに1回だけで、成功の表示は出さず失敗だけ赤字。「未読に戻す」を押しても再度は既読にしない）
