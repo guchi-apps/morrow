@@ -114,7 +114,8 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 - Morrowの `GET /api/hermes/sessions`（`src/app/api/hermes/sessions/route.ts`）が、**`HermesSession`（#937）で自分のidを先に引き**（作成が新しい順に100件まで。それより古い会話は一覧に出ない）、ブリッジへ渡して返す。**他の利用者・持ち主不明（#937以前）・Discordのセッションは載らない。** Morrowのサーバーには題名・件数も保存しない（通り抜けるだけ）
 - 題名は、新しい会話の最初の発言（利用者が打った文だけ。Morrowが足す注記・メール・天気は含めない）の先頭の行から30字までで作り（`session-title.ts`）、ターン開始の `title`（ブリッジが `session.create` へ渡す）で送る。続きの会話では送らない
 - 画面（`SessionList`）は、lg以上は左の列、スマホ・iPadの縦は上の帯の「会話」ボタンから下シート。選ぶと端末の記憶（`session-memory.ts`）のセッションidを差し替え、**既存の履歴の復元（#929）で続きから話せる**。実行中は切り替えない
-- **古いブリッジでは一覧が404 `not_found`（Morrowのログでは `bad_response`＋`HTTP 404`）になる。** マージ後にsubpcで `scripts/update-hermes-bridge.sh` を流す（#1145）
+- **古いブリッジでは一覧が404 `not_found` になる。** マージ後にsubpcで `scripts/update-hermes-bridge.sh` を流す（#1145）。#1165のリリース後に流し忘れ、実機で「会話の一覧を読み込めませんでした」になった（#1175。ブリッジは11/23の `89a196c` のまま）。**#1175から、ブリッジの404 `not_found`（知らない経路）はMorrowで `bridge_outdated` に読み替え**（`classifyFailure()`）、画面にも「DeskMiniのHermesブリッジが古く…更新が必要です」と出す（ログは `[hermes] 会話一覧の取得に失敗（bridge_outdated）`）。一覧・履歴・スキル・記憶のどの口でも同じ
+- **最終更新は `last_active` だけに頼らない**（#1175）。`/api/sessions/{id}` の行では `last_active` がnullで（一覧RESTだけが埋める。2026-11-24に実物で確認）、代わりに載る `last_activity_at`・`ended_at`・`started_at` の最も新しい値を使う
 - セッションの削除・題名の変更は対象外
 
 ### 過去の会話の検索（`session_search`。人の作業）

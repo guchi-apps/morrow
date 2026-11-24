@@ -62,6 +62,7 @@ export type HermesErrorKind =
   | "memory_not_found"
   | "memory_rejected"
   | "bad_request"
+  | "bridge_outdated"
   | "bad_response";
 
 export class HermesError extends Error {
@@ -95,6 +96,8 @@ export function classifyFailure(status: number, reason: string | undefined): Her
       : new HermesError("unreachable", "ブリッジが一時的に使えない（HTTP 503）");
   }
   if (reason && ERROR_KINDS.has(reason)) return new HermesError(reason as HermesErrorKind, `ブリッジの応答: ${reason}`);
+  // ブリッジが知らない経路へは 404 `not_found` を返す。Morrowだけが新しいAPIを呼んでいる＝subpcのブリッジが古い（#1145・#1175）
+  if (status === 404 && reason === "not_found") return new HermesError("bridge_outdated", "ブリッジにこのAPIが無い（HTTP 404。ブリッジが古い）");
   return new HermesError("bad_response", `ブリッジの応答が不正（HTTP ${status}）`);
 }
 

@@ -6,14 +6,20 @@ import { useCallback, useEffect, useState } from "react";
 import type { SessionSummary } from "@/lib/hermes/contract";
 import { lastActiveLabel, sessionLabel } from "@/lib/hermes/session-list-view";
 
-/** 一覧を取る。取れなかった回は null（空の一覧と混ぜない）。 */
-async function fetchSessions(signal?: AbortSignal): Promise<SessionSummary[] | null> {
+type FetchResult = { sessions: SessionSummary[] } | { error: string };
+
+const FALLBACK_ERROR = "会話の一覧を読み込めませんでした。";
+
+/** 一覧を取る。取れなかった回は理由（サーバーの文言）を返す（空の一覧と混ぜない）。 */
+async function fetchSessions(signal?: AbortSignal): Promise<FetchResult> {
   try {
     const response = await fetch("/api/hermes/sessions", { cache: "no-store", signal });
-    const data = (await response.json().catch(() => null)) as { sessions?: SessionSummary[] } | null;
-    return response.ok && Array.isArray(data?.sessions) ? data.sessions : null;
+    const data = (await response.json().catch(() => null)) as { sessions?: SessionSummary[]; error?: unknown } | null;
+    if (response.ok && Array.isArray(data?.sessions)) return { sessions: data.sessions };
+    // サーバーが理由を返していれば出す（「ブリッジが古い」と「届かない」を見分けられるように。#1175）
+    return { error: typeof data?.error === "string" && data.error !== "" ? `${FALLBACK_ERROR}${data.error}` : FALLBACK_ERROR };
   } catch {
-    return null;
+    return { error: FALLBACK_ERROR };
   }
 }
 
@@ -35,14 +41,18 @@ export function SessionList({
   onSelect: (sessionId: string) => void;
 }) {
   const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
   // 取得した時刻（描画中に `Date.now()` を呼ばない）
   const [loadedAt, setLoadedAt] = useState(0);
 
-  const apply = useCallback((result: SessionSummary[] | null) => {
-    if (result) setLoadedAt(Date.now());
-    setSessions((prev) => result ?? prev);
-    setFailed(result === null);
+  const apply = useCallback((result: FetchResult) => {
+    if ("error" in result) {
+      setFailure(result.error);
+      return;
+    }
+    setLoadedAt(Date.now());
+    setSessions(result.sessions);
+    setFailure(null);
   }, []);
 
   useEffect(() => {
@@ -55,21 +65,21 @@ export function SessionList({
 
   return (
     <div className="flex flex-col gap-1" aria-label="過去の会話">
-      {sessions === null && !failed && (
+      {sessions === null && failure === null && (
         <p className="flex items-center gap-1.5 px-2 py-2 text-xs text-muted">
           <Loader2 className="size-3 animate-spin" aria-hidden="true" />
           読み込んでいます…
         </p>
       )}
-      {failed && (
-        <p role="status" className="flex items-center gap-2 px-2 py-2 text-xs text-muted">
-          会話の一覧を読み込めませんでした。
-          <button type="button" onClick={() => void fetchSessions().then(apply)} className="rounded-md border border-border bg-background px-2 py-0.5 text-foreground">
+      {failure !== null && (
+        <p role="status" className="flex flex-wrap items-center gap-2 px-2 py-2 text-xs text-muted">
+          <span>{failure}</span>
+          <button type="button" onClick={() => void fetchSessions().then(apply)} className="shrink-0 rounded-md border border-border bg-background px-2 py-0.5 text-foreground">
             読み込み直す
           </button>
         </p>
       )}
-      {sessions !== null && sessions.length === 0 && !failed && <p className="px-2 py-2 text-xs text-muted">過去の会話はまだありません。</p>}
+      {sessions !== null && sessions.length === 0 && failure === null && <p className="px-2 py-2 text-xs text-muted">過去の会話はまだありません。</p>}
       {sessions?.map((session) => {
         const active = session.sessionId === currentId;
         return (
