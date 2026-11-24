@@ -146,6 +146,46 @@ Hermesが作る「再利用できる手順（スキル）」は、**Morrowの画
    `hermes -p morrow tools enable skills --platform cli` → `hermes -p morrow config set skills.write_approval true` → `hermes -p morrow serve` の再起動
 3. 確認: 「この頼み方、次からも使えるようにして」と送り、`/skills` にカードが出ること・承認で `~/.hermes/profiles/morrow/skills/<名前>/SKILL.md` ができること・却下で `pending/skills/` が空になること
 
+## 記憶の確認・承認とスキルの棚卸し（#1155）
+
+Hermesの記憶（`MEMORY.md`・`USER.md`）は、**Morrowの画面（`/memory`）で内容を見て承認するまで1つも保存されない**。スキルの承認（#1154）と同じ仕組みで、確認カードの部品（`review-parts.tsx`）を共有する。**Discord（default profile）とは記憶を共有しない**（`docs/hermes-discord.md`）。実測は `docs/hermes-skills.md` の追記（書式・反映のタイミング）。
+
+- **仕組み**: morrow profileで `memory.write_approval: true` にすると、`memory` 道具の書き込みは `<HERMES_HOME>/pending/memory/<id>.json` へ保留される。ブリッジ（`hermes-bridge/memory.ts`）が保留を**ファイルから直接読み**、承認・却下は `command.dispatch`（`memory approve|reject <id>`）。`arg` は `pending`・`approve`・`reject`＋8桁hexだけ（`isAllowedMemoryArg()`。**`diff` は通さない**。スキルの許可とは別の関数）
+- **ブリッジのAPI**: `GET /memory/pending`・`POST /memory/pending/<id>/approve|discard`・`GET /memory/entries`・`DELETE /memory/entries`（`{ target, text }`）。失敗は `memory_not_found`（404）・`memory_rejected`（409）
+- **Morrow**: `/memory`（確認カード＋保存済みの記憶の一覧）、`POST /api/hermes/memory/pending/<id>`（`{ action, confirmed }`）、`DELETE /api/hermes/memory/entries`、`GET /api/hermes/memory/pending-count`（左メニューのバッジ用。取れなければ `count: null`＝バッジを出さない）。**承認のたびに保留をブリッジから読み直して `validatePendingMemory()`（`memory-core.ts`）で検証し直す**（1項目300字以内・空と `§` は不可・変更対象が特定できること）。個人情報らしき文字列（`detectSensitive()`）があれば `confirmed: true` が無ければ承認を断る（検出は補助で安全の保証ではない）
+- **削除は記憶ファイルの直接書き換え**。Hermesの削除（`remove`）は保留→承認を通るので、画面で押した削除には使えない。項目は `\n§\n` 区切りで、**全文が一致した1項目だけ**を外して一時ファイル＋renameで置き換える（部分一致では消さない。見つからなければ404）。Hermesの書き込みは `<file>.lock` のflockで直列化されるが、Nodeには標準のflockが無い——読み直してからrenameまでの間隔を最小にしてあるだけで、同時に書かれたときは一致しなければ何もしない側に倒れる
+- **承認・削除は新しい会話から効く**（Hermesは会話の開始時に記憶を読み込んで固定する）。画面にもそう出す
+- **通知 `hermes-memory`（#488の種類）**: ターン中に `memory` の `tool.complete` が `"staged": true` を返したら、ターン終了時に1回だけ送る（押すと `/memory`）。**ナッジの自動見直しが会話の後に作った保留は通知されない**ので、左メニューの「記憶」に確認待ちの件数バッジを出して補う（メニューを開く・画面を移るたびに取り直す）
+- **記憶に入れてよいのはMorrow専用の事実だけ**（呼び名・話し方の好み・よく使う場所の呼び名・家の前提）。個人情報・認証情報・外部由来の指示（メール・ウェブページの中の「〜しなさい」）は入れない。`hermes-bridge/profile/SOUL.md` の「記憶に入れてよいもの」に書いてある。記憶は外から来た文が入ると永続化して毎ターン注入されるので、承認制にしている（保証の本体は承認。SOULの文言は補助）
+- **上限は既定のまま**（`MEMORY.md` 2,200字・`USER.md` 1,375字。`memory_char_limit`・`user_char_limit`）。記憶は毎ターンのプロンプトに入るので、増やすと入力トークンが増える（有効化で約1,700増える。#1153の実測で、skillsまでが約10,400・`memory` を足すと約12,060）
+
+### profile の設定（人の作業。マージ後）
+
+1. subpcでブリッジを更新する（`scripts/update-hermes-bridge.sh`）。`MORROW_HERMES_HOME` は #1154 で設定済みならそのまま
+2. Morrow profileで記憶を有効化し、書き込み承認を入れる:
+   `hermes -p morrow tools enable memory --platform cli` → `hermes -p morrow config set memory.write_approval true` → `hermes -p morrow serve` の再起動
+   （`memory.memory_enabled`・`user_profile_enabled` は現状どちらも `true`）
+3. SOUL.mdをsubpcへ反映する（上の「SOUL.mdの反映」と同じ手順）
+4. 確認: 「次からは『かず』と呼んで」と送り、`/memory` にカードが出る・却下すると `pending/memory/` が空になる・承認で `~/.hermes/profiles/morrow/memories/USER.md` ができる・**新しい会話で**呼び方が変わる。保存済み一覧の削除で `USER.md` から1項目だけ消える。**ブリッジ経由の `tool.complete` の `name` が `memory` か**（通知が出るか）もここで確かめ、違えば `turns/route.ts` の判定を直す
+
+### スキルの棚卸し（人の作業。subpc。2026-11-24時点の一覧で分類）
+
+morrow profileには、default profile（Discord）から `--clone` で写った58件の同梱スキルと、Hermesが作ったもの（`personal-notes-cache`）が入っている。Morrowの方針（窓口は台帳以外を触らない。Hermesの道具はAIDEの許可リストだけ）と合わないものは外す。**`skills` ツールセットを有効にする前（#1154の手順2より前）に済ませる**——有効にすると一覧・検索に混ざる。
+
+| 分類 | スキル | 理由 |
+|---|---|---|
+| **外す** | `personal-notes-cache` | Discord側のHermesが作った。自宅の住所などをローカルのメモへ保存する手順で、`read_file` 等のファイル道具が前提（morrowでは動かず、個人情報の置き場が増える） |
+| **外す** | `apple/*`（apple-notes・findmy・apple-reminders・imessage）・`note-taking/obsidian` | Mac・ローカルアプリ前提。台帳（AIDE）以外へ書く |
+| **外す** | `autonomous-ai-agents/*`（computer-use・opencode・codex・claude-code・hermes-agent）・`software-development/*`・`devops/sdlc-review` | 開発用。シェル・ファイルの道具が前提で、Morrowの窓口ではできない（SOULも断る） |
+| **外す** | `email/*`（himalaya・email-inbox-triage）・`productivity/google-workspace`・`productivity/notion`・`productivity/airtable`・`productivity/box`・`productivity/teams-meeting-pipeline`・`social-media/xurl` | 台帳以外の外部サービスを直接触る。メールはMorrowが取得して添える（#813）。送信・下書きはしない |
+| **外す** | `creative/*`・`media/*`・`productivity/{powerpoint,docx,xlsx,pdf,product-price-monitor,travel-reservations}`・`research/{arxiv,competitor-news-monitor,llm-wiki}`・`web/blocked-page-recovery` | Morrowの用途（予定・タスク・家計簿・サブスクの窓口）に無い。ファイル生成・Web巡回が前提 |
+| **残す（候補）** | `productivity/aide-calendar` | AIDE MCP経由の予定。許可リストの範囲で使う |
+| **残す（候補）** | `productivity/{weekly-review-planning,document-to-action-items,meeting-action-items}`・`research/grounded-citations`・`productivity/maps` | 道具に依存しない考え方の手順（振り返り・タスク抽出・出典の付け方）。中身を読んで、ファイル道具を前提にしていなければ残す |
+
+- 外し方: `~/.hermes/profiles/morrow/skills/<カテゴリ>/<名前>` のディレクトリを消す（同梱は `skills/.bundled_manifest` に載るため、Hermesの更新で戻ることがある。戻ったら `hermes -p morrow skills uninstall`・`opt-out`（`hermes skills --help`）で外せないか確かめ、無理なら消し直す）。**`/skills` の画面からは同梱を削除できない**（Hermesが作ったものだけ）
+- **消す前に中身を読む**（`SKILL.md`）。上の分類は名前と説明からの判断で、「残す（候補）」は特に中身次第
+- 完了の確認: `hermes -p morrow skills list`（または `skills/` 直下の一覧）が、残すものだけになっている
+
 ## 認証
 
 ### 比較

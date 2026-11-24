@@ -55,6 +55,8 @@ export type BridgeErrorReason =
   | "turn_not_found" // 404: 承認・中断の宛先のターンが無い
   | "skill_not_found" // 404: スキルの保留・登録済みスキルが無い（#1154）
   | "skill_rejected" // 409: Hermesが承認を適用しなかった・同梱スキルの削除（#1154）
+  | "memory_not_found" // 404: 記憶の保留・保存済みの項目が無い（#1155）
+  | "memory_rejected" // 409: Hermesが記憶の承認を適用しなかった（#1155）
   | "timeout" // 1ターン10分の上限
   | "hermes_error"; // Hermesがエラーで終えた
 

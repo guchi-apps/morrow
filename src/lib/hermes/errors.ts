@@ -37,6 +37,10 @@ export function describeHermesError(kind: HermesErrorKind): ChatFailure {
       return { connection: null, status: 404, kind, message: "スキルが見つかりません（すでに処理された可能性があります）。" };
     case "skill_rejected":
       return { connection: null, status: 409, kind, message: "Hermesがこの操作を受け付けませんでした。" };
+    case "memory_not_found":
+      return { connection: null, status: 404, kind, message: "記憶が見つかりません（すでに処理された・変わった可能性があります）。" };
+    case "memory_rejected":
+      return { connection: null, status: 409, kind, message: "Hermesがこの操作を受け付けませんでした。" };
     case "bad_request":
       return { connection: null, status: 400, kind, message: "指示の形が正しくありません。" };
     default:

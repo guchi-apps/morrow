@@ -12,6 +12,7 @@ export const PUSH_KINDS = [
   "mail-notice",
   "hermes-approval",
   "hermes-skill",
+  "hermes-memory",
 ] as const;
 
 export type PushKind = (typeof PUSH_KINDS)[number];
@@ -67,6 +68,17 @@ export const PUSH_KIND_INFO: Record<PushKind, PushKindInfo> = {
       title: "スキルの確認待ちがあります",
       body: "（見本）スキルの画面を開いて、内容を確かめてください。",
       url: "/skills",
+    },
+  },
+  // Hermesが作った記憶の案の確認待ち（#1155）。押すと記憶の画面を開くだけで、通知から直接は承認しない。
+  "hermes-memory": {
+    label: "記憶の確認待ち",
+    hint: "チャットでHermesが「次からも覚えておく」案を作ったとき、保存してよいか確認を求めます。押すと記憶の画面が開きます。",
+    when: "Hermesが記憶の案を作ったとき",
+    sample: {
+      title: "記憶の確認待ちがあります",
+      body: "（見本）記憶の画面を開いて、内容を確かめてください。",
+      url: "/memory",
     },
   },
 };

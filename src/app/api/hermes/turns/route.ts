@@ -181,6 +181,7 @@ async function pumpTurn(options: {
   let toolCount = 0;
   let proposalsCreated = 0;
   let skillsStaged = 0;
+  let memoriesStaged = 0;
 
   try {
     for await (const event of events) {
@@ -215,6 +216,10 @@ async function pumpTurn(options: {
         if (event.data.name === "skill_manage" && /"staged"\s*:\s*true/.test(typeof event.data.result === "string" ? event.data.result : JSON.stringify(event.data.result ?? ""))) {
           skillsStaged += 1;
         }
+        // 記憶の追加・変更が保留に入った（#1155。`memory.write_approval` で `{"staged":true}` が返る）
+        if (event.data.name === "memory" && /"staged"\s*:\s*true/.test(typeof event.data.result === "string" ? event.data.result : JSON.stringify(event.data.result ?? ""))) {
+          memoriesStaged += 1;
+        }
         if (isAutoWriteTool(event.data.name) && event.data.name) {
           await recordAutoAction({
             userId: user.id,
@@ -242,6 +247,7 @@ async function pumpTurn(options: {
     log.finish();
     if (proposalsCreated > 0) await notifyPending(user.id, proposalsCreated);
     if (skillsStaged > 0) await notifySkillPending(user.id, skillsStaged);
+    if (memoriesStaged > 0) await notifyMemoryPending(user.id, memoriesStaged);
   }
 }
 
@@ -257,6 +263,21 @@ async function notifySkillPending(userId: string, count: number): Promise<void> 
     });
   } catch (error) {
     console.error("[aide-bot] スキルの確認待ちの通知を送れなかった", error instanceof Error ? error.message : error);
+  }
+}
+
+/** 記憶の案の確認待ちを知らせる（1ターンにつき1回。押すと記憶の画面を開くだけ。種類がオフなら送らない）。 */
+async function notifyMemoryPending(userId: string, count: number): Promise<void> {
+  try {
+    if (!(await isPushKindEnabled(userId, "hermes-memory"))) return;
+    await sendPushToUser(userId, {
+      title: "記憶の確認待ちがあります",
+      body: count === 1 ? "Hermesが覚えたい内容が1件、確認を待っています。" : `Hermesが覚えたい内容が${count}件、確認を待っています。`,
+      url: "/memory",
+      tag: "hermes-memory",
+    });
+  } catch (error) {
+    console.error("[aide-bot] 記憶の確認待ちの通知を送れなかった", error instanceof Error ? error.message : error);
   }
 }
 

@@ -1,42 +1,21 @@
 "use client";
 
-import { AlertTriangle, Check, Loader2, Trash2 } from "lucide-react";
+import { AlertTriangle, Loader2, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { Fragment, useState } from "react";
+import { useState } from "react";
+
+import { Highlighted, IssueList, ReviewActions, SensitiveWarning } from "@/components/hermes/review-parts";
 
 import {
   detectSensitive,
   hasBlockingIssue,
   reviewText,
-  SENSITIVE_LABELS,
   skillTitle,
   validatePendingSkill,
   type InstalledSkill,
   type PendingSkill,
-  type SensitiveHit,
   type SkillOp,
 } from "@/lib/hermes/skill-core";
-
-/** 本文のうち、個人情報らしき文字列を強調して出す。 */
-function Highlighted({ text, hits }: { text: string; hits: SensitiveHit[] }) {
-  const needles = hits.map((hit) => hit.text.replace(/…$/, "")).filter((needle) => needle !== "");
-  if (needles.length === 0) return <>{text}</>;
-  const escaped = needles.map((needle) => needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  const parts = text.split(new RegExp(`(${escaped.join("|")})`, "g"));
-  return (
-    <>
-      {parts.map((part, index) =>
-        needles.includes(part) ? (
-          <mark key={index} className="rounded bg-red-500/25 px-0.5 text-foreground">
-            {part}
-          </mark>
-        ) : (
-          <Fragment key={index}>{part}</Fragment>
-        ),
-      )}
-    </>
-  );
-}
 
 const ACTION_LABELS: Record<SkillOp["action"], string> = {
   create: "新規作成",
@@ -48,36 +27,9 @@ const ACTION_LABELS: Record<SkillOp["action"], string> = {
 };
 
 function PendingCard({ skill }: { skill: PendingSkill }) {
-  const router = useRouter();
-  const [busy, setBusy] = useState<"approve" | "discard" | null>(null);
-  const [confirmed, setConfirmed] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-
   const issues = validatePendingSkill(skill);
   const blocked = hasBlockingIssue(issues);
   const hits = detectSensitive(reviewText(skill));
-
-  async function act(action: "approve" | "discard") {
-    setBusy(action);
-    setMessage(null);
-    try {
-      const response = await fetch(`/api/hermes/skills/pending/${skill.id}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action, confirmed }),
-      });
-      if (response.ok) {
-        router.refresh();
-        return;
-      }
-      const data = (await response.json().catch(() => null)) as { error?: string } | null;
-      setMessage(data?.error ?? "処理できませんでした。");
-    } catch {
-      setMessage("通信できませんでした。もう一度お試しください。");
-    } finally {
-      setBusy(null);
-    }
-  }
 
   return (
     <section className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4" aria-label={`確認待ち: ${skillTitle(skill)}`}>
@@ -97,29 +49,9 @@ function PendingCard({ skill }: { skill: PendingSkill }) {
         </p>
       )}
 
-      {issues.length > 0 && (
-        <ul className="flex flex-col gap-1 text-xs">
-          {issues.map((issue, index) => (
-            <li key={index} className={issue.level === "error" ? "text-red-500" : "text-muted"}>
-              {issue.level === "error" ? "✕ " : "⚠ "}
-              {issue.message}
-            </li>
-          ))}
-        </ul>
-      )}
+      <IssueList issues={issues} />
 
-      {hits.length > 0 && (
-        <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-2.5 py-2 text-xs">
-          <p className="font-semibold">個人情報・認証情報らしき文字列があります（本文の赤い部分）</p>
-          <ul className="mt-1 list-disc pl-4">
-            {hits.map((hit, index) => (
-              <li key={index}>
-                {SENSITIVE_LABELS[hit.kind]}: <code>{hit.text}</code>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <SensitiveWarning hits={hits} />
 
       {skill.ops.map((op, index) => (
         <div key={index} className="flex flex-col gap-1">
@@ -142,37 +74,7 @@ function PendingCard({ skill }: { skill: PendingSkill }) {
         </details>
       )}
 
-      <label className="flex items-start gap-2 text-xs">
-        <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="mt-0.5" />
-        <span>住所・口座・認証情報などの個人情報を含んでいないことを確認した</span>
-      </label>
-
-      {message && (
-        <p role="alert" className="text-xs text-red-500">
-          {message}
-        </p>
-      )}
-
-      <div className="flex gap-2">
-        <button
-          type="button"
-          disabled={busy !== null || blocked || !confirmed}
-          onClick={() => void act("approve")}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white disabled:opacity-40"
-        >
-          {busy === "approve" ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Check className="size-3.5" aria-hidden="true" />}
-          承認して登録
-        </button>
-        <button
-          type="button"
-          disabled={busy !== null}
-          onClick={() => void act("discard")}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs disabled:opacity-40"
-        >
-          {busy === "discard" && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
-          却下
-        </button>
-      </div>
+      <ReviewActions endpoint={`/api/hermes/skills/pending/${skill.id}`} blocked={blocked} approveLabel="承認して登録" />
     </section>
   );
 }
