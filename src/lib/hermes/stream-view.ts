@@ -1,4 +1,4 @@
-import type { BridgeEvent, BridgeEventType, HermesUsage } from "./contract.ts";
+import { parseClarifyQuestions, type BridgeEvent, type BridgeEventType, type ClarifyAnswer, type ClarifyQuestion, type HermesUsage } from "./contract.ts";
 import { stripAttachments } from "./prompt-attachment.ts";
 import type { ProposalView } from "./proposal-core.ts";
 import { argLines, isAutoWriteTool, knownToolKey, resultFailed, resultSummary, toolHint, toolLabel, type ArgLine, type ResultSummary } from "./tool-labels.ts";
@@ -22,6 +22,7 @@ export const RELAY_EVENT_TYPES: ReadonlySet<string> = new Set<BridgeEventType | 
   "tool.complete",
   "approval",
   "clarify",
+  "clarify.closed",
   "message.complete",
   "error",
   "proposal",
@@ -59,7 +60,18 @@ export type ChatItem =
       description: string | null;
       status: "waiting" | "once" | "deny";
     }
-  | { kind: "clarify"; id: number; text: string }
+  | {
+      kind: "clarify";
+      id: number;
+      /** 回答の宛先（#1150）。古いブリッジ（辞退で返す）から来た質問は null で、質問文だけを出す。 */
+      requestId: string | null;
+      questions: ClarifyQuestion[];
+      /** 質問文（古いブリッジ・形の読めない質問の表示用）。 */
+      text: string;
+      /** waiting: 回答待ち／answered: 答えた／closed: 期限切れ・ターン終了で答えられない。 */
+      status: "waiting" | "answered" | "closed";
+      answers?: Record<string, ClarifyAnswer>;
+    }
   | {
       kind: "notice";
       id: number;
@@ -131,6 +143,8 @@ export function endTurn(state: ChatState): ChatState {
     if (item.kind === "assistant" && !item.done) return { ...item, done: true };
     // 終わったのに「実行中」のまま残さない。結果は分からないので、成功（done）にも失敗にもせず unknown にする
     if (item.kind === "tool" && item.status === "running") return { ...item, status: "unknown" };
+    // ターンが終わったら質問にはもう答えられない（Hermesの待ちも終わっている）
+    if (item.kind === "clarify" && item.status === "waiting") return { ...item, status: "closed" };
     return item;
   });
   return { ...state, items, running: false, turnId: null, activityAt: null };
@@ -145,6 +159,28 @@ export function answerApproval(state: ChatState, requestId: string, choice: "onc
   const item = state.items[index];
   if (item?.kind !== "approval") return state;
   return replaceAt(state, index, { ...item, status: choice });
+}
+
+/** 選択肢つきの質問に答えた（送れたあと。#1150）。 */
+export function answerClarify(state: ChatState, requestId: string, answers: Record<string, ClarifyAnswer>): ChatState {
+  const index = state.items.findIndex((item) => item.kind === "clarify" && item.requestId === requestId);
+  const item = state.items[index];
+  if (item?.kind !== "clarify" || item.status !== "waiting") return state;
+  return replaceAt(state, index, { ...item, status: "answered", answers });
+}
+
+/** 溜めたイベントから、`requestId` の質問を探す（回答の検証用。#1150）。答えられない（閉じた・無い）なら null。 */
+export function clarifyQuestionsOf(events: readonly RelayEvent[], requestId: string): ClarifyQuestion[] | null {
+  let found: ClarifyQuestion[] | null = null;
+  for (const event of events) {
+    if (event.type === "clarify" && event.data.requestId === requestId) {
+      const questions = parseClarifyQuestions(event.data.questions);
+      found = questions.length > 0 ? questions : null;
+    } else if (event.type === "clarify.closed" && event.data.requestId === requestId) {
+      found = null;
+    }
+  }
+  return found;
 }
 
 export function updateProposal(state: ChatState, proposal: ProposalView): ChatState {
@@ -266,8 +302,26 @@ function applyEventInner(state: ChatState, event: RelayEvent, now: number): Chat
         status: "waiting",
       }));
 
-    case "clarify":
-      return push(closeAssistant(state), (id) => ({ kind: "clarify", id, text: clarifyText(event.data.questions) }));
+    case "clarify": {
+      const data = event.data as { requestId?: unknown; questions?: unknown };
+      const questions = parseClarifyQuestions(data.questions);
+      const requestId = typeof data.requestId === "string" && data.requestId !== "" && questions.length > 0 ? data.requestId : null;
+      return push(closeAssistant(state), (id) => ({
+        kind: "clarify",
+        id,
+        requestId,
+        questions: requestId ? questions : [],
+        text: clarifyText(data.questions),
+        status: requestId ? "waiting" : "closed",
+      }));
+    }
+
+    case "clarify.closed": {
+      const index = state.items.findIndex((item) => item.kind === "clarify" && item.requestId === event.data.requestId);
+      const item = state.items[index];
+      if (item?.kind !== "clarify" || item.status !== "waiting") return state;
+      return replaceAt(state, index, { ...item, status: "closed" });
+    }
 
     case "message.complete": {
       let next = state;

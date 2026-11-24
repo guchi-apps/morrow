@@ -217,13 +217,23 @@ export function createBridgeServer(options: BridgeOptions): Server {
     req: IncomingMessage,
     res: ServerResponse,
     turnId: string,
-    action: "approval" | "interrupt",
+    action: "approval" | "interrupt" | "clarify",
   ): Promise<void> {
     const handle = turns.get(turnId);
     if (!handle) return sendError(res, 404, "turn_not_found");
 
     if (action === "interrupt") {
       await handle.interrupt();
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (action === "clarify") {
+      // 選択肢つきの質問への回答（#1150）。質問のidと選択肢に合う形だけ通す
+      const body = await readJson(req);
+      if (!body || typeof body.requestId !== "string") return sendError(res, 400, "bad_request");
+      const outcome = handle.respondClarify(body.requestId, body.answers);
+      if (outcome === "invalid") return sendError(res, 400, "bad_request");
+      if (outcome === "not_found") return sendError(res, 404, "turn_not_found", "待っている質問がありません");
       return sendJson(res, 200, { ok: true });
     }
 
@@ -379,8 +389,8 @@ export function createBridgeServer(options: BridgeOptions): Server {
         }
         return handleHistory(res, sessionId, url.searchParams.get("limit"));
       }
-      const match = /^\/turns\/([\w-]{1,64})\/(approval|interrupt)$/.exec(url.pathname);
-      if (req.method === "POST" && match) return handleTurnAction(req, res, match[1], match[2] as "approval" | "interrupt");
+      const match = /^\/turns\/([\w-]{1,64})\/(approval|interrupt|clarify)$/.exec(url.pathname);
+      if (req.method === "POST" && match) return handleTurnAction(req, res, match[1], match[2] as "approval" | "interrupt" | "clarify");
       sendJson(res, 404, { error: "not_found" });
     })();
     route.catch((error: unknown) => {

@@ -4,6 +4,7 @@ import { Check, CircleAlert, Loader2 } from "lucide-react";
 import { useState } from "react";
 
 import { ProposalCard } from "@/components/hermes/proposal-card";
+import type { ClarifyAnswer, ClarifyQuestion } from "@/lib/hermes/contract";
 import { splitLinks } from "@/lib/hermes/linkify";
 import type { ProposalView } from "@/lib/hermes/proposal-core";
 import type { ChatItem } from "@/lib/hermes/stream-view";
@@ -15,6 +16,8 @@ type Props = {
   /** 実行中のターン。Hermesの承認の宛先。 */
   turnId: string | null;
   onApproval: (requestId: string, choice: "once" | "deny") => void;
+  /** 選択肢つきの質問に答えた（送れたあと。#1150）。 */
+  onClarify: (requestId: string, answers: Record<string, ClarifyAnswer>) => void;
   onProposalChange: (proposal: ProposalView) => void;
   /** 失敗したターンの再送（#1158）。押せるのは最後の失敗通知で、実行中でないときだけ渡る。無ければボタンを出さない。 */
   onRetry?: (retry: { text: string; risky: boolean }) => void;
@@ -22,7 +25,7 @@ type Props = {
   now: number;
 };
 
-export function ChatItemView({ item, turnId, onApproval, onProposalChange, onRetry, now }: Props) {
+export function ChatItemView({ item, turnId, onApproval, onClarify, onProposalChange, onRetry, now }: Props) {
   switch (item.kind) {
     case "user":
       return (
@@ -110,11 +113,15 @@ export function ChatItemView({ item, turnId, onApproval, onProposalChange, onRet
       return <ApprovalCard item={item} turnId={turnId} onApproval={onApproval} />;
 
     case "clarify":
-      return (
-        <div className="max-w-[88%] self-start whitespace-pre-wrap break-words rounded-2xl rounded-bl-sm border border-border bg-surface px-3.5 py-2 text-sm">
-          <LinkedText text={item.text} />
-        </div>
-      );
+      if (!item.requestId || item.questions.length === 0) {
+        // 古いブリッジ（答える口が無い）から来た質問は、質問文だけを出す
+        return (
+          <div className="max-w-[88%] self-start whitespace-pre-wrap break-words rounded-2xl rounded-bl-sm border border-border bg-surface px-3.5 py-2 text-sm">
+            <LinkedText text={item.text} />
+          </div>
+        );
+      }
+      return <ClarifyCard item={item} turnId={turnId} onClarify={onClarify} />;
 
     case "notice":
       return (
@@ -237,6 +244,154 @@ function ApprovalCard({
           </button>
         </div>
       )}
+    </section>
+  );
+}
+
+/** 回答を、画面に出す1行にする（答えた後のカード用）。 */
+function answerLabel(question: ClarifyQuestion, answer: ClarifyAnswer | undefined): string {
+  if (answer === undefined || answer === null || (Array.isArray(answer) && answer.length === 0)) return "（スキップ）";
+  return Array.isArray(answer) ? answer.join("、") : answer;
+}
+
+/**
+ * Hermesの選択肢つきの質問（#1150）。承認カードと同じ作り。1問・1つ選ぶ形なら、選択肢を押した時点で答える。
+ * それ以外（複数の質問・複数選択・自由入力）は選んでから「答える」。「スキップ」は全問を答えずに返す。
+ */
+function ClarifyCard({
+  item,
+  turnId,
+  onClarify,
+}: {
+  item: Extract<ChatItem, { kind: "clarify" }>;
+  turnId: string | null;
+  onClarify: (requestId: string, answers: Record<string, ClarifyAnswer>) => void;
+}) {
+  const [draft, setDraft] = useState<Record<string, ClarifyAnswer>>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const requestId = item.requestId ?? "";
+  const single = item.questions.length === 1 && item.questions[0].choices !== null && !item.questions[0].multiSelect;
+  const waiting = item.status === "waiting";
+
+  async function send(answers: Record<string, ClarifyAnswer>) {
+    if (!turnId || !requestId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/hermes/turns/${encodeURIComponent(turnId)}/clarify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestId, answers }),
+      });
+      if (response.ok) onClarify(requestId, answers);
+      else setError(((await response.json().catch(() => null)) as { error?: string } | null)?.error ?? "回答できませんでした。");
+    } catch {
+      setError("通信できませんでした。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function toggle(question: ClarifyQuestion, choice: string) {
+    setDraft((current) => {
+      if (!question.multiSelect) return { ...current, [question.qid]: choice };
+      const picked = Array.isArray(current[question.qid]) ? (current[question.qid] as string[]) : [];
+      const next = picked.includes(choice) ? picked.filter((c) => c !== choice) : [...picked, choice];
+      return { ...current, [question.qid]: next };
+    });
+  }
+
+  /** 送る値。自由入力は前後の空白を落とし、空ならスキップにする。 */
+  function collected(): Record<string, ClarifyAnswer> {
+    const out: Record<string, ClarifyAnswer> = {};
+    for (const q of item.questions) {
+      const value = draft[q.qid];
+      if (typeof value === "string" && q.choices === null) out[q.qid] = value.trim() === "" ? null : value.trim();
+      else if (Array.isArray(value)) out[q.qid] = value.length > 0 ? value : null;
+      else out[q.qid] = value ?? null;
+    }
+    return out;
+  }
+
+  const disabled = busy || !turnId || !waiting;
+
+  return (
+    <section className="max-w-[560px] self-start rounded-xl border border-border border-l-4 border-l-accent bg-surface p-3.5 text-sm">
+      <div className="flex flex-wrap items-center gap-2 font-semibold">
+        <span>Hermesが確認しています</span>
+        {item.status !== "waiting" && (
+          <span className="rounded-full bg-border px-2 py-px text-xs font-normal text-muted">
+            {item.status === "answered" ? "答えました" : "期限切れ（答えられません）"}
+          </span>
+        )}
+      </div>
+      <div className="mt-2 flex flex-col gap-3">
+        {item.questions.map((question) => (
+          <fieldset key={question.qid} className="flex flex-col gap-1.5">
+            <legend className="whitespace-pre-wrap break-words">
+              <LinkedText text={question.question} />
+            </legend>
+            {item.status === "answered" ? (
+              <p className="text-xs text-muted">→ {answerLabel(question, item.answers?.[question.qid])}</p>
+            ) : question.choices ? (
+              <div className="flex flex-wrap gap-1.5">
+                {question.multiSelect && <span className="w-full text-xs text-muted">いくつでも選べます</span>}
+                {question.choices.map((choice) => {
+                  const value = draft[question.qid];
+                  const selected = Array.isArray(value) ? value.includes(choice) : value === choice;
+                  return (
+                    <button
+                      key={choice}
+                      type="button"
+                      disabled={disabled}
+                      aria-pressed={selected}
+                      onClick={() => (single ? void send({ [question.qid]: choice }) : toggle(question, choice))}
+                      className={`rounded-lg border px-3 py-1.5 text-left disabled:opacity-45 ${selected ? "border-accent bg-accent/10 text-foreground" : "border-border bg-background hover:bg-rail-active"}`}
+                    >
+                      {question.multiSelect && <span aria-hidden="true">{selected ? "☑ " : "☐ "}</span>}
+                      {choice}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <textarea
+                rows={2}
+                maxLength={1000}
+                disabled={disabled}
+                value={typeof draft[question.qid] === "string" ? (draft[question.qid] as string) : ""}
+                onChange={(event) => setDraft((current) => ({ ...current, [question.qid]: event.target.value }))}
+                className="w-full resize-y rounded-lg border border-border bg-background px-2.5 py-1.5 text-base disabled:opacity-45"
+                placeholder="答えを入力"
+              />
+            )}
+          </fieldset>
+        ))}
+      </div>
+      {error && (
+        <p className="mt-2 text-xs text-red-700" role="alert">
+          {error}
+        </p>
+      )}
+      {waiting && (
+        <div className="mt-2.5 flex flex-wrap gap-2">
+          {!single && (
+            <button type="button" disabled={disabled} onClick={() => void send(collected())} className="rounded-lg bg-accent px-4 py-2 text-white disabled:opacity-45">
+              答える
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => void send(Object.fromEntries(item.questions.map((q) => [q.qid, null])))}
+            className="rounded-lg border border-border px-4 py-2 disabled:opacity-45"
+          >
+            スキップ
+          </button>
+        </div>
+      )}
+      {item.status === "closed" && <p className="mt-2 text-xs text-muted">答える時間（5分）を過ぎたか、会話が止まりました。続きは入力欄から伝えてください。</p>}
     </section>
   );
 }

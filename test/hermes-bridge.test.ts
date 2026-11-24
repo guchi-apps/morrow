@@ -265,7 +265,7 @@ describe("POST /turns（SSE）", () => {
     await collect(first);
   });
 
-  it("全体で2本を超えると429", async () => {
+  it("全体で3本を超えると429（#1150で2→3）", async () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((resolve) => (release = resolve));
     const { client } = await startBridge(async () =>
@@ -276,8 +276,12 @@ describe("POST /turns（SSE）", () => {
       }),
     );
     // 新規セッションは保存idが同じ（live-1）になり衝突するので、続きのセッションで枠を埋める
-    const links = [await client.startTurn({ text: "a", sessionId: "s1" }), await client.startTurn({ text: "b", sessionId: "s2" })];
-    await assert.rejects(client.startTurn({ text: "c", sessionId: "s3" }), (error: unknown) => error instanceof HermesError && error.kind === "bridge_busy");
+    const links = [
+      await client.startTurn({ text: "a", sessionId: "s1" }),
+      await client.startTurn({ text: "b", sessionId: "s2" }),
+      await client.startTurn({ text: "c", sessionId: "s3" }),
+    ];
+    await assert.rejects(client.startTurn({ text: "d", sessionId: "s4" }), (error: unknown) => error instanceof HermesError && error.kind === "bridge_busy");
     release();
     await Promise.all(links.map(collect));
   });
@@ -378,7 +382,7 @@ describe("承認・中断", () => {
     assert.ok(links[0].calls.some((call) => call.method === "session.interrupt"));
   });
 
-  it("clarifyは質問として流し、Hermesへは辞退で返す", async () => {
+  it("形の読めないclarifyは質問文として流し、Hermesへは辞退で返す", async () => {
     const links: FakeLink[] = [];
     const { client } = await startBridge(async () => {
       const link = new FakeLink((self, method) => {
@@ -394,10 +398,111 @@ describe("承認・中断", () => {
       links.push(link);
       return link;
     });
-    const events = await collect(await client.startTurn({ text: "x" }));
-    assert.ok(events.some((event) => event.type === "clarify"));
+    await collect(await client.startTurn({ text: "x" }));
     assert.equal(links[0].replies.length, 1);
     assert.equal(links[0].replies[0].id, "srq-2");
+    assert.ok("error" in (links[0].replies[0].outcome as Record<string, unknown>));
+  });
+
+  /** 質問を出し、答え（応答）を受けたら続きを返す台本（#1150）。 */
+  function clarifyChat(links: FakeLink[]) {
+    return async () => {
+      const link: FakeLink = new FakeLink((self, method) => {
+        if (method === "session.create") return { session_id: "live-1" };
+        if (method === "prompt.submit") {
+          setTimeout(
+            () =>
+              self.request("srq-9", "clarify", {
+                questions: [
+                  { qid: "q0", question: "どの予定ですか？", choices: ["10時の会議", "15時の会議"], multi_select: false },
+                  { qid: "q1", question: "通知先は？", choices: ["メール", "Push", "両方"], multi_select: true },
+                  { qid: "q2", question: "補足は？", choices: null, multi_select: false },
+                ],
+              }),
+            5,
+          );
+        }
+        return {};
+      });
+      const original = link.reply.bind(link);
+      link.reply = (id: string, outcome: unknown) => {
+        original(id, outcome);
+        setTimeout(() => link.emit("message.complete", { text: "了解しました" }), 5);
+      };
+      links.push(link);
+      return link;
+    };
+  }
+
+  it("clarifyは保留して画面へ流し、回答をHermesへの応答 {answers, outcome} で返す", async () => {
+    const links: FakeLink[] = [];
+    const { baseUrl, client } = await startBridge(clarifyChat(links));
+    const stream = await client.startTurn({ text: "会議を動かして" });
+    let turnId = "";
+    const seen: string[] = [];
+    for await (const event of stream) {
+      seen.push(event.type);
+      if (event.type === "turn") turnId = event.data.turnId;
+      if (event.type === "clarify") {
+        assert.equal(event.data.requestId, "srq-9");
+        assert.deepEqual(event.data.questions[1], { qid: "q1", question: "通知先は？", choices: ["メール", "Push", "両方"], multiSelect: true });
+        assert.equal(links[0].replies.length, 0, "答えるまでHermesへは返さない");
+        // 選択肢に無い値・知らない質問idは400で、Hermesへ届かない
+        for (const answers of [{ q0: "9時の会議" }, { q9: "x" }, { q1: "メール" + "x" }, { q2: "" }]) {
+          const response: Response = await fetch(`${baseUrl}/turns/${turnId}/clarify`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${TOKEN}`, "x-forwarded-for": CLIENT_IP, "content-type": "application/json" },
+            body: JSON.stringify({ requestId: event.data.requestId, answers }),
+          });
+          assert.equal(response.status, 400, JSON.stringify(answers));
+        }
+        assert.equal(links[0].replies.length, 0);
+        await client.answerClarify(turnId, event.data.requestId, { q0: "15時の会議", q1: ["Push", "メール"], q2: " 急ぎ " });
+      }
+    }
+    assert.deepEqual(seen, ["turn", "clarify", "message.complete"]);
+    assert.deepEqual(links[0].replies, [
+      {
+        id: "srq-9",
+        outcome: { result: { answers: { q0: "15時の会議", q1: JSON.stringify(["Push", "メール"]), q2: "急ぎ" }, outcome: "submitted" } },
+      },
+    ]);
+    // 2回目の回答は待っていないので404
+    await assert.rejects(client.answerClarify(turnId, "srq-9", { q0: null }), (error: unknown) => error instanceof HermesError && error.kind === "turn_not_found");
+  });
+
+  it("期限切れ（request.cancel）は clarify.closed を流し、その後の回答は404", async () => {
+    const links: FakeLink[] = [];
+    const { client } = await startBridge(async () => {
+      const link = new FakeLink((self, method) => {
+        if (method === "session.create") return { session_id: "live-1" };
+        if (method === "prompt.submit") {
+          setTimeout(() => {
+            self.request("srq-3", "clarify", { questions: [{ qid: "q0", question: "どちら？", choices: ["A", "B"] }] });
+            setTimeout(() => {
+              self.emit("request.cancel", { id: "srq-3", method: "clarify", reason: "timeout" });
+              setTimeout(() => self.emit("message.complete", { text: "答えが無かったので止めます" }), 30);
+            }, 5);
+          }, 5);
+        }
+        return {};
+      });
+      links.push(link);
+      return link;
+    });
+    const stream = await client.startTurn({ text: "x" });
+    let turnId = "";
+    const seen: BridgeEvent[] = [];
+    for await (const event of stream) {
+      seen.push(event);
+      if (event.type === "turn") turnId = event.data.turnId;
+      if (event.type === "clarify.closed") {
+        assert.deepEqual(event.data, { requestId: "srq-3", reason: "timeout" });
+        await assert.rejects(client.answerClarify(turnId, "srq-3", { q0: "A" }), (error: unknown) => error instanceof HermesError && error.kind === "turn_not_found");
+      }
+    }
+    assert.deepEqual(seen.map((event) => event.type), ["turn", "clarify", "clarify.closed", "message.complete"]);
+    assert.equal(links[0].replies.length, 0);
   });
 });
 

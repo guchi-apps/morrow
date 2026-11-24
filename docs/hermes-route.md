@@ -67,8 +67,9 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 | ブリッジのAPI | Hermesへ | 備考 |
 |---|---|---|
 | `GET /health` | 接続して `gateway.ready` を待ち、`mcp.servers.status` を1回読む | `{bridge:"ok", hermes:"ok"\|"down", aide?:"ok"\|"connecting"\|"unavailable"}`（`aide` は判定できた回だけ。#1158）。認証必須 |
-| `POST /turns` `{sessionId?, text, title?}` | `session.create`（無ければ）/ `session.resume` → `prompt.submit` | 応答はSSE。`message.delta`・`tool.start`/`tool.complete`・`approval`・`clarify`・`message.complete`（`usage` 付き）をそのまま種類別に流す |
+| `POST /turns` `{sessionId?, text, title?}` | `session.create`（無ければ）/ `session.resume` → `prompt.submit` | 応答はSSE。`message.delta`・`tool.start`/`tool.complete`・`approval`・`clarify`・`clarify.closed`・`message.complete`（`usage` 付き）を種類別に流す |
 | `POST /turns/<id>/approval` `{requestId, choice}` | `approval` リクエストへの回答 | `once`・`deny` だけを通す（`always`・`session` は400。`docs/hermes-actions.md`） |
+| `POST /turns/<id>/clarify` `{requestId, answers}` | `clarify` リクエストへの応答 `{answers, outcome:"submitted"}` | #1150。下の「選択肢つきの質問（clarify）」。質問idと選択肢に合わない回答は400、待っていない質問は404 |
 | `POST /turns/<id>/interrupt` | `session.interrupt` | |
 | `GET /sessions?ids=a,b,c` | REST `GET /api/sessions/{id}` をidごと（履歴と同じ口） | #1156。渡したid（最大100）の題名・最終更新・件数だけ・最近動いた順。下の「会話の一覧と過去の会話の検索」 |
 | `GET /sessions/<id>/messages?limit=N` | REST `GET /api/sessions/{id}`（`source` の照合）→ `/api/sessions/{id}/messages?order=latest&inline_images=false` | #752。直近N件（既定50・上限100）。下の「会話の履歴」 |
@@ -226,16 +227,46 @@ morrow profileには、default profile（Discord）から `--clone` で写った
 - 状態は `GET /health` を30秒キャッシュして画面に出す（開くたびに叩かない）
 - subpcは常時稼働のサーバーで寝る運用ではないが、再起動・Tailscaleの切断はありうる
 
+## 選択肢つきの質問（clarify。#1150）
+
+Hermesの `clarify` 道具（1〜5問。選択肢つき・複数選択・自由入力）を、チャットの選択肢カードで答える。
+
+- **答え方はHermes本体のコードで確認した**（`~/.hermes/hermes-agent` の `tui_gateway/server_requests.py`・`server.py` の `_clarify_block()`・`tools/clarify_tool.py`。2026-11-24）。
+  質問はサーバー→クライアントの要求 `clarify {questions:[{qid, question, choices, multi_select}]}` で届き、**その要求への応答
+  `{answers:{<qid>: 文字列|null}, outcome:"submitted"}` で全問まとめて答えられる**。1問ずつ確定する `clarify.lock` は使わない。
+  複数選択は選んだラベルのJSON配列の**文字列**（`'["A","B"]'`）、`null` はスキップ。答えの無い質問はスキップとして送る
+- 待ちの上限はHermesの `clarify` のタイムアウト（既定300秒）。過ぎる・中断されるとHermesが `request.cancel {id, method, reason}` を流し、
+  ブリッジは `clarify.closed {requestId, reason}` に読み替える。画面のカードは「期限切れ」になり、ターンの終わりでも閉じる
+- ブリッジは要求を保留し（`turn.ts` の `respondClarify()`）、形が読めない質問（`qid`・`question` が無い）だけは従来どおり辞退で返す。
+  回答の検証は `toHermesClarifyAnswers()`（`src/lib/hermes/contract.ts`。選択肢にある値・1,000字までの文・スキップだけ）で、
+  Morrowの `POST /api/hermes/turns/<id>/clarify` も溜め（`turn-pump.ts`）のその質問と突き合わせてから送る（ターンの持ち主だけ）
+- **morrow profileで `clarify` ツールセットを有効にするのは人の作業**（2026-11-23時点で無効。`hermes -p morrow tools list --platform cli` で確かめる）。
+  有効にする前はHermesが質問を出さないだけで、Morrow・ブリッジは変わらず動く。**ブリッジの更新も要る**（古いブリッジは辞退で返し、画面は質問文だけを出す）
+- 評価セット（`eval/run.ts`）は質問に全問スキップで答える
+
+## 画面を閉じても続くターンと通知（#1150）
+
+「あとで調べて報告して」型の依頼のために、専用の非同期の仕組みは足さず、#1000の形（Morrowのサーバーがブリッジのストリームを読み切る）を使う。
+
+- 1ターンの上限を10分→30分、ブリッジ全体の同時実行を2→3本にした（`contract.ts` の `TURN_TIMEOUT_MS`・`MAX_CONCURRENT_TURNS`）
+- **画面が見ていない（溜め `TurnLog` に購読者が居ない）間にターンが終わった・質問が来たら、通知の種類「チャットの返答」（`hermes-reply`）で知らせる**
+  （`src/app/api/hermes/turns/route.ts` の `notifyReply()`）。押すと `/chat?session=<id>` で、その会話の履歴（#752）を開く（持ち主はページで照合）。
+  **通知の本文に返答の中身は載せない**（配信サービスを通るため）。「止める」で終えた回は知らせない。iOSで裏に回った直後など接続が残っている間は「見ている」扱いで、通知は出ない
+- **結果の置き場はHermesのセッション**（履歴APIで取り直す）。MorrowのDBに本文は残さない（#732）
+- 書き込みの扱いは変えない（取り消せない操作は提案だけ。取り消せる書き込みは頼んだ時点を承認とみなす。`docs/hermes-actions.md`）。SOULで、あとで報告型の依頼の途中で書き込みが要るときは `clarify` で確かめさせる（指針で、保証ではない）
+- **Morrowの再起動（デプロイ）をまたぐターンは止まる**（溜めはプロセス内で、Morrow→ブリッジの接続が切れるとブリッジが中断する）。ブリッジ側で切断後も続ける形（`session.events.since`）は未採用・未試験
+- 定時実行（Hermesの `cronjob`）は扱っていない
+
 ## タイムアウト・同時実行・レート制限
 
 | 項目 | 値 | 置き場 |
 |---|---|---|
 | 接続（Morrow→ブリッジ） | 5秒 | Morrow |
-| 1ターン全体 | 10分（承認待ちの上限 `approvals.timeout`＝300秒を含む） | ブリッジ（超えたら `session.interrupt`） |
+| 1ターン全体 | 30分（#1150で10分から延長。承認・質問の待ち＝各300秒を含む） | ブリッジ（超えたら `session.interrupt`） |
 | SSEのハートビート | 15秒ごとのコメント行 | ブリッジ→Morrow→ブラウザ（Apacheのプロキシで切られないように） |
-| 同時実行 | 1セッション1ターン（2本目は409）、ブリッジ全体で2本 | ブリッジ |
+| 同時実行 | 1セッション1ターン（2本目は409）、ブリッジ全体で3本（#1150で2→3） | ブリッジ |
 | ターンの開始 | 利用者ごとに3秒に1回 | Morrow |
-| 切断 | Morrowとの接続が切れたら `session.interrupt`（承認待ちは拒否で終わる） | ブリッジ |
+| 切断 | Morrowとの接続が切れたら `session.interrupt`（承認・質問の待ちは取り下げで終わる） | ブリッジ |
 
 - ブリッジ自体は切断で中断する（安全側）。ただしMorrowのサーバーはブラウザの切断と無関係にブリッジのストリームを読み切って溜め、戻った画面へ続きを返す（#1000。`src/lib/hermes/turn-pump.ts`）。ブリッジ側で続きを追いかける形（`session.events.since`）は未試験のまま
 - 使用量は `message.complete.usage` から `ApiUsage` へ1ターン1行（対応表は #725 のコメント）

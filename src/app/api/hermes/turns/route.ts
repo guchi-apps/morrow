@@ -32,13 +32,14 @@ import { weatherContextFor } from "@/lib/weather/chat-context";
  * - `morrow_propose_action` の呼び出しは、確認カード（`HermesProposal`）を保存して `proposal` イベントに置き換える
  * - 取り消せる書き込みの `tool.complete` は、道具名と成否だけを記録する（引数・結果の本文は残さない）
  * - **画面の接続が切れてもターンは続く**（#1000。溜め `turn-pump.ts` と `turns/<id>/events` で続きを受け直す）。「止める」・1ターンの上限で止まる
+ * - 画面を見ていない間に終わった・質問（`clarify`）が来たときは「チャットの返答」（`hermes-reply`）を通知する（#1150）
  * - 最初のイベントは `turn`（ブリッジの契約）。レスポンス前に受けてidを `x-hermes-turn-id` で渡す（#1005）
  * - 使用量はターンの終わりに1行（`recordHermesTurnUsage()`。#737）
  */
 
 export const dynamic = "force-dynamic";
-/** ブリッジの1ターン上限（10分）＋余裕。 */
-export const maxDuration = 660;
+/** ブリッジの1ターン上限（30分。#1150）＋余裕。 */
+export const maxDuration = 1860;
 
 const MAX_TEXT = 4000;
 const MIN_INTERVAL_MS = 3000;
@@ -182,6 +183,8 @@ async function pumpTurn(options: {
   let proposalsCreated = 0;
   let skillsStaged = 0;
   let memoriesStaged = 0;
+  /** ターンの終わり方（#1150の通知の文面）。 */
+  let ending: "complete" | "interrupted" | "error" | null = null;
 
   try {
     for await (const event of events) {
@@ -230,16 +233,25 @@ async function pumpTurn(options: {
         }
       }
 
-      if (event.type === "message.complete") await recordHermesTurnUsage(user.id, event.data.usage);
+      if (event.type === "message.complete") {
+        await recordHermesTurnUsage(user.id, event.data.usage);
+        ending = event.data.status === "interrupted" ? "interrupted" : "complete";
+      }
+      if (event.type === "error") ending = "error";
       if (event.type === "reasoning.delta" || event.type === "tool.progress") continue; // 画面には出さない
 
       log.push(event);
+      // 見ていない間に質問が来た。答える時間（既定300秒）のうちに開いてもらう
+      if (event.type === "clarify" && !log.watching) await notifyReply(user.id, currentSessionId, "question");
     }
   } catch (error) {
     // ブリッジ側の失敗。画面が残っていれば（または戻れば）エラーとして届く
     console.error("[aide-bot] Hermesのストリームが途中で切れた", error instanceof Error ? error.message : error);
     log.push({ type: "error", data: { reason: "hermes_down", message: "Hermesとの接続が途中で切れました。" } });
+    ending = "error";
   } finally {
+    // 画面が見ていない間に終わった（閉じた・別アプリへ移った）。「止める」で終えた回は知らせない
+    const unattended = !log.watching;
     if (turnId) {
       releaseTurn(turnId);
       expireTurnLog(turnId);
@@ -248,6 +260,29 @@ async function pumpTurn(options: {
     if (proposalsCreated > 0) await notifyPending(user.id, proposalsCreated);
     if (skillsStaged > 0) await notifySkillPending(user.id, skillsStaged);
     if (memoriesStaged > 0) await notifyMemoryPending(user.id, memoriesStaged);
+    if (unattended && (ending === "complete" || ending === "error")) await notifyReply(user.id, currentSessionId, ending);
+  }
+}
+
+/**
+ * 画面を見ていない間の返答・質問を知らせる（#1150）。押すとその会話を開く。返答の中身は載せない（配信サービスを通るため）。
+ * 種類 `hermes-reply` がオフなら送らない。
+ */
+async function notifyReply(userId: string, sessionId: string, kind: "complete" | "error" | "question"): Promise<void> {
+  try {
+    if (!(await isPushKindEnabled(userId, "hermes-reply"))) return;
+    const text = {
+      complete: { title: "Hermesの返答が届きました", body: "チャットを開いて、結果を確かめてください。" },
+      error: { title: "Hermesの実行が途中で止まりました", body: "チャットを開いて、どこまで進んだか確かめてください。" },
+      question: { title: "Hermesが確認したいことがあります", body: "5分以内にチャットを開いて、選択肢から答えてください。" },
+    }[kind];
+    await sendPushToUser(userId, {
+      ...text,
+      url: sessionId && SESSION_ID_PATTERN.test(sessionId) ? `/chat?session=${encodeURIComponent(sessionId)}` : "/chat",
+      tag: kind === "question" ? "hermes-question" : "hermes-reply",
+    });
+  } catch (error) {
+    console.error("[aide-bot] Hermesの返答の通知を送れなかった", error instanceof Error ? error.message : error);
   }
 }
 

@@ -36,12 +36,102 @@ export type BridgeEvent =
       type: "approval";
       data: { requestId: string; command?: string; description?: string; choices: ApprovalChoice[] };
     }
-  /** 選択肢つきの質問。ブリッジは答えず（辞退で返す）、利用者には質問として見せる。 */
-  | { type: "clarify"; data: { questions: unknown } }
+  /** 選択肢つきの質問（#1150）。ブリッジは要求を保留し、`POST /turns/<id>/clarify` の回答で答える。 */
+  | { type: "clarify"; data: { requestId: string; questions: ClarifyQuestion[] } }
+  /** 待っていた質問が答えられないまま閉じた（期限切れ・中断。#1150）。 */
+  | { type: "clarify.closed"; data: { requestId: string; reason: string } }
   | { type: "message.complete"; data: { text: string | null; status?: string; usage?: HermesUsage } }
   | { type: "error"; data: { reason: BridgeErrorReason; message?: string } };
 
 export type BridgeEventType = BridgeEvent["type"];
+
+/** 選択肢つきの質問の1問（#1150。Hermesの `clarify` 要求の `questions[]` を写したもの）。 */
+export interface ClarifyQuestion {
+  /** Hermesの質問id（`q0`・`q1`…）。回答の鍵。 */
+  qid: string;
+  question: string;
+  /** 選択肢。無ければ自由入力。 */
+  choices: string[] | null;
+  multiSelect: boolean;
+}
+
+/** 1つの質問への回答。選択肢のラベル（複数選択は配列）・自由入力の文・スキップ（null）。 */
+export type ClarifyAnswer = string | string[] | null;
+
+/** 1回の質問で受け付ける上限（Hermesは1〜5問・選択肢は少数）。 */
+export const CLARIFY_MAX_QUESTIONS = 5;
+export const CLARIFY_MAX_CHOICES = 12;
+export const CLARIFY_MAX_ANSWER_LENGTH = 1000;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Hermesの `clarify` 要求の `questions` を読む。形が読めない質問は落とす。 */
+export function parseClarifyQuestions(raw: unknown): ClarifyQuestion[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ClarifyQuestion[] = [];
+  for (const item of raw.slice(0, CLARIFY_MAX_QUESTIONS)) {
+    if (!isRecord(item)) continue;
+    const qid = typeof item.qid === "string" && /^[\w-]{1,32}$/.test(item.qid) ? item.qid : null;
+    const question = typeof item.question === "string" ? item.question.trim() : "";
+    if (!qid || question === "") continue;
+    const choices = Array.isArray(item.choices)
+      ? item.choices.filter((c): c is string => typeof c === "string" && c.trim() !== "").slice(0, CLARIFY_MAX_CHOICES)
+      : [];
+    out.push({
+      qid,
+      question,
+      choices: choices.length > 0 ? choices : null,
+      multiSelect: choices.length > 0 && (item.multi_select === true || item.multiSelect === true),
+    });
+  }
+  return out;
+}
+
+/**
+ * 回答の形を検証し、Hermesへ返す `answers`（`{qid: string | null}`）へ直す。合わなければ null。
+ * - 選択肢のある質問は、その選択肢のどれか（複数選択は重複なしの配列で、ラベルのJSON配列の文字列にする）
+ * - 選択肢の無い質問は、空でない文（{@link CLARIFY_MAX_ANSWER_LENGTH} 字まで）
+ * - null（スキップ）はどの質問でも可。答えの無い質問もスキップとして扱う
+ */
+export function toHermesClarifyAnswers(
+  questions: readonly ClarifyQuestion[],
+  answers: unknown,
+): Record<string, string | null> | null {
+  if (!isRecord(answers)) return null;
+  const known = new Map(questions.map((q) => [q.qid, q]));
+  if (Object.keys(answers).some((key) => !known.has(key))) return null;
+  const out: Record<string, string | null> = {};
+  for (const q of questions) {
+    const value = answers[q.qid];
+    if (value === undefined || value === null) {
+      out[q.qid] = null;
+      continue;
+    }
+    if (q.choices) {
+      if (q.multiSelect) {
+        const picked = Array.isArray(value) ? value : [value];
+        if (picked.length === 0) {
+          out[q.qid] = null;
+          continue;
+        }
+        if (!picked.every((v) => typeof v === "string" && q.choices!.includes(v))) return null;
+        if (new Set(picked).size !== picked.length) return null;
+        out[q.qid] = JSON.stringify(picked);
+      } else {
+        if (typeof value !== "string" || !q.choices.includes(value)) return null;
+        out[q.qid] = value;
+      }
+    } else {
+      if (typeof value !== "string") return null;
+      const text = value.trim();
+      if (text === "" || text.length > CLARIFY_MAX_ANSWER_LENGTH) return null;
+      out[q.qid] = text;
+    }
+  }
+  return out;
+}
 
 /** ブリッジの失敗の理由。HTTPのエラー本文（`{ error }`）と、SSEの `error` イベントで共通。 */
 export type BridgeErrorReason =
@@ -57,7 +147,7 @@ export type BridgeErrorReason =
   | "skill_rejected" // 409: Hermesが承認を適用しなかった・同梱スキルの削除（#1154）
   | "memory_not_found" // 404: 記憶の保留・保存済みの項目が無い（#1155）
   | "memory_rejected" // 409: Hermesが記憶の承認を適用しなかった（#1155）
-  | "timeout" // 1ターン10分の上限
+  | "timeout" // 1ターン30分の上限
   | "hermes_error"; // Hermesがエラーで終えた
 
 export interface TurnRequestBody {
@@ -129,11 +219,14 @@ export interface HealthBody {
   aide?: "ok" | "connecting" | "unavailable";
 }
 
-/** 1ターン全体の上限（ブリッジ側）。承認待ちの上限（300秒）を含む。 */
-export const TURN_TIMEOUT_MS = 10 * 60 * 1000;
+/**
+ * 1ターン全体の上限（ブリッジ側）。承認・質問の待ち（300秒）を含む。
+ * 画面を閉じても続く「あとで調べて報告して」型の依頼のため、#1150で10分から30分へ延ばした。
+ */
+export const TURN_TIMEOUT_MS = 30 * 60 * 1000;
 /** SSEのコメント行を流す間隔。Apacheなどのプロキシに切られないため。 */
 export const HEARTBEAT_MS = 15 * 1000;
 /** Morrow→ブリッジの接続の上限。 */
 export const CONNECT_TIMEOUT_MS = 5 * 1000;
-/** ブリッジ全体の同時ターン数。 */
-export const MAX_CONCURRENT_TURNS = 2;
+/** ブリッジ全体の同時ターン数（#1150で長いターンが枠を埋めるため2→3）。 */
+export const MAX_CONCURRENT_TURNS = 3;
