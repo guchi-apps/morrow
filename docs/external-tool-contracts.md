@@ -39,12 +39,12 @@ MorrowはAIDEのMCPの道具を呼ぶ。道具の実装は別リポジトリ（`
 
 ### Hermesが呼ぶメールの読み取り（#1151・aide#905。Morrowのサーバーは呼ばない）
 
-Hermes（morrow profile）が許可リストで呼ぶ。Morrowの評価のスタブ（`hermes-bridge/eval/stub-aide.ts`）と表示名（`tool-labels.ts`）がこの形に依存するので、`test/external-tool-contracts.test.ts`「Hermesが呼ぶメールの読み取り」が入力と、スタブの応答が形・上限に収まることを固定する。**2026-11-24時点ではaide#905の起票時に決めた案で、実物は未確認**。aide#905がマージされたら実装から写し直し、確認日を書く。
+Hermes（morrow profile）が許可リストで呼ぶ。Morrowの評価のスタブ（`hermes-bridge/eval/stub-aide.ts`）と表示名（`tool-labels.ts`）がこの形に依存するので、`test/external-tool-contracts.test.ts`「Hermesが呼ぶメールの読み取り」が入力と、スタブの応答が形・上限に収まることを固定する。**2026-11-24にaide#905の実装（guchi-apps/aide PR #906・`src/mcp/tools/mail.ts`・README「メールの検索・取得（MCP）」。developへマージ済み）のソースで確認した**（実物は本番反映前で未呼び出し）。
 
 | 道具 | 入力 | 応答 | scope・失敗 |
 |---|---|---|---|
-| `aide_mail_search` | `query`（必須・200字まで）・`view`（`inbox`/`all`。既定 `all`）・`limit`（1〜20。既定10） | `{partial, failedAccounts[], messages[].{id, from, subject, receivedAt, snippet(200字), unread, inInbox}}`。0件は `messages: []` | `mail:read`。scope無し・本人記録の無い古いトークン・持ち主でない・取得できないは `isError`（「0件」と区別できる文） |
-| `aide_mail_get` | `ids`（必須・1〜5件） | `{notice, messages[].{id, from, to, subject, receivedAt, body(1通3,000字), truncated}, missing[]}`。全体12,000字を超えた分は後ろの通から削って `truncated: true` | 同上 |
+| `aide_mail_search` | `query`（必須・1〜200字。Gmailの検索式可、追加アカウント〔IMAP〕は語の全文検索だけ）・`view`（`inbox`/`all`。既定 `all`）・`limit`（1〜20。既定10） | `{partial, failedAccounts[], messages[].{id, from, subject, receivedAt, snippet(200字), unread, inInbox}}`。`receivedAt` はISO8601（UTC）か `null`。ゴミ箱・迷惑メールは対象外。0件は `messages: []` | `mail:read`（無ければ道具の一覧に出ない）。本人記録の無い古いトークン・持ち主でない・取得できないは `isError`（どれも「メールが0件という意味ではありません」を含む文） |
+| `aide_mail_get` | `ids`（必須・1〜5件の文字列。重複は1つにまとめる） | `{notice, messages[].{id, from, to, subject, receivedAt, body(1通3,000字), truncated}, missing[]}`。HTMLだけの本文はタグを除いたテキスト。全体12,000字を超えた分は後ろの通から削って `truncated: true`。見つからないidは `missing`（全体は失敗にしない）。添付は返さない | 同上 |
 
 ### AIDEのメールAPI（REST。MCPではない）の添付（#1101・aide#867）
 

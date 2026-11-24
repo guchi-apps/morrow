@@ -365,9 +365,9 @@ Hermes自身が、AIDEのMCPの読み取り道具 `aide_mail_search`（検索。
 
 | # | 作業 | 確かめ方 |
 |---|---|---|
-| 1 | aide#905 がmainへ出て、本番のAIDEの `tools/list` に `aide_mail_search`・`aide_mail_get` がある | Claude CodeのAIDEコネクタで道具が見える |
+| 1 | aide#905（developへマージ済み）がmainへ出て、本番のAIDEの `tools/list` に `aide_mail_search`・`aide_mail_get` がある | Claude CodeのAIDEコネクタで道具が見える |
 | 2 | subpcの `~/.hermes/profiles/morrow/config.yaml` の `mcp_servers.aide.tools.include` へ2本を足す | `grep -n aide_mail ~/.hermes/profiles/morrow/config.yaml` |
-| 3 | `hermes -p morrow mcp login aide` で繋ぎ直す（Hermesは `scopes_supported` を全部求めるので `mail:read` が付く。2026-11-24にトークンのscope一覧で確認） | `mcp-tokens/aide.json` の `scope` に `mail:read`（値そのものは見ない） |
+| 3 | `hermes -p morrow mcp login aide` で繋ぎ直す（Hermesは `scopes_supported` を全部求めるので `mail:read` が付く。2026-11-24にトークンのscope一覧で確認）。**`mail:read` を求める認可は、パスワードの前にAIDEの画面のGoogleログインを求める**（aide#905。ログインした本人がトークンに記録され、メールの持ち主と一致したときだけ中身が返る）。認可のURLを開くブラウザで、メールの持ち主のGoogleアカウントでAIDEにログインする | `mcp-tokens/aide.json` の `scope` に `mail:read`（値そのものは見ない）。チャットで「認可した本人の記録がありません」と返るなら、古いトークンのまま |
 | 4 | `hermes-bridge/profile/SOUL.md` を反映（下の「SOUL.mdの反映」）し、Hermesのuser unitを再起動 | profileの `SOUL.md` に「受信メールの読み方」がある |
 | 5 | チャットで「今日届いたメールを教えて」と頼む | チップに「メールの検索」が出て、0件ではないのに「無い」と答えない |
 | 6 | 評価セットを回す（`pnpm hermes-eval`。評価用profileは本番の許可リストを写すので、2の後） | `mail-search`・`mail-injection` で違反0 |
