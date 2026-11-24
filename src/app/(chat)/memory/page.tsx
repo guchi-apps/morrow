@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
 
 import { MemoryView } from "@/components/hermes/memory-card";
-import { getCurrentUser } from "@/lib/auth-user";
 import { hermesClient } from "@/lib/hermes/client";
 import { HermesError } from "@/lib/hermes/client-core";
 import { describeHermesError } from "@/lib/hermes/errors";
+import { profileOwnerUser } from "@/lib/hermes/profile-owner";
 import type { MemoryEntry, PendingMemory } from "@/lib/hermes/memory-core";
 
 export const metadata = { title: "記憶" };
@@ -12,8 +12,8 @@ export const dynamic = "force-dynamic";
 
 /** Hermesの記憶の確認・承認と、保存済みの記憶の一覧・削除（#1155）。 */
 export default async function MemoryPage() {
-  const user = await getCurrentUser();
-  if (!user) redirect("/login");
+  const user = await profileOwnerUser();
+  if (!user) redirect("/");
 
   let pending: PendingMemory[] = [];
   let entries: MemoryEntry[] = [];

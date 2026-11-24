@@ -22,7 +22,7 @@ import { authorize, parseAllowedIps } from "./auth.ts";
 import { connectHermes, type HermesLink } from "./hermes-link.ts";
 import { createHistoryReader, HistoryNotFoundError, type HistoryReader } from "./history.ts";
 import { createSessionLister, type SessionLister } from "./sessions.ts";
-import { createMemoryStore, MemoryNotFoundError, MemoryRejectedError, type MemoryStore } from "./memory.ts";
+import { createMemoryStore, MemoryConflictError, MemoryNotFoundError, MemoryRejectedError, type MemoryStore } from "./memory.ts";
 import { createSkillStore, SkillNotFoundError, SkillRejectedError, type SkillStore } from "./skills.ts";
 import { TurnLimiter } from "./limits.ts";
 import { createProposeMcpServer } from "./propose-mcp.ts";
@@ -357,6 +357,7 @@ export function createBridgeServer(options: BridgeOptions): Server {
       } else sendJson(res, 404, { error: "not_found" });
     } catch (error) {
       if (error instanceof MemoryNotFoundError) sendError(res, 404, "memory_not_found");
+      else if (error instanceof MemoryConflictError) sendError(res, 409, "memory_rejected", "記憶が同時に更新されました。画面を開き直してもう一度試してください。");
       else if (error instanceof MemoryRejectedError) sendError(res, 409, "memory_rejected", error.message);
       else {
         console.error("[morrow-hermes-bridge] 記憶の処理に失敗した", error instanceof Error ? error.message : error);

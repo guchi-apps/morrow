@@ -7,6 +7,7 @@ import { MailUnreadBadge } from "@/components/chat/mail-unread-badge";
 import { MenuInfo } from "@/components/chat/menu-info";
 import { APP_VERSION } from "@/lib/app-version";
 import { getCurrentUser } from "@/lib/auth-user";
+import { isHermesProfileOwner } from "@/lib/hermes/profile-owner";
 import { countPendingProposals } from "@/lib/hermes/proposals";
 import { unreadTopicCount } from "@/lib/topics";
 
@@ -34,6 +35,7 @@ export default async function ChatLayout({ children }: { children: React.ReactNo
       pendingProposalCount={pendingProposalCount}
       userLabel={user.name ?? user.email ?? "ログイン中"}
       userEmail={user.email}
+      showHermesProfile={isHermesProfileOwner(user)}
       appVersion={APP_VERSION}
       mailBadgeSlot={
         <Suspense fallback={null}>
