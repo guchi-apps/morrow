@@ -330,6 +330,7 @@ describe("記憶の削除と同時のHermesの書き込み（#1181）", () => {
       connect: link,
       acquireLock: async (lockPath) => {
         events.push(`lock:${lockPath.endsWith("USER.md.lock")}`);
+        await writeFile(join(dir, "memories", "USER.md"), "A\n§\nB\n§\nC"); // ロック取得「前」に入った書き込みも、取得後の読み込みに反映される
         return async () => {
           events.push("release");
         };
@@ -337,7 +338,7 @@ describe("記憶の削除と同時のHermesの書き込み（#1181）", () => {
     });
     await store.removeEntry("user", "A");
     assert.deepEqual(events, ["lock:true", "release"]);
-    assert.deepEqual((await store.listEntries()).map((e) => e.text), ["B"]);
+    assert.deepEqual((await store.listEntries()).map((e) => e.text), ["B", "C"]);
     await rm(dir, { recursive: true });
   });
 

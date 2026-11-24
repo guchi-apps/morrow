@@ -61,6 +61,7 @@ export const acquireFlock: AcquireLock = (lockPath) =>
       if (settled || !chunk.toString().includes("locked")) return;
       settled = true;
       clearTimeout(timer);
+      child.stdin.on("error", () => {}); // 解放時に子がすでに終わっていてもブリッジを落とさない
       resolveLock(async () => {
         child.stdin.end();
         await closed;
