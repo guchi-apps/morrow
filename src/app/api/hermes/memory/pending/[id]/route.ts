@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getCurrentUser } from "@/lib/auth-user";
+import { denyUnlessProfileOwner } from "@/lib/hermes/profile-owner";
 import { hermesClient } from "@/lib/hermes/client";
 import { HermesError } from "@/lib/hermes/client-core";
 import { describeHermesError } from "@/lib/hermes/errors";
@@ -17,8 +17,8 @@ import { readJsonObject } from "@/lib/json-body";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "ログインが必要です。" }, { status: 401 });
+  const denied = await denyUnlessProfileOwner();
+  if (denied) return denied;
 
   const { id } = await context.params;
   if (!PENDING_ID_PATTERN.test(id)) return NextResponse.json({ error: "idの形が正しくありません。" }, { status: 400 });

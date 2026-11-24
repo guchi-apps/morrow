@@ -203,6 +203,8 @@ jobs:
       TASK_API_TOKEN: ${{ secrets.TASK_API_TOKEN }}
       # Hermesブリッジの宛先（#737）。tailnet名を含むのでGitには入れず、GitHub変数で渡す。シークレットではない
       HERMES_BRIDGE_URL: ${{ vars.HERMES_BRIDGE_URL }}
+      # Hermesのmorrow profile（記憶・スキル）を操作できる利用者のメール（#1181）。未登録だと記憶・スキルの画面とAPIは全員拒否
+      HERMES_PROFILE_OWNER_EMAIL: ${{ vars.HERMES_PROFILE_OWNER_EMAIL }}
 
     steps:
       - name: Checkout code
@@ -273,6 +275,7 @@ jobs:
           NOTION_API_TOKEN: ${{ env.NOTION_API_TOKEN }}
           TASK_API_TOKEN: ${{ env.TASK_API_TOKEN }}
           HERMES_BRIDGE_URL: ${{ env.HERMES_BRIDGE_URL }}
+          HERMES_PROFILE_OWNER_EMAIL: ${{ env.HERMES_PROFILE_OWNER_EMAIL }}
         run: |
           set -euo pipefail
           # マイグレーション専用ユーザー（SHARED_DB_MIGRATE_*）が未設定なら通常ユーザーで流す。
@@ -288,7 +291,7 @@ jobs:
           for name in DATABASE_URL MIGRATE_DATABASE_URL NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY \
             ALLOWED_GOOGLE_EMAILS VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY APNS_KEY_ID APNS_TEAM_ID APNS_KEY_P8 \
             BRIEFING_TRIGGER_TOKEN SHARED_TOKEN_API_SECRET ISSUE_DECK_URL \
-            NOTION_API_TOKEN TASK_API_TOKEN HERMES_BRIDGE_URL; do
+            NOTION_API_TOKEN TASK_API_TOKEN HERMES_BRIDGE_URL HERMES_PROFILE_OWNER_EMAIL; do
             case "${!name}" in
               *$'\n'*) echo "::error::${name} が改行を含むためgateへ送れません"; exit 1 ;;
             esac
@@ -323,6 +326,8 @@ jobs:
             # Hermesブリッジの宛先（#737）。空だとチャット（#728）は「接続の設定に問題があります」で止まる。
             # トークン MORROW_HERMES_BRIDGE_TOKEN は共有トークンAPIから実行時に取るので配らない。
             printf '%s\n' "HERMES_BRIDGE_URL=${HERMES_BRIDGE_URL}"
+            # 記憶・スキルの操作を許す利用者のメール（#1181）。空だと /memory・/skills とそのAPIは全員403
+            printf '%s\n' "HERMES_PROFILE_OWNER_EMAIL=${HERMES_PROFILE_OWNER_EMAIL}"
             # Gmailのpush通知（#769・#778）。Pub/Subのpush用サービスアカウントのメール（秘密ではない）。
             # 空だと /api/mail/push は401で閉じたままになる。
             printf '%s\n' "GMAIL_PUSH_SERVICE_ACCOUNT=gmail-push-invoker@aide-app-507801.iam.gserviceaccount.com"

@@ -139,7 +139,7 @@ Hermesが作る「再利用できる手順（スキル）」は、**Morrowの画
 - **却下・期限切れで保留を残さない**: 却下はHermesの `reject`（消えなければブリッジが保留ファイルを消す）。7日（`PENDING_TTL_MS`）を過ぎた保留は一覧のたびに消す
 - **通知 `hermes-skill`（#488の種類）**: ターン中に `skill_manage` の `tool.complete` が `"staged": true` を返したら、ターン終了時に1回だけ送る（押すと `/skills`）。**ナッジの自動見直しが会話の後に作った保留は通知されない**（`/skills` を開いて分かる。メニューのバッジは未実装）
 - **`skills.guard_agent_created` は有効にしていない**（既定の無効のまま）。有効にするかは、subpcで実Hermesを使った実測の後に決める
-- **保留はprofile単位で、利用者ごとに分けない**（Morrowは実質1人運用）。ログイン許可済みの利用者なら誰でも承認できる
+- **保留はprofile単位で、利用者ごとに分けない**。そのため記憶・スキルの画面とAPI（一覧・承認・却下・削除・件数）は、環境変数 `HERMES_PROFILE_OWNER_EMAIL` のメールの利用者だけに開く（`src/lib/hermes/profile-owner.ts`。未設定は全員403。メニューにも出さない。#1181）。**GitHub変数 `HERMES_PROFILE_OWNER_EMAIL` の登録は人の作業**
 
 ### 手作業（人の作業。マージ後）
 
@@ -155,7 +155,7 @@ Hermesの記憶（`MEMORY.md`・`USER.md`）は、**Morrowの画面（`/memory`�
 - **仕組み**: morrow profileで `memory.write_approval: true` にすると、`memory` 道具の書き込みは `<HERMES_HOME>/pending/memory/<id>.json` へ保留される。ブリッジ（`hermes-bridge/memory.ts`）が保留を**ファイルから直接読み**、承認・却下は `command.dispatch`（`memory approve|reject <id>`）。`arg` は `pending`・`approve`・`reject`＋8桁hexだけ（`isAllowedMemoryArg()`。**`diff` は通さない**。スキルの許可とは別の関数）
 - **ブリッジのAPI**: `GET /memory/pending`・`POST /memory/pending/<id>/approve|discard`・`GET /memory/entries`・`DELETE /memory/entries`（`{ target, text }`）。失敗は `memory_not_found`（404）・`memory_rejected`（409）
 - **Morrow**: `/memory`（確認カード＋保存済みの記憶の一覧）、`POST /api/hermes/memory/pending/<id>`（`{ action, confirmed }`）、`DELETE /api/hermes/memory/entries`、`GET /api/hermes/memory/pending-count`（左メニューのバッジ用。取れなければ `count: null`＝バッジを出さない）。**承認のたびに保留をブリッジから読み直して `validatePendingMemory()`（`memory-core.ts`）で検証し直す**（1項目300字以内・空と `§` は不可・変更対象が特定できること）。個人情報らしき文字列（`detectSensitive()`）があれば `confirmed: true` が無ければ承認を断る（検出は補助で安全の保証ではない）
-- **削除は記憶ファイルの直接書き換え**。Hermesの削除（`remove`）は保留→承認を通るので、画面で押した削除には使えない。項目は `\n§\n` 区切りで、**全文が一致した1項目だけ**を外して一時ファイル＋renameで置き換える（部分一致では消さない。見つからなければ404）。Hermesの書き込みは `<file>.lock` のflockで直列化されるが、Nodeには標準のflockが無い——読み直してからrenameまでの間隔を最小にしてあるだけで、同時に書かれたときは一致しなければ何もしない側に倒れる
+- **削除は記憶ファイルの直接書き換え**。Hermesの削除（`remove`）は保留→承認を通るので、画面で押した削除には使えない。項目は `\n§\n` 区切りで、**全文が一致した1項目だけ**を外して一時ファイル＋renameで置き換える（部分一致では消さない。見つからなければ404）。Hermesの書き込みは `<file>.lock` のflockで直列化されるが、Nodeには標準のflockが無い——読み直してからrenameまでの間隔を最小にしてあるだけで、削除は読んだ内容をrename直前に読み直して照合し、違えば最新の内容でやり直す（5回まで。確定できなければ409 `memory_rejected`。#1181）。確認からrenameまでの隙間はflockが無いため残る
 - **承認・削除は新しい会話から効く**（Hermesは会話の開始時に記憶を読み込んで固定する）。画面にもそう出す
 - **通知 `hermes-memory`（#488の種類）**: ターン中に `memory` の `tool.complete` が `"staged": true` を返したら、ターン終了時に1回だけ送る（押すと `/memory`）。**ナッジの自動見直しが会話の後に作った保留は通知されない**ので、左メニューの「記憶」に確認待ちの件数バッジを出して補う（メニューを開く・画面を移るたびに取り直す）
 - **記憶に入れてよいのはMorrow専用の事実だけ**（呼び名・話し方の好み・よく使う場所の呼び名・家の前提）。個人情報・認証情報・外部由来の指示（メール・ウェブページの中の「〜しなさい」）は入れない。`hermes-bridge/profile/SOUL.md` の「記憶に入れてよいもの」に書いてある。記憶は外から来た文が入ると永続化して毎ターン注入されるので、承認制にしている（保証の本体は承認。SOULの文言は補助）

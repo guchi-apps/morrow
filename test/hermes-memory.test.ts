@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import type { HermesLink } from "../hermes-bridge/hermes-link.ts";
-import { createMemoryStore, MemoryNotFoundError, MemoryRejectedError, projectPendingMemory } from "../hermes-bridge/memory.ts";
+import { createMemoryStore, MemoryConflictError, MemoryNotFoundError, MemoryRejectedError, projectPendingMemory } from "../hermes-bridge/memory.ts";
 import { createBridgeServer } from "../hermes-bridge/server.ts";
 import { dispatchWriteApproval, isAllowedMemoryArg } from "../hermes-bridge/skills.ts";
 import {
@@ -302,5 +302,60 @@ describe("通知の種類", () => {
   it("hermes-memory が並び、見本は /memory へ飛ぶ", () => {
     assert.ok(PUSH_KINDS.includes("hermes-memory"));
     assert.equal(PUSH_KIND_INFO["hermes-memory"].sample.url, "/memory");
+  });
+});
+
+describe("記憶の削除と同時のHermesの書き込み（#1181）", () => {
+  const link = async (): Promise<HermesLink> => {
+    throw new Error("使わない");
+  };
+
+  async function home() {
+    const dir = await mkdtemp(join(tmpdir(), "morrow-memory-race-"));
+    await mkdir(join(dir, "memories"), { recursive: true });
+    await writeFile(join(dir, "memories", "USER.md"), "A\n§\nB");
+    return dir;
+  }
+
+  it("削除が読んだ後にHermesが項目Cを足しても、Cを消さずに最新の内容から削除する", async () => {
+    const dir = await home();
+    let injected = false;
+    const store = createMemoryStore({
+      hermesHome: dir,
+      connect: link,
+      beforeRemoveCommit: async () => {
+        if (injected) return;
+        injected = true;
+        await writeFile(join(dir, "memories", "USER.md"), "A\n§\nB\n§\nC");
+      },
+    });
+    await store.removeEntry("user", "A");
+    const entries = (await store.listEntries()).map((entry) => entry.text);
+    assert.deepEqual(entries, ["B", "C"]);
+    await rm(dir, { recursive: true });
+  });
+
+  it("書き換えが続いて確定できなければ MemoryConflictError で、ファイルは触らない", async () => {
+    const dir = await home();
+    let n = 0;
+    const store = createMemoryStore({
+      hermesHome: dir,
+      connect: link,
+      beforeRemoveCommit: async () => {
+        n += 1;
+        await writeFile(join(dir, "memories", "USER.md"), `A\n§\nB\n§\nC${n}`);
+      },
+    });
+    await assert.rejects(() => store.removeEntry("user", "A"), MemoryConflictError);
+    assert.equal(await readFile(join(dir, "memories", "USER.md"), "utf8"), `A\n§\nB\n§\nC${n}`);
+    assert.deepEqual((await readdir(join(dir, "memories"))).filter((f) => f.endsWith(".tmp")), []);
+    await rm(dir, { recursive: true });
+  });
+
+  it("他の利用者が消した後（項目が既に無い）は MemoryNotFoundError", async () => {
+    const dir = await home();
+    const store = createMemoryStore({ hermesHome: dir, connect: link });
+    await assert.rejects(() => store.removeEntry("user", "Z"), MemoryNotFoundError);
+    await rm(dir, { recursive: true });
   });
 });

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getCurrentUser } from "@/lib/auth-user";
+import { denyUnlessProfileOwner } from "@/lib/hermes/profile-owner";
 import { hermesClient } from "@/lib/hermes/client";
 
 /**
@@ -11,8 +11,8 @@ import { hermesClient } from "@/lib/hermes/client";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "ログインが必要です。" }, { status: 401 });
+  const denied = await denyUnlessProfileOwner();
+  if (denied) return denied;
   try {
     const pending = await (await hermesClient()).pendingMemories();
     return NextResponse.json({ count: pending.length });

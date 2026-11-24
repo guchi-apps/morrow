@@ -32,6 +32,7 @@ type Props = {
   topicCount: number;
   userLabel: string;
   userEmail: string | null;
+  showHermesProfile?: boolean;
   appVersion: string;
   /** メールの未読件数バッジ（#877）。AIDE待ちなので `Suspense` で後から流れてくる。 */
   mailBadgeSlot?: React.ReactNode;
@@ -59,6 +60,7 @@ export function ConversationRail({
   topicCount,
   userLabel,
   userEmail,
+  showHermesProfile = false,
   appVersion,
   infoSlot,
   mailBadgeSlot,
@@ -168,6 +170,8 @@ export function ConversationRail({
           モデル
         </Link>
 
+        {showHermesProfile && (
+          <>
         {/* Hermesが作ったスキルの確認・承認（#1154）。 */}
         <Link
           href="/skills"
@@ -198,6 +202,8 @@ export function ConversationRail({
             <MemoryPendingBadge />
           </span>
         </Link>
+          </>
+        )}
 
         {/* 外部サービスとの接続（#46）ほか。下部に置く。 */}
         <Link

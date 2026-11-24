@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
 
 import { SkillsView } from "@/components/hermes/skill-card";
-import { getCurrentUser } from "@/lib/auth-user";
 import { hermesClient } from "@/lib/hermes/client";
 import { HermesError } from "@/lib/hermes/client-core";
 import { describeHermesError } from "@/lib/hermes/errors";
+import { profileOwnerUser } from "@/lib/hermes/profile-owner";
 import type { InstalledSkill, PendingSkill } from "@/lib/hermes/skill-core";
 
 export const metadata = { title: "スキル" };
@@ -12,8 +12,8 @@ export const dynamic = "force-dynamic";
 
 /** Hermesが作ったスキルの確認・承認と、登録済みスキルの一覧・削除（#1154）。 */
 export default async function SkillsPage() {
-  const user = await getCurrentUser();
-  if (!user) redirect("/login");
+  const user = await profileOwnerUser();
+  if (!user) redirect("/");
 
   let pending: PendingSkill[] = [];
   let installed: InstalledSkill[] = [];

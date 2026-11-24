@@ -29,6 +29,10 @@ import { dispatchWriteApproval } from "./skills.ts";
 
 export class MemoryNotFoundError extends Error {}
 export class MemoryRejectedError extends Error {}
+/** 削除の途中でHermesが同じファイルを書き換え続け、読み直しても確定できなかった（#1181）。 */
+export class MemoryConflictError extends Error {}
+
+const REMOVE_RETRY_LIMIT = 5;
 
 export interface MemoryStore {
   listPending(): Promise<PendingMemory[]>;
@@ -62,6 +66,8 @@ export interface MemoryStoreOptions {
   /** Hermesへ繋ぐ。 */
   connect: () => Promise<HermesLink>;
   now?: () => number;
+  /** テスト専用: 削除が読んだ後・rename前に呼ばれる（Hermesの同時書き込みを再現する）。 */
+  beforeRemoveCommit?: () => Promise<void>;
 }
 
 const FILE_OF: Record<MemoryTarget, string> = { user: "USER.md", memory: "MEMORY.md" };
@@ -91,6 +97,14 @@ export function createMemoryStore(options: MemoryStoreOptions): MemoryStore {
   async function ensureExists(id: string): Promise<void> {
     if (!PENDING_ID_PATTERN.test(id)) throw new MemoryNotFoundError("保留のidの形が正しくない");
     if (!(await pendingFiles()).includes(`${id}.json`)) throw new MemoryNotFoundError("保留が見つからない");
+  }
+
+  async function readRaw(file: string): Promise<string | null> {
+    try {
+      return await readFile(file, "utf8");
+    } catch {
+      return null;
+    }
   }
 
   async function readEntries(target: MemoryTarget): Promise<string[]> {
@@ -143,17 +157,29 @@ export function createMemoryStore(options: MemoryStoreOptions): MemoryStore {
 
     async removeEntry(target, text) {
       const file = join(memoriesDir, FILE_OF[target]);
-      const rest = removeEntryByText(await readEntries(target), text);
-      if (rest === null) throw new MemoryNotFoundError("記憶が見つからない（すでに変わった可能性がある）");
-      // 一時ファイルへ書いてからrename（読む側が途中の姿を見ない。Hermesの `atomic_write_text` と同じ）
-      const temp = join(memoriesDir, `.mem_${randomUUID().slice(0, 8)}.tmp`);
-      try {
-        await writeFile(temp, serializeMemoryFile(rest), { encoding: "utf8", mode: 0o600 });
-        await rename(temp, file);
-      } catch (error) {
-        await unlink(temp).catch(() => {});
-        throw error;
+      // 読む→一致した1項目を外す→**rename直前にファイルが読んだ時点と同じ内容か確かめる**。違えば（Hermesが同時に書いた）読み直してやり直す。
+      // Nodeに標準のflockが無くHermesの `<file>.lock` とは直列化できないので、確認からrenameまでの隙間は残るが、
+      // 古い内容で上書きする窓を「読んでから書くまで」から「確認からrenameまで」へ縮める（#1181）。
+      for (let attempt = 0; attempt < REMOVE_RETRY_LIMIT; attempt += 1) {
+        const raw = await readRaw(file);
+        const rest = removeEntryByText(raw === null ? [] : parseMemoryFile(raw), text);
+        if (rest === null) throw new MemoryNotFoundError("記憶が見つからない（すでに変わった可能性がある）");
+        const temp = join(memoriesDir, `.mem_${randomUUID().slice(0, 8)}.tmp`);
+        try {
+          await writeFile(temp, serializeMemoryFile(rest), { encoding: "utf8", mode: 0o600 });
+          await options.beforeRemoveCommit?.();
+          if ((await readRaw(file)) !== raw) {
+            await unlink(temp).catch(() => {});
+            continue; // 同時に書き換えられた。最新の内容で作り直す
+          }
+          await rename(temp, file); // 読んだ版のままなので、ここまでのHermesの書き込みは消さない
+          return;
+        } catch (error) {
+          await unlink(temp).catch(() => {});
+          throw error;
+        }
       }
+      throw new MemoryConflictError("記憶ファイルが同時に更新され続けた");
     },
   };
 }

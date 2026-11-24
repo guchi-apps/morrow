@@ -19,6 +19,8 @@ type Props = {
   pendingProposalCount: number;
   userLabel: string;
   userEmail: string | null;
+  /** 記憶・スキルのメニューを出すか（Hermes profileの持ち主だけ。#1181）。 */
+  showHermesProfile?: boolean;
   appVersion: string;
   /** メニュー上部の情報カード（#719）。 */
   infoSlot?: React.ReactNode;
@@ -50,6 +52,7 @@ export function ChatShell({
   pendingProposalCount,
   userLabel,
   userEmail,
+  showHermesProfile = false,
   appVersion,
   infoSlot,
   mailBadgeSlot,
@@ -145,6 +148,7 @@ export function ChatShell({
           topicCount={topicCount}
           userLabel={userLabel}
           userEmail={userEmail}
+          showHermesProfile={showHermesProfile}
           appVersion={appVersion}
           infoSlot={infoSlot}
           mailBadgeSlot={mailBadgeSlot}
@@ -188,6 +192,7 @@ export function ChatShell({
               topicCount={topicCount}
               userLabel={userLabel}
               userEmail={userEmail}
+              showHermesProfile={showHermesProfile}
               appVersion={appVersion}
           infoSlot={infoSlot}
           mailBadgeSlot={mailBadgeSlot}
