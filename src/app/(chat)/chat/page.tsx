@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { ChatView } from "@/components/hermes/chat-view";
 import { getCurrentUser } from "@/lib/auth-user";
 import { SESSION_ID_PATTERN } from "@/lib/hermes/contract";
+import { isHermesProfileOwner } from "@/lib/hermes/profile-owner";
 import { listProposals } from "@/lib/hermes/proposals";
 import { ownsHermesSession } from "@/lib/hermes/session-owner";
 
@@ -16,6 +17,10 @@ export const dynamic = "force-dynamic";
 export default async function ChatPage({ searchParams }: { searchParams: Promise<{ session?: string | string[] }> }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  // 共有morrow profileは持ち主だけが使える（#1181）
+  if (!isHermesProfileOwner(user)) {
+    return <p className="p-6 text-sm text-muted">Hermesのチャットは、profileの持ち主だけが使えます。</p>;
+  }
 
   // 通知「Hermesの返答が届きました」から開いた会話（#1150）。自分のセッションだけ渡す（他人のid・形の違う値は無視）
   const requested = (await searchParams).session;

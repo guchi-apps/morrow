@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth-user";
 import { db } from "@/lib/db";
+import { isHermesProfileOwner, PROFILE_OWNER_ONLY_MESSAGE } from "@/lib/hermes/profile-owner";
 import { hermesClient } from "@/lib/hermes/client";
 import { HermesError } from "@/lib/hermes/client-core";
 import { SESSION_LIST_MAX_LIMIT } from "@/lib/hermes/contract";
@@ -19,6 +20,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "ログインが必要です。" }, { status: 401 });
+  if (!isHermesProfileOwner(user)) return NextResponse.json({ error: PROFILE_OWNER_ONLY_MESSAGE }, { status: 403 });
 
   try {
     // 持ち主での絞り込みを先に行う（件数で切ってから絞ると、他の利用者・持ち主不明の会話に枠を取られて自分の会話が欠ける）

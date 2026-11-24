@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import type { HermesLink } from "../hermes-bridge/hermes-link.ts";
-import { createMemoryStore, MemoryConflictError, MemoryNotFoundError, MemoryRejectedError, projectPendingMemory } from "../hermes-bridge/memory.ts";
+import { spawnSync } from "node:child_process";
+import { acquireFlock, createMemoryStore, MemoryConflictError, MemoryNotFoundError, MemoryRejectedError, projectPendingMemory } from "../hermes-bridge/memory.ts";
 import { createBridgeServer } from "../hermes-bridge/server.ts";
 import { dispatchWriteApproval, isAllowedMemoryArg } from "../hermes-bridge/skills.ts";
 import {
@@ -305,6 +306,10 @@ describe("通知の種類", () => {
   });
 });
 
+function hasFlock(): boolean {
+  return spawnSync("flock", ["--version"]).status === 0;
+}
+
 describe("記憶の削除と同時のHermesの書き込み（#1181）", () => {
   const link = async (): Promise<HermesLink> => {
     throw new Error("使わない");
@@ -317,38 +322,67 @@ describe("記憶の削除と同時のHermesの書き込み（#1181）", () => {
     return dir;
   }
 
-  it("削除が読んだ後にHermesが項目Cを足しても、Cを消さずに最新の内容から削除する", async () => {
+  it("ロックを握ってから読み、rename後に手放す（読む前・rename前にHermesが割り込めない順序）", async () => {
     const dir = await home();
-    let injected = false;
+    const events: string[] = [];
     const store = createMemoryStore({
       hermesHome: dir,
       connect: link,
-      beforeRemoveCommit: async () => {
-        if (injected) return;
-        injected = true;
-        await writeFile(join(dir, "memories", "USER.md"), "A\n§\nB\n§\nC");
+      acquireLock: async (lockPath) => {
+        events.push(`lock:${lockPath.endsWith("USER.md.lock")}`);
+        await writeFile(join(dir, "memories", "USER.md"), "A\n§\nB\n§\nC"); // ロック取得「前」に入った書き込みも、取得後の読み込みに反映される
+        return async () => {
+          events.push("release");
+        };
       },
     });
     await store.removeEntry("user", "A");
-    const entries = (await store.listEntries()).map((entry) => entry.text);
-    assert.deepEqual(entries, ["B", "C"]);
+    assert.deepEqual(events, ["lock:true", "release"]);
+    assert.deepEqual((await store.listEntries()).map((e) => e.text), ["B", "C"]);
     await rm(dir, { recursive: true });
   });
 
-  it("書き換えが続いて確定できなければ MemoryConflictError で、ファイルは触らない", async () => {
+  it("ロックを取れなければ削除せず、ファイルも触らない", async () => {
     const dir = await home();
-    let n = 0;
     const store = createMemoryStore({
       hermesHome: dir,
       connect: link,
-      beforeRemoveCommit: async () => {
-        n += 1;
-        await writeFile(join(dir, "memories", "USER.md"), `A\n§\nB\n§\nC${n}`);
+      acquireLock: async () => {
+        throw new MemoryConflictError("取れない");
       },
     });
     await assert.rejects(() => store.removeEntry("user", "A"), MemoryConflictError);
-    assert.equal(await readFile(join(dir, "memories", "USER.md"), "utf8"), `A\n§\nB\n§\nC${n}`);
-    assert.deepEqual((await readdir(join(dir, "memories"))).filter((f) => f.endsWith(".tmp")), []);
+    assert.equal(await readFile(join(dir, "memories", "USER.md"), "utf8"), "A\n§\nB");
+    await rm(dir, { recursive: true });
+  });
+
+  it("失敗してもロックは手放す", async () => {
+    const dir = await home();
+    let released = 0;
+    const store = createMemoryStore({
+      hermesHome: dir,
+      connect: link,
+      acquireLock: async () => async () => {
+        released += 1;
+      },
+    });
+    await assert.rejects(() => store.removeEntry("user", "Z"), MemoryNotFoundError);
+    assert.equal(released, 1);
+    await rm(dir, { recursive: true });
+  });
+
+  it("実flock: Hermesがロックを握って項目Cを足している間、削除は待ち、Cを消さない", { skip: !hasFlock() }, async () => {
+    const dir = await home();
+    const userFile = join(dir, "memories", "USER.md");
+    const releaseHermes = await acquireFlock(`${userFile}.lock`); // Hermesの書き込み中を再現
+    const store = createMemoryStore({ hermesHome: dir, connect: link });
+    const removal = store.removeEntry("user", "A");
+    await new Promise((r) => setTimeout(r, 300)); // 削除はロック待ち（まだ何も変わっていない）
+    assert.equal(await readFile(userFile, "utf8"), "A\n§\nB");
+    await writeFile(userFile, "A\n§\nB\n§\nC"); // Hermesの書き込み
+    await releaseHermes();
+    await removal;
+    assert.deepEqual((await store.listEntries()).map((e) => e.text), ["B", "C"]);
     await rm(dir, { recursive: true });
   });
 
