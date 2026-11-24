@@ -27,7 +27,7 @@ test("AIDEへ繋ぐときは tasks:read・tasks:write と kurashio-bills:read・
   const aide = MCP_PRESETS.find((p) => p.id === "aide")!;
   // aide_tasks（紐づけの候補）は tasks:read、aide_create_task は tasks:write。AIDEは write で read を兼ねない
   //（aide の src/mcp/tools/tasks.ts の requiredScopes。2026-11-15に確認）。
-  assert.deepEqual(aide.scopes, ["tasks:read", "tasks:write", "kurashio-bills:read", "kurashio-bills:write"]);
+  assert.deepEqual(aide.scopes, ["tasks:read", "tasks:write", "kurashio-bills:read", "kurashio-bills:write", "salary-agent:read", "salary-agent:write"]);
   const url = new URL(
     buildAuthorizeUrl({
       authorizationEndpoint: "https://aide.example/authorize",
@@ -39,7 +39,7 @@ test("AIDEへ繋ぐときは tasks:read・tasks:write と kurashio-bills:read・
       scopes: aide.scopes,
     }),
   );
-  assert.equal(url.searchParams.get("scope"), "tasks:read tasks:write kurashio-bills:read kurashio-bills:write");
+  assert.equal(url.searchParams.get("scope"), "tasks:read tasks:write kurashio-bills:read kurashio-bills:write salary-agent:read salary-agent:write");
 });
 
 test("scopeを持たない接続先では scope を付けない", () => {

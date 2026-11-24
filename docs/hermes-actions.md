@@ -111,7 +111,7 @@ AIDEの道具ではなく、Hermes自身が持つ。チャットのチップに�
 | 道具 | 理由 |
 |---|---|
 | `aide_zaim_payment`・`aide_zaim_master` | 廃止済み（Zaim APIの提供終了） |
-| `asset_manager_salary_preview`・`_commit`・`_approval_status` | 独自の2段階承認がある。メールの提案でも入れていない（#689）。要るなら別Issue |
+| `asset_manager_salary_preview`・`_commit`・`_approval_status` | 独自の2段階承認がある（承認はAsset Managerの画面）。メール画面の添付PDFからMorrowのサーバーだけが呼ぶ（`SALARY_WRITE_TOOLS`。#1170）。チャットの指示からは使わない |
 | `kurashio_import_utility_bill`・`kurashio_import_kepco_hourly` | 明細の取り込み（PDF・CSV）で、チャットの指示から作る値ではない（`kurashio_import_utility_bill` は請求メールの分析からMorrowのサーバーだけが呼ぶ。#1100） |
 | `aide_room_press` | 押すボタンの効果が道具から分からない（物理操作）。要るならボタンごとに分類して足す |
 | `aide_create_notification`・`aide_create_task_candidate`・`aide_save_daily_brief`・`aide_report_work`・`aide_research_desk_import_weekly_report` | 他のエージェント・自動処理のための口。窓口からの指示で使う用途が無い |
