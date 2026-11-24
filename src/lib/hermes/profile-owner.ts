@@ -11,6 +11,8 @@ import { isProfileOwner } from "./profile-owner-core";
  * 記憶・スキルの画面とAPIを開く。未設定なら全員拒否（設定漏れで公開にしない）。判定の本体は純粋な `isProfileOwner()`。
  */
 
+export const PROFILE_OWNER_ONLY_MESSAGE = "この操作はHermesのprofileの持ち主だけができます。";
+
 export function isHermesProfileOwner(user: { email: string | null } | null | undefined): boolean {
   return isProfileOwner(process.env.HERMES_PROFILE_OWNER_EMAIL, user?.email);
 }
@@ -25,6 +27,6 @@ export async function profileOwnerUser() {
 export async function denyUnlessProfileOwner(): Promise<NextResponse | null> {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "ログインが必要です。" }, { status: 401 });
-  if (!isHermesProfileOwner(user)) return NextResponse.json({ error: "この操作はHermesのprofileの持ち主だけができます。" }, { status: 403 });
+  if (!isHermesProfileOwner(user)) return NextResponse.json({ error: PROFILE_OWNER_ONLY_MESSAGE }, { status: 403 });
   return null;
 }

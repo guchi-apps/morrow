@@ -1,5 +1,6 @@
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import {
@@ -23,16 +24,49 @@ import { dispatchWriteApproval } from "./skills.ts";
  * - 承認・却下は Hermes の `command.dispatch`（`name: "memory"`）へ渡す。**`arg` は `pending`・`approve <id>`・`reject <id>` だけ**
  * - 保存済みの記憶は `<HERMES_HOME>/memories/{MEMORY,USER}.md`（項目は `\n§\n` 区切り）を読む。
  *   **削除はこのファイルを直接書き換える**（Hermesの削除は保留→承認を通るため、利用者が画面で押した削除には使えない）。
- *   Hermesの書き込みは `<file>.lock` のflockで直列化されるが、Nodeには標準のflockが無い。読み直し→一時ファイルへ書く→rename の間隔を
- *   最小にして、全文が一致した1項目だけを外す（競合してもHermesの書き込みを壊さない側＝一致しなければ何もしない側へ倒す）
+ *   Hermesの書き込みは `<file>.lock` のflockで直列化される。削除も同じflockを握ったまま
+ *   読む→全文が一致した1項目だけを外す→renameする（#1181。Nodeに標準のflockは無いので `flock(1)` を子プロセスで使う）
  */
 
 export class MemoryNotFoundError extends Error {}
 export class MemoryRejectedError extends Error {}
-/** 削除の途中でHermesが同じファイルを書き換え続け、読み直しても確定できなかった（#1181）。 */
+/** 記憶ファイルのロックを待ちきれなかった・取れなかった（#1181）。 */
 export class MemoryConflictError extends Error {}
 
-const REMOVE_RETRY_LIMIT = 5;
+const LOCK_WAIT_MS = 10_000;
+
+/** ロックを取る。返す関数でロックを手放す。 */
+export type AcquireLock = (lockPath: string) => Promise<() => Promise<void>>;
+
+/**
+ * Hermesと同じ `<file>.lock` のflock（排他）を取る。Nodeに標準のflockが無いので、`flock(1)`（util-linux）を子プロセスで起こし、
+ * 「locked」を出してから標準入力が閉じるまで握らせる。**取れなければ（flockが無い・待ちきれない）削除はしない**（上書きより失敗を選ぶ）。
+ */
+export const acquireFlock: AcquireLock = (lockPath) =>
+  new Promise((resolveLock, rejectLock) => {
+    const child = spawn("flock", ["-x", lockPath, "sh", "-c", "echo locked; read _"], { stdio: ["pipe", "pipe", "ignore"] });
+    let settled = false;
+    const closed = new Promise<void>((done) => child.once("close", () => done()));
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.kill();
+      rejectLock(error);
+    };
+    const timer = setTimeout(() => fail(new MemoryConflictError("記憶ファイルのロックを取れなかった")), LOCK_WAIT_MS);
+    child.once("error", (error) => fail(new Error(`flockを起動できなかった: ${error.message}`)));
+    child.once("close", () => fail(new MemoryConflictError("記憶ファイルのロックを取れなかった")));
+    child.stdout.on("data", (chunk: Buffer) => {
+      if (settled || !chunk.toString().includes("locked")) return;
+      settled = true;
+      clearTimeout(timer);
+      resolveLock(async () => {
+        child.stdin.end();
+        await closed;
+      });
+    });
+  });
 
 export interface MemoryStore {
   listPending(): Promise<PendingMemory[]>;
@@ -66,8 +100,8 @@ export interface MemoryStoreOptions {
   /** Hermesへ繋ぐ。 */
   connect: () => Promise<HermesLink>;
   now?: () => number;
-  /** テスト専用: 削除が読んだ後・rename前に呼ばれる（Hermesの同時書き込みを再現する）。 */
-  beforeRemoveCommit?: () => Promise<void>;
+  /** 記憶ファイルのロックの取り方（既定はHermesと同じflock。テストで差し替える）。 */
+  acquireLock?: AcquireLock;
 }
 
 const FILE_OF: Record<MemoryTarget, string> = { user: "USER.md", memory: "MEMORY.md" };
@@ -85,6 +119,7 @@ export function createMemoryStore(options: MemoryStoreOptions): MemoryStore {
   const pendingDir = join(home, "pending", "memory");
   const memoriesDir = join(home, "memories");
   const now = options.now ?? Date.now;
+  const acquireLock = options.acquireLock ?? acquireFlock;
 
   async function pendingFiles(): Promise<string[]> {
     try {
@@ -157,29 +192,23 @@ export function createMemoryStore(options: MemoryStoreOptions): MemoryStore {
 
     async removeEntry(target, text) {
       const file = join(memoriesDir, FILE_OF[target]);
-      // 読む→一致した1項目を外す→**rename直前にファイルが読んだ時点と同じ内容か確かめる**。違えば（Hermesが同時に書いた）読み直してやり直す。
-      // Nodeに標準のflockが無くHermesの `<file>.lock` とは直列化できないので、確認からrenameまでの隙間は残るが、
-      // 古い内容で上書きする窓を「読んでから書くまで」から「確認からrenameまで」へ縮める（#1181）。
-      for (let attempt = 0; attempt < REMOVE_RETRY_LIMIT; attempt += 1) {
+      // Hermesの書き込みと同じ `<file>.lock` のflockを握ったまま、読む→一致した1項目を外す→rename する（#1181）。
+      // 読んだ後・rename前にHermesが書き込むことはできないので、Hermesの追加・更新を古い内容で上書きしない。
+      await mkdir(memoriesDir, { recursive: true });
+      const release = await acquireLock(`${file}.lock`);
+      const temp = join(memoriesDir, `.mem_${randomUUID().slice(0, 8)}.tmp`);
+      try {
         const raw = await readRaw(file);
         const rest = removeEntryByText(raw === null ? [] : parseMemoryFile(raw), text);
         if (rest === null) throw new MemoryNotFoundError("記憶が見つからない（すでに変わった可能性がある）");
-        const temp = join(memoriesDir, `.mem_${randomUUID().slice(0, 8)}.tmp`);
-        try {
-          await writeFile(temp, serializeMemoryFile(rest), { encoding: "utf8", mode: 0o600 });
-          await options.beforeRemoveCommit?.();
-          if ((await readRaw(file)) !== raw) {
-            await unlink(temp).catch(() => {});
-            continue; // 同時に書き換えられた。最新の内容で作り直す
-          }
-          await rename(temp, file); // 読んだ版のままなので、ここまでのHermesの書き込みは消さない
-          return;
-        } catch (error) {
-          await unlink(temp).catch(() => {});
-          throw error;
-        }
+        await writeFile(temp, serializeMemoryFile(rest), { encoding: "utf8", mode: 0o600 });
+        await rename(temp, file);
+      } catch (error) {
+        await unlink(temp).catch(() => {});
+        throw error;
+      } finally {
+        await release();
       }
-      throw new MemoryConflictError("記憶ファイルが同時に更新され続けた");
     },
   };
 }

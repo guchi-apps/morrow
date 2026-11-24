@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth-user";
-import { isHermesProfileOwner } from "@/lib/hermes/profile-owner";
+import { isHermesProfileOwner, PROFILE_OWNER_ONLY_MESSAGE } from "@/lib/hermes/profile-owner";
 import { hermesClient } from "@/lib/hermes/client";
 import { HermesError } from "@/lib/hermes/client-core";
 import { SESSION_ID_PATTERN, type BridgeEvent } from "@/lib/hermes/contract";
@@ -49,6 +49,8 @@ const lastStarts = new Map<string, number>();
 export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "ログインが必要です。" }, { status: 401 });
+  // 共有morrow profileの記憶は会話の開始時にHermesへ注入される。持ち主以外にターンを始めさせない（#1181）
+  if (!isHermesProfileOwner(user)) return NextResponse.json({ error: PROFILE_OWNER_ONLY_MESSAGE }, { status: 403 });
 
   const body = await readJsonObject(request);
   // 添付画像（#1157）。検証して渡すだけで、DB・ログには残さない。形が違う・大きすぎるときは理由を返す
@@ -185,7 +187,7 @@ async function pumpTurn(options: {
   events: AsyncGenerator<BridgeEvent>;
   log: TurnLog<RelayEvent>;
   userId: string;
-  /** 共有profileの持ち主か（記憶・スキルの確認待ち通知は持ち主だけへ送る。#1181）。 */
+  /** 共有profileの持ち主か（記憶・スキルの確認待ち通知は持ち主だけへ送る。#1181。ターンの開始は持ち主に限るが、通知側でも守る）。 */
   profileOwner: boolean;
   /** 最初の `turn` イベントは呼び出し側で処理済み（#1005）。無ければnull。 */
   turnId: string | null;
