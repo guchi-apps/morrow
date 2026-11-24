@@ -30,6 +30,9 @@ const READ_LABELS: Record<string, string> = {
   kurashio_utility_bill_contracts: "光熱費の契約の確認",
   aide_ping: "接続の確認",
   aide_connection_permissions: "接続の権限の確認",
+  // 受信メールの読み取り（#1151・aide#905）。送信・下書き・整理の道具は持たせない
+  aide_mail_search: "メールの検索",
+  aide_mail_get: "メールの読み取り",
   // Hermes組み込みの道具（#809）。AIDEの道具が読み込めていない回は、これらだけが並ぶ
   tool_search: "使える道具の検索",
   web_search: "ウェブ検索",
@@ -129,8 +132,8 @@ export function toolLabel(name: string | undefined | null, rawArgs?: unknown): s
 
 const HINT_LIMIT = 40;
 
-/** 手掛かりを出すHermes組み込みの道具（表示名は `READ_LABELS`）。 */
-const HINTED = new Set(["web_search", "web_extract", "tool_search"]);
+/** 手掛かりを出す道具（Hermes組み込み＋メールの検索。表示名は `READ_LABELS`）。 */
+const HINTED = new Set(["web_search", "web_extract", "tool_search", "aide_mail_search"]);
 
 function quoted(text: string | null): string | null {
   const clipped = text === null ? null : clip(text);
@@ -172,7 +175,8 @@ export function toolHint(name: string | undefined | null, rawArgs: unknown): str
   if (builtin === null) return clip(name.replace(/^mcp_+/, ""));
   const args = parseArgs(rawArgs);
   if (!args) return null;
-  if (builtin === "web_search") {
+  // メールの検索（#1151）は検索語だけを出す（利用者の言葉かHermesが選んだ語。本文・差出人は出さない）。再検索の様子が分かる
+  if (builtin === "web_search" || builtin === "aide_mail_search") {
     const q = firstString(args.query);
     return quoted(q);
   }

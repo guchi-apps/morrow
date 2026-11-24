@@ -19,7 +19,6 @@ import { expireTurnLog, registerTurnLog, TurnLog } from "@/lib/hermes/turn-pump"
 import { TURN_ID_HEADER } from "@/lib/hermes/turn-header";
 import { streamOf } from "@/lib/hermes/turn-stream";
 import { readJsonObject } from "@/lib/json-body";
-import { mailContextFor } from "@/lib/mail/chat-context";
 import { isPushKindEnabled } from "@/lib/push/kinds-server";
 import { sendPushToUser } from "@/lib/push/subscriptions";
 import { parseChatLocation } from "@/lib/weather/chat-context-core";
@@ -88,14 +87,12 @@ export async function POST(request: Request) {
 
   // 前の発言以降に実行・取り下げされた提案を、先頭に付けてHermesへ伝える（送れたら伝達済みにする）
   const notes = continuing ? await pendingHermesNotes(user.id, continuing) : { text: "", ids: [] };
-  // メールに触れる指示なら、検索して該当メールを先頭へ添える（#813。失敗してもターンは止めない）
-  const mailContext = await mailContextFor(user, text).catch(() => null);
   // 天気について聞く指示なら、現在地（無ければ自宅）の予報を添える（#930。失敗してもターンは止めない）
   const weatherContext = await weatherContextFor(user.id, text, parseChatLocation(body?.location));
   // 予定・タスクなど今日の状態を聞く指示なら、取得済みの値を添える（#1149。同じ会話・同じ日は一度だけ。失敗してもターンは止めない）
   const todayContext = await todayContextFor(user.id, continuing, text);
   const prompt = buildPrompt(
-    [notes.text, mailContext?.prompt, weatherContext?.prompt, todayContext?.prompt, images.length > 0 ? imageNotice(images.length) : null],
+    [notes.text, weatherContext?.prompt, todayContext?.prompt, images.length > 0 ? imageNotice(images.length) : null],
     text,
   );
 
@@ -120,7 +117,6 @@ export async function POST(request: Request) {
   // ブリッジのストリームはブラウザの接続と無関係に読み切る（#1000）。画面が離れても（iOSで別アプリへ移るなど）ターンは続き、
   // 戻った画面は `turns/<id>/events` で続きを受ける。止めるのは「止める」と1ターンの上限だけ
   const log = new TurnLog<RelayEvent>();
-  if (mailContext) log.push({ type: "notice", data: { text: mailContext.label } });
   if (weatherContext) log.push({ type: "notice", data: { text: weatherContext.label } });
   if (todayContext) log.push({ type: "notice", data: { text: todayContext.label } });
 

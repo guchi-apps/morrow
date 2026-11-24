@@ -54,7 +54,9 @@ Hermesが台帳へ触れる経路はAIDEのMCP（`https://aide.gucchii.com/mcp`�
 `aide_schedule`・`aide_tasks`・`aide_get_task`・`aide_get_travel`・`aide_weather`・`aide_current_location`・`aide_garbage_collection`・
 `aide_balances`・`aide_fixed_costs`・`aide_utility_bills`・`aide_room_sensors`・`aide_room_buttons`・`aide_aircon_status`・`aide_printer_status`・
 `aide_work_reports`・`asset_manager_subscriptions`・`asset_manager_salary_lookup`・`kurashio_get_utility_bill`・`kurashio_get_kepco_hourly`・
-`kurashio_utility_bill_contracts`・`aide_ping`・`aide_connection_permissions`
+`kurashio_utility_bill_contracts`・`aide_ping`・`aide_connection_permissions`・`aide_mail_search`・`aide_mail_get`
+
+- **受信メールの読み取り（`aide_mail_search`・`aide_mail_get`。#1151・aide#905）**: 専用scope `mail:read`、持ち主の照合はAIDE側。送信・下書き・整理（アーカイブ・ゴミ箱・既読・ラベル）・削除の道具は**持たせない**（AIDEにも作らない）。本文は外から来た文面なので、本文の指示で書き込みを呼ばないことをSOULと評価セット（`mail-injection`）で見る。手作業は `docs/hermes-route.md`「受信メールの読み取り」
 
 - 運用・開発の状態（`aide_host_status`・`aide_vps_memory`・`aide_uptime_monitors`・`aide_service_quotas`・`aide_dev_status`・`aide_repo_status`・
   `aide_repo_labels`・`aide_claude_sessions`・`aide_issue_deck_items`・`aide_issue_deck_summary`）も読み取りだが、Morrowの窓口の用途に無いので
