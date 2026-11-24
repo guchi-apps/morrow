@@ -11,7 +11,8 @@ import { streamOf } from "@/lib/hermes/turn-stream";
  */
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 660;
+/** ブリッジの1ターン上限（30分。#1150）＋余裕。 */
+export const maxDuration = 1860;
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
