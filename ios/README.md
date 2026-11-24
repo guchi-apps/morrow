@@ -125,6 +125,10 @@ ios/scripts/remote-upload-testflight.sh    # Mac で main を取り込み、Test
 
 音声バー（「話しかける」）はブラウザの Web Speech API（`SpeechRecognition`）に依存します。**WKWebView ではこの API が使えない可能性が高く**、使えない場合はWeb側がマイクを出さないので、文字での相談は妨げられません。**実機での可否は下の確認表に記録してください**（WebView化だけで既知の音声問題が解消するとは見なさない）。ネイティブの音声入出力は後続Issueです。
 
+### チャットの画像添付（#1157）
+
+チャットの添付ボタン（`<input type="file" accept="image/*">`）は、WKWebViewではiOS標準の「写真ライブラリ／写真を撮る／ファイル」の選択になる。**撮影にはビルド設定の `INFOPLIST_KEY_NSCameraUsageDescription` が要る**（無いと撮影を選んだ時点でアプリが落ちる）ので足した。Swiftの変更は無い。写真ライブラリの選択は利用目的を要しない。実機での確認はMacで本人が行う。
+
 ### 位置情報（#587。現在地の天気は#867で削除）
 
 現在地の天気は天気ページ（`/weather`）が、開いたときに `navigator.geolocation` で1回だけ取る（#882。ダッシュボードの「現在地」バッジは#867で削除済み）。ビルド設定の `INFOPLIST_KEY_NSLocationWhenInUseUsageDescription`（利用目的）とWKUIDelegateの許可（#641）を使う。
