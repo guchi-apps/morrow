@@ -6,6 +6,7 @@ import { HermesError } from "@/lib/hermes/client-core";
 import { SESSION_ID_PATTERN, type BridgeEvent } from "@/lib/hermes/contract";
 import { describeHermesError, RATE_LIMITED } from "@/lib/hermes/errors";
 import { markNotesReported, pendingHermesNotes, recordAutoAction, ingestStreamToolStart } from "@/lib/hermes/proposals";
+import { checkImageBase64, IMAGE_ONLY_TEXT, imageNotice, parseTurnImages, TURN_IMAGE_MAX_COUNT } from "@/lib/hermes/image-core";
 import { buildPrompt } from "@/lib/hermes/prompt-attachment";
 import { parseProposalEvent } from "@/lib/hermes/proposal-core";
 import { recordHermesTurnUsage } from "@/lib/hermes/record-usage";
@@ -50,7 +51,18 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "ログインが必要です。" }, { status: 401 });
 
   const body = await readJsonObject(request);
-  const text = typeof body?.text === "string" ? body.text.trim() : "";
+  // 添付画像（#1157）。検証して渡すだけで、DB・ログには残さない。形が違う・大きすぎるときは理由を返す
+  const images = parseTurnImages(body?.images);
+  if (!images) {
+    const list = Array.isArray(body?.images) ? (body.images as { data?: unknown }[]) : [];
+    const reason =
+      list.length > TURN_IMAGE_MAX_COUNT
+        ? `画像は${TURN_IMAGE_MAX_COUNT}枚までです。`
+        : (list.map((item) => checkImageBase64(item?.data)).find((check) => !check.ok) as { reason: string } | undefined)?.reason ?? "画像を読み取れませんでした。";
+    return NextResponse.json({ error: reason, kind: "invalid" }, { status: 400 });
+  }
+  // 画像だけを送ったときの既定の指示
+  const text = typeof body?.text === "string" && body.text.trim() !== "" ? body.text.trim() : images.length > 0 ? IMAGE_ONLY_TEXT : "";
   const sessionId = body?.sessionId;
   if (
     text === "" ||
@@ -82,13 +94,17 @@ export async function POST(request: Request) {
   const weatherContext = await weatherContextFor(user.id, text, parseChatLocation(body?.location));
   // 予定・タスクなど今日の状態を聞く指示なら、取得済みの値を添える（#1149。同じ会話・同じ日は一度だけ。失敗してもターンは止めない）
   const todayContext = await todayContextFor(user.id, continuing, text);
-  const prompt = buildPrompt([notes.text, mailContext?.prompt, weatherContext?.prompt, todayContext?.prompt], text);
+  const prompt = buildPrompt(
+    [notes.text, mailContext?.prompt, weatherContext?.prompt, todayContext?.prompt, images.length > 0 ? imageNotice(images.length) : null],
+    text,
+  );
 
   let events: AsyncGenerator<BridgeEvent>;
   try {
     events = await (await hermesClient()).startTurn({
       ...(continuing ? { sessionId: continuing } : { ...(sessionTitleFrom(text) ? { title: sessionTitleFrom(text) } : {}) }),
       text: prompt,
+      ...(images.length > 0 ? { images } : {}),
     });
   } catch (error) {
     // 送れなかった指示は溜めない。画面が入力欄へ戻す（#726）

@@ -16,6 +16,7 @@ import {
   type HealthBody,
   type TurnRequestBody,
 } from "../src/lib/hermes/contract.ts";
+import { parseTurnImages, TURN_BODY_MAX_BYTES_WITH_IMAGES } from "../src/lib/hermes/image-core.ts";
 import { aideHealthFromStatus, type AideHealth } from "../src/lib/hermes/aide-health.ts";
 import { authorize, parseAllowedIps } from "./auth.ts";
 import { connectHermes, type HermesLink } from "./hermes-link.ts";
@@ -67,12 +68,12 @@ function sendError(res: ServerResponse, status: number, reason: BridgeErrorReaso
   sendJson(res, status, { error: reason, ...(message ? { message } : {}) });
 }
 
-async function readJson(req: IncomingMessage): Promise<Record<string, unknown> | null> {
+async function readJson(req: IncomingMessage, maxBytes: number = MAX_BODY_BYTES): Promise<Record<string, unknown> | null> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     size += (chunk as Buffer).length;
-    if (size > MAX_BODY_BYTES) return null;
+    if (size > maxBytes) return null;
     chunks.push(chunk as Buffer);
   }
   try {
@@ -88,11 +89,13 @@ export function formatSse(event: BridgeEvent): string {
 }
 
 function parseTurnBody(body: Record<string, unknown>): TurnRequestBody | null {
-  const { text, sessionId, title } = body;
+  const { text, sessionId, title, images } = body;
   if (typeof text !== "string" || text.trim() === "" || text.length > MAX_TEXT_LENGTH) return null;
   if (sessionId !== undefined && (typeof sessionId !== "string" || !SESSION_ID_PATTERN.test(sessionId))) return null;
   if (title !== undefined && (typeof title !== "string" || title.length > 200)) return null;
-  return { text, ...(sessionId ? { sessionId } : {}), ...(title ? { title } : {}) };
+  const parsedImages = parseTurnImages(images);
+  if (!parsedImages) return null;
+  return { text, ...(sessionId ? { sessionId } : {}), ...(title ? { title } : {}), ...(parsedImages.length > 0 ? { images: parsedImages } : {}) };
 }
 
 export function createBridgeServer(options: BridgeOptions): Server {
@@ -122,7 +125,8 @@ export function createBridgeServer(options: BridgeOptions): Server {
   }
 
   async function handleStartTurn(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const raw = await readJson(req);
+    // 画像つきの本文はこの口だけ大きく受ける（#1157）。他の口は64KBのまま
+    const raw = await readJson(req, TURN_BODY_MAX_BYTES_WITH_IMAGES);
     const body = raw ? parseTurnBody(raw) : null;
     if (!body) return sendError(res, 400, "bad_request");
 
@@ -186,7 +190,7 @@ export function createBridgeServer(options: BridgeOptions): Server {
       };
       emit({ type: "turn", data: { turnId, sessionId: session.storedId } });
 
-      const handle = runTurn({ link, session, text: body.text, emit, timeoutMs: turnTimeoutMs });
+      const handle = runTurn({ link, session, text: body.text, images: body.images, emit, timeoutMs: turnTimeoutMs });
       turns.set(turnId, handle);
 
       const heartbeat = setInterval(() => {

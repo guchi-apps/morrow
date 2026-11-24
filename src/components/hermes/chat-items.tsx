@@ -30,6 +30,7 @@ export function ChatItemView({ item, turnId, onApproval, onClarify, onProposalCh
     case "user":
       return (
         <div className="max-w-[85%] self-end whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-accent px-3.5 py-2 text-sm text-white">
+          {item.images ? <span className="mb-0.5 block text-xs opacity-85">画像 {item.images} 枚</span> : null}
           {item.text}
         </div>
       );

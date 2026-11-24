@@ -5,6 +5,8 @@
  * 相対パスで読む。ここを変えるときは両側のテストを見ること。
  */
 
+import type { TurnImage } from "./image-core.ts";
+
 /** ブリッジが承認の回答として受け付ける値。`always`・`session` は通さない（`docs/hermes-actions.md`）。 */
 export const APPROVAL_CHOICES = ["once", "deny"] as const;
 export type ApprovalChoice = (typeof APPROVAL_CHOICES)[number];
@@ -154,6 +156,8 @@ export interface TurnRequestBody {
   sessionId?: string;
   text: string;
   title?: string;
+  /** 添付する画像（#1157。検証済み。ブリッジが `image.attach_bytes` で添付してから `prompt.submit` する）。 */
+  images?: TurnImage[];
 }
 
 /**
