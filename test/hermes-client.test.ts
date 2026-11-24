@@ -23,6 +23,8 @@ describe("失敗の区別（#214）", () => {
     assert.equal(kind(409, "session_busy"), "session_busy");
     assert.equal(kind(429, "bridge_busy"), "bridge_busy");
     assert.equal(kind(500), "bad_response");
+    assert.equal(kind(404, "not_found"), "bridge_outdated");
+    assert.equal(kind(404), "bad_response");
   });
 
   it("宛先やトークンが未設定なら、通信せずに not_configured", async () => {

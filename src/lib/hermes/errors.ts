@@ -43,6 +43,9 @@ export function describeHermesError(kind: HermesErrorKind): ChatFailure {
       return { connection: null, status: 409, kind, message: "Hermesがこの操作を受け付けませんでした。" };
     case "bad_request":
       return { connection: null, status: 400, kind, message: "指示の形が正しくありません。" };
+    case "bridge_outdated":
+      // 接続そのものは生きている（他の機能は動く）ので、接続状態は変えない
+      return { connection: null, status: 502, kind, message: "DeskMiniのHermesブリッジが古く、この機能に対応していません（ブリッジの更新が必要です）。" };
     default:
       return { connection: "unreachable", status: 502, kind, message: "Hermesの応答を読めませんでした。" };
   }

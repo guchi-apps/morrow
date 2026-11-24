@@ -35,6 +35,21 @@ describe("会話一覧の絞り込み（#1156）", () => {
     assert.ok(!JSON.stringify(out).includes("秘密"));
   });
 
+  it("/api/sessions/{id} の行（last_active がnull）は last_activity_at・ended_at の新しい方を最終更新にする（#1175）", () => {
+    // 2026-11-24に実物（Hermesの /api/sessions/{id}）で確かめた形
+    const rows = [
+      { id: "a", source: "morrow", title: "t", message_count: 6, last_active: null, last_activity_at: 1795510804.4, ended_at: 1795510835.86, started_at: 1795510802.9 },
+      { id: "b", source: "morrow", title: "u", message_count: 2, last_active: null, last_activity_at: 1795510900.2, ended_at: null, started_at: 1795510890 },
+    ];
+    assert.deepEqual(
+      projectSessions(rows).map((x) => [x.sessionId, x.lastActiveAt]),
+      [
+        ["a", 1795510835_860],
+        ["b", 1795510900_200],
+      ],
+    );
+  });
+
   it("渡したidごとに /api/sessions/{id} を読み、Morrow以外・消えたidを外して新しい順に返す", async () => {
     const seen: { path: string; token: string | undefined }[] = [];
     const rows: Record<string, unknown> = {
