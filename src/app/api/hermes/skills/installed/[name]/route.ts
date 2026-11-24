@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getCurrentUser } from "@/lib/auth-user";
+import { denyUnlessProfileOwner } from "@/lib/hermes/profile-owner";
 import { hermesClient } from "@/lib/hermes/client";
 import { HermesError } from "@/lib/hermes/client-core";
 import { describeHermesError } from "@/lib/hermes/errors";
@@ -11,8 +11,8 @@ import { SKILL_NAME_PATTERN } from "@/lib/hermes/skill-core";
 export const dynamic = "force-dynamic";
 
 export async function DELETE(_request: Request, context: { params: Promise<{ name: string }> }) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "ログインが必要です。" }, { status: 401 });
+  const denied = await denyUnlessProfileOwner();
+  if (denied) return denied;
 
   const { name } = await context.params;
   if (!SKILL_NAME_PATTERN.test(name)) return NextResponse.json({ error: "スキル名の形が正しくありません。" }, { status: 400 });

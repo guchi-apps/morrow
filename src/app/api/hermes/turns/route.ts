@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth-user";
+import { isHermesProfileOwner } from "@/lib/hermes/profile-owner";
 import { hermesClient } from "@/lib/hermes/client";
 import { HermesError } from "@/lib/hermes/client-core";
 import { SESSION_ID_PATTERN, type BridgeEvent } from "@/lib/hermes/contract";
@@ -167,7 +168,7 @@ export async function POST(request: Request) {
     lastStarts.delete(user.id);
     return NextResponse.json({ error: "Hermesとの接続が途中で切れました。", kind: "hermes_down" }, { status: 502 });
   }
-  void pumpTurn({ events: rest, log, userId: user.id, turnId, sessionId: sessionIdOfTurn });
+  void pumpTurn({ events: rest, log, userId: user.id, profileOwner: isHermesProfileOwner(user), turnId, sessionId: sessionIdOfTurn });
 
   return new Response(streamOf(log, 0), {
     headers: {
@@ -184,11 +185,13 @@ async function pumpTurn(options: {
   events: AsyncGenerator<BridgeEvent>;
   log: TurnLog<RelayEvent>;
   userId: string;
+  /** 共有profileの持ち主か（記憶・スキルの確認待ち通知は持ち主だけへ送る。#1181）。 */
+  profileOwner: boolean;
   /** 最初の `turn` イベントは呼び出し側で処理済み（#1005）。無ければnull。 */
   turnId: string | null;
   sessionId: string;
 }): Promise<void> {
-  const { events, log, userId, turnId } = options;
+  const { events, log, userId, turnId, profileOwner } = options;
   const user = { id: userId };
   const currentSessionId = options.sessionId;
   let toolCount = 0;
@@ -270,8 +273,8 @@ async function pumpTurn(options: {
     }
     log.finish();
     if (proposalsCreated > 0) await notifyPending(user.id, proposalsCreated);
-    if (skillsStaged > 0) await notifySkillPending(user.id, skillsStaged);
-    if (memoriesStaged > 0) await notifyMemoryPending(user.id, memoriesStaged);
+    if (profileOwner && skillsStaged > 0) await notifySkillPending(user.id, skillsStaged);
+    if (profileOwner && memoriesStaged > 0) await notifyMemoryPending(user.id, memoriesStaged);
     if (unattended && (ending === "complete" || ending === "error")) await notifyReply(user.id, currentSessionId, ending);
   }
 }
