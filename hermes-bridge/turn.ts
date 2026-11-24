@@ -9,6 +9,7 @@ import {
   type HermesUsage,
   type TurnRequestBody,
 } from "../src/lib/hermes/contract.ts";
+import { checkImageBase64, imageFilename, type TurnImage } from "../src/lib/hermes/image-core.ts";
 import { HermesRpcError, type HermesLink } from "./hermes-link.ts";
 
 /**
@@ -82,14 +83,30 @@ export interface TurnHandle {
   done: Promise<void>;
 }
 
+/** 画像を `prompt.submit` の前に1枚ずつ添付する。種類は署名で決め直し、申告のファイル名は使わない（#1157）。 */
+export async function attachImages(link: HermesLink, sessionId: string, images: readonly TurnImage[]): Promise<void> {
+  for (const [index, image] of images.entries()) {
+    const checked = checkImageBase64(image.data);
+    if (!checked.ok) throw new Error(checked.reason);
+    await link.rpc("image.attach_bytes", {
+      session_id: sessionId,
+      content_base64: image.data,
+      filename: imageFilename(index, checked.type),
+    });
+  }
+}
+
 export function runTurn(options: {
   link: HermesLink;
   session: OpenedSession;
   text: string;
+  /** 添付する画像（#1157）。`prompt.submit` の前に1枚ずつ `image.attach_bytes` で添付する。 */
+  images?: TurnImage[];
   emit: (event: BridgeEvent) => void;
   timeoutMs: number;
 }): TurnHandle {
   const { link, session, text, emit, timeoutMs } = options;
+  const images = options.images ?? [];
   const pendingApprovals = new Set<string>();
   /** 答えを待っている質問（要求のid → 質問）。 */
   const pendingClarify = new Map<string, ClarifyQuestion[]>();
@@ -215,8 +232,8 @@ export function runTurn(options: {
     end();
   });
 
-  link
-    .rpc("prompt.submit", { session_id: session.liveId, text })
+  attachImages(link, session.liveId, images)
+    .then(() => (finished ? undefined : link.rpc("prompt.submit", { session_id: session.liveId, text })))
     .catch((error: unknown) => {
       if (finished) return;
       emit({ type: "error", data: { reason: "hermes_error", message: error instanceof Error ? error.message : "prompt.submit に失敗した" } });

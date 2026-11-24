@@ -1,4 +1,5 @@
 import { parseClarifyQuestions, type BridgeEvent, type BridgeEventType, type ClarifyAnswer, type ClarifyQuestion, type HermesUsage } from "./contract.ts";
+import { stripImageMarkers } from "./image-core.ts";
 import { stripAttachments } from "./prompt-attachment.ts";
 import type { ProposalView } from "./proposal-core.ts";
 import { argLines, isAutoWriteTool, knownToolKey, resultFailed, resultSummary, toolHint, toolLabel, type ArgLine, type ResultSummary } from "./tool-labels.ts";
@@ -30,7 +31,7 @@ export const RELAY_EVENT_TYPES: ReadonlySet<string> = new Set<BridgeEventType | 
 ]);
 
 export type ChatItem =
-  | { kind: "user"; id: number; text: string }
+  | { kind: "user"; id: number; text: string; /** 添付した画像の枚数（#1157。画像そのものは持たない）。 */ images?: number }
   | { kind: "assistant"; id: number; text: string; done: boolean }
   | {
       kind: "tool";
@@ -106,9 +107,15 @@ export function restoreFromHistory(
   const items: ChatItem[] = [];
   for (const m of messages) {
     // 利用者の発言は、Morrowが先頭へ足した注記・メール本文を落とした入力部分だけ出す
-    const text = m.role === "user" ? stripAttachments(m.text) : m.text;
-    if (text.trim() === "") continue;
-    items.push(m.role === "user" ? { kind: "user", id: nextId++, text } : { kind: "assistant", id: nextId++, text, done: true });
+    const stripped = m.role === "user" ? stripImageMarkers(stripAttachments(m.text)) : { text: m.text, images: 0 };
+    const text = stripped.text;
+    // 画像は復元しない。「画像 N 枚」とだけ出す（#1157）
+    if (text.trim() === "" && stripped.images === 0) continue;
+    items.push(
+      m.role === "user"
+        ? { kind: "user", id: nextId++, text, ...(stripped.images > 0 ? { images: stripped.images } : {}) }
+        : { kind: "assistant", id: nextId++, text, done: true },
+    );
   }
   if (items.length === 0) return { ...state, sessionId };
   return { ...state, sessionId, items: [...items, ...state.items], nextId };
@@ -125,8 +132,8 @@ function replaceAt(state: ChatState, index: number, item: ChatItem): ChatState {
 }
 
 /** 利用者の指示を送った（接続できたあと）。 */
-export function startTurn(state: ChatState, text: string, now: number = Date.now()): ChatState {
-  return { ...push(state, (id) => ({ kind: "user", id, text })), running: true, turnId: null, activityAt: now };
+export function startTurn(state: ChatState, text: string, now: number = Date.now(), images: number = 0): ChatState {
+  return { ...push(state, (id) => ({ kind: "user", id, text, ...(images > 0 ? { images } : {}) })), running: true, turnId: null, activityAt: now };
 }
 
 /** 生成中の吹き出しを閉じる（道具・承認など別の要素が挟まるとき）。 */
@@ -211,7 +218,10 @@ export function retryOf(state: ChatState): { text: string; risky: boolean } | nu
   const user = state.items[index];
   if (user?.kind !== "user") return null;
   const after = state.items.slice(index + 1);
-  const risky = after.some(
+  // 画像は送り直せない（端末の添付を持たない）ので、画像つきの回は自動で再送せず入力欄へ戻す（#1157）
+  const risky =
+    (user.images ?? 0) > 0 ||
+    after.some(
     (item) =>
       (item.kind === "tool" && item.auto && item.status !== "failed") ||
       item.kind === "proposal" ||

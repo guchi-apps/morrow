@@ -828,3 +828,43 @@ describe("GET /sessions/<id>/messages（#752）", () => {
     assert.equal((await fetch(`${baseUrl}/sessions/s1/messages`, { method: "POST", headers })).status, 404);
   });
 });
+
+// 1x1のPNG・JPEG（先頭の署名だけが検査対象）
+const PNG_B64 = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]).toString("base64");
+
+describe("画像の添付（#1157）", () => {
+  it("prompt.submit の前に image.attach_bytes で1枚ずつ添付する（ファイル名は署名で決める）", async () => {
+    const links: FakeLink[] = [];
+    const { client } = await startBridge(async () => {
+      const link = (await simpleChat()()) as FakeLink;
+      links.push(link);
+      return link;
+    });
+    await collect(await client.startTurn({ text: "読んで", images: [{ data: PNG_B64 }, { data: PNG_B64 }] }));
+    const calls = links[0].calls;
+    assert.deepEqual(
+      calls.map((call) => call.method),
+      ["client.capabilities", "session.create", "image.attach_bytes", "image.attach_bytes", "prompt.submit"],
+    );
+    assert.equal(calls[2].params.session_id, "live-1");
+    assert.equal(calls[2].params.content_base64, PNG_B64);
+    assert.equal(calls[2].params.filename, "morrow-1.png");
+    assert.equal(calls[3].params.filename, "morrow-2.png");
+  });
+
+  it("64KBを超える画像つきの本文を受け、画像でないものは400で断る", async () => {
+    const big = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(200_000)]).toString("base64");
+    const { client } = await startBridge(simpleChat());
+    const events = await collect(await client.startTurn({ text: "x", images: [{ data: big }] }));
+    assert.equal(events.at(-1)?.type, "message.complete");
+    await assert.rejects(
+      client.startTurn({ text: "x", images: [{ data: Buffer.from("not an image at all").toString("base64") }] }),
+      (error: unknown) => error instanceof HermesError,
+    );
+  });
+
+  it("本文の文字数の上限（20,000字）は画像があっても変わらない", async () => {
+    const { client } = await startBridge(simpleChat());
+    await assert.rejects(client.startTurn({ text: "あ".repeat(20_001) }), (error: unknown) => error instanceof HermesError);
+  });
+});
