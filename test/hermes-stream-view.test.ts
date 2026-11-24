@@ -57,6 +57,11 @@ describe("イベントの畳み込み", () => {
 
   it("Hermes組み込みの道具は日本語名と手掛かりで出す（#814）", () => {
     assert.equal(toolLabel("web_search"), "ウェブ検索");
+    assert.equal(toolLabel("mcp_aide_aide_mail_search"), "メールの検索");
+    assert.equal(toolLabel("aide_mail_get"), "メールの読み取り");
+    assert.equal(isAutoWriteTool("aide_mail_get"), false);
+    assert.equal(toolHint("aide_mail_search", { query: "クリーニング 仕上がり" }), "「クリーニング 仕上がり」");
+    assert.equal(toolHint("aide_mail_get", { ids: ["m1"] }), null);
     assert.equal(toolHint("web_search", { query: "高槻市 天気" }), "「高槻市 天気」");
     assert.equal(toolLabel("mcp_x_web_extract"), "ウェブページの読み取り");
     // URLのパス・クエリは出さずドメインだけ

@@ -37,6 +37,15 @@ MorrowはAIDEのMCPの道具を呼ぶ。道具の実装は別リポジトリ（`
 | `asset_manager_salary_preview`（書き扱い）・`asset_manager_salary_commit`（書き） | `mail/salary.ts`（`callSalaryWriteToolJson`。#1170） | `mailbox`（AIDE応答の `owner`）・`gmailMessageId`・`pdfBase64`（＋commitは `previewId`・`previewToken`） | `mailbox` はメールアドレスの形・255字、`pdfBase64` はデコード後700,000バイトまで・先頭 `%PDF-`。OAuthのscopeは `salary-agent:read`（preview）・`salary-agent:write`（commit）。previewの応答は `{previewId, previewToken, approvalUrl, salaryDate:{year,month,candidate}, lines[], unassignedLabels[], totals:{computed,pdf,difference}, blockers[{code,message}], existing:{alreadyImportedSalaryId,sameDateSalaryId}, canSave}`。パスワード付きは `isError`＋`code:"needs_password"`。commitの成功は `{status:"saved_unverified", registered:true, salaryId}`、`already_registered`・`not_approved`・応答待ち切れの `unknown` は `isError`（`McpCallError.body`）。2026-11-24に `~/apps/aide` の `src/mcp/tools/salary-agent.ts` と asset-manager の `lib/payroll/agent-import-server.ts` のソースで確認（実物は未呼び出し） | `mail-salary`・`external-tool-contracts` |
 | `asset_manager_salary_approval_status`・`asset_manager_salary_lookup`（読み） | `mail/salary.ts`（#1170） | `{previewId}`／`{salaryId}` | どちらも `^[A-Za-z0-9_-]{1,64}$`。承認状態は `{status:"ok", previewId, approval: pending/approved/rejected/consumed/expired}`、読み戻しは `{status:"found", salary:{id, salaryDate, grossSalary, netSalary}}`／`not_found` | `mail-salary` |
 
+### Hermesが呼ぶメールの読み取り（#1151・aide#905。Morrowのサーバーは呼ばない）
+
+Hermes（morrow profile）が許可リストで呼ぶ。Morrowの評価のスタブ（`hermes-bridge/eval/stub-aide.ts`）と表示名（`tool-labels.ts`）がこの形に依存するので、`test/external-tool-contracts.test.ts`「Hermesが呼ぶメールの読み取り」が入力と、スタブの応答が形・上限に収まることを固定する。**2026-11-24時点ではaide#905の起票時に決めた案で、実物は未確認**。aide#905がマージされたら実装から写し直し、確認日を書く。
+
+| 道具 | 入力 | 応答 | scope・失敗 |
+|---|---|---|---|
+| `aide_mail_search` | `query`（必須・200字まで）・`view`（`inbox`/`all`。既定 `all`）・`limit`（1〜20。既定10） | `{partial, failedAccounts[], messages[].{id, from, subject, receivedAt, snippet(200字), unread, inInbox}}`。0件は `messages: []` | `mail:read`。scope無し・本人記録の無い古いトークン・持ち主でない・取得できないは `isError`（「0件」と区別できる文） |
+| `aide_mail_get` | `ids`（必須・1〜5件） | `{notice, messages[].{id, from, to, subject, receivedAt, body(1通3,000字), truncated}, missing[]}`。全体12,000字を超えた分は後ろの通から削って `truncated: true` | 同上 |
+
 ### AIDEのメールAPI（REST。MCPではない）の添付（#1101・aide#867）
 
 `/api/mail/*` の契約の正はAIDEのREADME「Morrow向けのメールAPI（#795）」。#1101でMorrowが読み始めた項目と口は次のとおりで、`test/mail-body-images.test.ts`「添付の契約（aide#867）」が形を固定する。**2026-11-19時点でaide#867は未実装**（Morrowが先に契約を決めて起票した）。AIDEが出るまでは `attachmentId` が無いので、画面はファイル名だけを出す（壊れない）。
