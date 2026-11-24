@@ -21,6 +21,7 @@ import { authorize, parseAllowedIps } from "./auth.ts";
 import { connectHermes, type HermesLink } from "./hermes-link.ts";
 import { createHistoryReader, HistoryNotFoundError, type HistoryReader } from "./history.ts";
 import { createSessionLister, type SessionLister } from "./sessions.ts";
+import { createMemoryStore, MemoryNotFoundError, MemoryRejectedError, type MemoryStore } from "./memory.ts";
 import { createSkillStore, SkillNotFoundError, SkillRejectedError, type SkillStore } from "./skills.ts";
 import { TurnLimiter } from "./limits.ts";
 import { createProposeMcpServer } from "./propose-mcp.ts";
@@ -46,6 +47,8 @@ export interface BridgeOptions {
   sessions?: SessionLister;
   /** Hermesが作るスキルの確認・承認（#1154。テストでは差し替える）。未指定ならスキルの口は503。 */
   skills?: SkillStore;
+  /** 記憶の確認・承認（#1155）。 */
+  memory?: MemoryStore;
   turnTimeoutMs?: number;
   heartbeatMs?: number;
   maxConcurrent?: number;
@@ -310,6 +313,45 @@ export function createBridgeServer(options: BridgeOptions): Server {
     return true;
   }
 
+  /** 記憶の口（#1155）。保留の一覧・承認・却下、保存済みの一覧・1項目の削除。 */
+  async function handleMemory(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
+    const pendingAction = /^\/memory\/pending\/([0-9a-f]{8})\/(approve|discard)$/.exec(pathname);
+    const isRoute = pathname === "/memory/pending" || pathname === "/memory/entries" || pendingAction;
+    if (!isRoute) return false;
+    const memory = options.memory;
+    if (!memory) {
+      sendError(res, 503, "hermes_down");
+      return true;
+    }
+    try {
+      if (req.method === "GET" && pathname === "/memory/pending") sendJson(res, 200, { pending: await memory.listPending() });
+      else if (req.method === "GET" && pathname === "/memory/entries") sendJson(res, 200, { entries: await memory.listEntries() });
+      else if (req.method === "POST" && pendingAction) {
+        if (pendingAction[2] === "approve") await memory.approve(pendingAction[1]);
+        else await memory.discard(pendingAction[1]);
+        sendJson(res, 200, { ok: true });
+      } else if (req.method === "DELETE" && pathname === "/memory/entries") {
+        const body = await readJson(req);
+        const target = body?.target;
+        const text = body?.text;
+        if ((target !== "user" && target !== "memory") || typeof text !== "string" || text.trim() === "") {
+          sendError(res, 400, "bad_request");
+          return true;
+        }
+        await memory.removeEntry(target, text);
+        sendJson(res, 200, { ok: true });
+      } else sendJson(res, 404, { error: "not_found" });
+    } catch (error) {
+      if (error instanceof MemoryNotFoundError) sendError(res, 404, "memory_not_found");
+      else if (error instanceof MemoryRejectedError) sendError(res, 409, "memory_rejected", error.message);
+      else {
+        console.error("[morrow-hermes-bridge] 記憶の処理に失敗した", error instanceof Error ? error.message : error);
+        sendError(res, 503, "hermes_down");
+      }
+    }
+    return true;
+  }
+
   return createServer((req, res) => {
     const verdict = authorize({
       authorization: req.headers.authorization,
@@ -324,6 +366,7 @@ export function createBridgeServer(options: BridgeOptions): Server {
     const route = (async () => {
       if (req.method === "GET" && url.pathname === "/health") return handleHealth(res);
       if (await handleSkills(req, res, url.pathname)) return;
+      if (await handleMemory(req, res, url.pathname)) return;
       if (req.method === "POST" && url.pathname === "/turns") return handleStartTurn(req, res);
       if (req.method === "GET" && url.pathname === "/sessions") return handleSessionList(res, url.searchParams.get("ids"));
       const historyMatch = /^\/sessions\/([^/]+)\/messages$/.exec(url.pathname);
@@ -372,8 +415,12 @@ function main(): void {
     skills: process.env.MORROW_HERMES_HOME
       ? createSkillStore({ hermesHome: process.env.MORROW_HERMES_HOME, connect: () => connectHermes({ url: hermesUrl, token: hermesToken, timeoutMs: 3_000 }) })
       : undefined,
+    // 記憶の確認・承認（#1155）。スキルと同じく profile のディレクトリが要る
+    memory: process.env.MORROW_HERMES_HOME
+      ? createMemoryStore({ hermesHome: process.env.MORROW_HERMES_HOME, connect: () => connectHermes({ url: hermesUrl, token: hermesToken, timeoutMs: 3_000 }) })
+      : undefined,
   });
-  if (!process.env.MORROW_HERMES_HOME) console.warn("MORROW_HERMES_HOME が未設定のため、スキルの確認・承認の口は503を返します");
+  if (!process.env.MORROW_HERMES_HOME) console.warn("MORROW_HERMES_HOME が未設定のため、スキル・記憶の確認・承認の口は503を返します");
   // tailscale serve からはループバックでしか届かない。外へバインドしない
   server.listen(port, "127.0.0.1", () => console.log(`morrow-hermes-bridge: 127.0.0.1:${port}`));
 

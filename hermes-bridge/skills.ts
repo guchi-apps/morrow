@@ -40,9 +40,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** `command.dispatch` の `arg` の許可。 */
+/** `command.dispatch` の `arg` の許可（スキル）。 */
 export function isAllowedSkillsArg(arg: string): boolean {
   return /^(?:pending|(?:diff|approve|reject) [0-9a-f]{8})$/.test(arg);
+}
+
+/** `command.dispatch` の `arg` の許可（記憶。#1155。`diff` はスキルだけの口なので通さない）。 */
+export function isAllowedMemoryArg(arg: string): boolean {
+  return /^(?:pending|(?:approve|reject) [0-9a-f]{8})$/.test(arg);
 }
 
 /** 保留1件の記録（`pending/skills/<id>.json`）を画面へ出す形に絞る。読めない・形が違えば null。 */
@@ -81,16 +86,20 @@ export interface SkillStoreOptions {
   now?: () => number;
 }
 
-/** 1回のdispatch用に接続し、`skills <arg>` の出力を返して閉じる。 */
-async function dispatchSkills(connect: () => Promise<HermesLink>, arg: string): Promise<string> {
-  if (!isAllowedSkillsArg(arg)) throw new Error("許可されていない引数");
+/**
+ * 1回のdispatch用に接続し、`<name> <arg>` の出力を返して閉じる（`name` は `skills` か `memory`。#1155）。
+ * **許可されていない組み合わせは接続する前に断る**（管理者権限の経路のため）。
+ */
+export async function dispatchWriteApproval(connect: () => Promise<HermesLink>, name: "skills" | "memory", arg: string): Promise<string> {
+  const allowed = name === "skills" ? isAllowedSkillsArg(arg) : isAllowedMemoryArg(arg);
+  if (!allowed) throw new Error("許可されていない引数");
   const link = await connect();
   try {
     await link.rpc("client.capabilities", { server_requests: true });
-    const created = await link.rpc("session.create", { source: SESSION_SOURCE, title: `skills-review-${randomUUID().slice(0, 8)}` });
+    const created = await link.rpc("session.create", { source: SESSION_SOURCE, title: `${name}-review-${randomUUID().slice(0, 8)}` });
     const sessionId = typeof created.session_id === "string" ? created.session_id : "";
     if (!sessionId) throw new Error("session.create の応答にsession_idが無い");
-    const result = await link.rpc("command.dispatch", { name: "skills", arg, session_id: sessionId });
+    const result = await link.rpc("command.dispatch", { name, arg, session_id: sessionId });
     return typeof result.output === "string" ? result.output : "";
   } finally {
     link.close();
@@ -143,7 +152,7 @@ export function createSkillStore(options: SkillStoreOptions): SkillStore {
       const id = file.slice(0, 8);
       let diff: string | null = null;
       try {
-        diff = await dispatchSkills(options.connect, `diff ${id}`);
+        diff = await dispatchWriteApproval(options.connect, "skills", `diff ${id}`);
       } catch {
         // 差分が取れなくても、操作の中身は画面に出せる
       }
@@ -163,13 +172,13 @@ export function createSkillStore(options: SkillStoreOptions): SkillStore {
 
     async approve(id) {
       await ensureExists(id);
-      const output = await dispatchSkills(options.connect, `approve ${id}`);
+      const output = await dispatchWriteApproval(options.connect, "skills", `approve ${id}`);
       if (!/^Approved\b/m.test(output)) throw new SkillRejectedError(output.slice(0, 300) || "承認を適用できなかった");
     },
 
     async discard(id) {
       await ensureExists(id);
-      const output = await dispatchSkills(options.connect, `reject ${id}`);
+      const output = await dispatchWriteApproval(options.connect, "skills", `reject ${id}`);
       // Hermesが消してくれなかったときの保険（ファイルが残ると「却下したのに残る」になる）
       if (!/^Rejected\b/m.test(output)) await unlink(join(pendingDir, `${id}.json`)).catch(() => {});
     },
