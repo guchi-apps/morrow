@@ -3,6 +3,7 @@ import {
   HISTORY_DEFAULT_LIMIT,
   HISTORY_MAX_LIMIT,
   type ApprovalChoice,
+  type ClarifyAnswer,
   type BridgeEvent,
   type HealthBody,
   type HistoryBody,
@@ -334,6 +335,16 @@ export function createHermesClient(config: HermesClientConfig) {
       const response = await request(`/turns/${encodeURIComponent(turnId)}/approval`, {
         method: "POST",
         body: { requestId, choice },
+        signal,
+      });
+      if (!response.ok) throw await failureOf(response);
+    },
+
+    /** 選択肢つきの質問への回答（#1150）。`answers` は `{qid: 選択肢 | 選択肢[] | 文 | null}`。形の検証はブリッジでも行う。 */
+    async answerClarify(turnId: string, requestId: string, answers: Record<string, ClarifyAnswer>, signal?: AbortSignal): Promise<void> {
+      const response = await request(`/turns/${encodeURIComponent(turnId)}/clarify`, {
+        method: "POST",
+        body: { requestId, answers },
         signal,
       });
       if (!response.ok) throw await failureOf(response);

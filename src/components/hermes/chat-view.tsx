@@ -33,11 +33,13 @@ import {
   saveSessionId,
   peekActiveTurn,
 } from "@/lib/hermes/session-memory";
+import type { ClarifyAnswer } from "@/lib/hermes/contract";
 import { readSseEvents } from "@/lib/hermes/sse";
 import { mentionsWeather } from "@/lib/weather/chat-context-core";
 import {
   addNotice,
   answerApproval,
+  answerClarify,
   applyEvent,
   endTurn,
   initialChatState,
@@ -54,7 +56,8 @@ import {
  *
  * 会話の本文はMorrowのサーバーに残さない。端末にはセッションidだけを覚え（#929。`session-memory.ts`）、開いたときに
  * Hermesの履歴（#752）から前回の発言を取り直す。「新しい会話」で記憶を消す。
- * **画面を閉じるとMorrowとの接続が切れて実行は中断される**（#726）。確認待ちは保存されているので、開き直せば承認できる。
+ * 画面を閉じてもターンはMorrowのサーバーで続く（#1000）。見ていない間に終わったら「返答が届きました」を通知し、
+ * 押すと `?session=` でその会話を開く（#1150）。確認待ちは保存されているので、開き直せば承認できる。
  */
 
 type Props = {
@@ -62,6 +65,11 @@ type Props = {
   userId: string;
   /** 前の会話から残っている確認待ち（開いた時点でDBにあるもの）。 */
   initialPending: ProposalView[];
+  /**
+   * 開く会話（#1150。通知「Hermesの返答が届きました」の `/chat?session=<id>`）。サーバーが持ち主を確かめた値だけが渡る。
+   * 端末に覚えた会話と違えば差し替えて、その会話の履歴を取り直す。
+   */
+  openSessionId?: string | null;
 };
 
 const STATUS_TEXT: Record<ChatConnection, string> = {
@@ -153,9 +161,11 @@ function interruptStorage(): InterruptStorage | null {
   }
 }
 
-export function ChatView({ userId, initialPending }: Props) {
+export function ChatView({ userId, initialPending, openSessionId }: Props) {
   // 控えがあれば取り直さず即表示する。画面を離れるとこのコンポーネントは捨てられるため、戻るたびの履歴取得を避ける
   const [{ snapshot, resumeFrom }] = useState(() => {
+    // 通知から開いた会話を、覚えた会話より先に決める（控えは別の会話のものになるので使われず、履歴を取り直す）
+    if (openSessionId && openSessionId !== loadSessionId(browserStorage(), userId)) saveSessionId(browserStorage(), userId, openSessionId);
     const saved = snapshotFor(userId);
     // 実行中のまま離れた会話は、続きを受け直せるときだけ実行中として開く（#1000）。受け直せなければ終わった扱い
     const active = saved?.running ? peekActiveTurn(userId, saved) : null;
@@ -191,6 +201,18 @@ export function ChatView({ userId, initialPending }: Props) {
   useEffect(() => {
     turnRef.current = chat.turnId;
   }, [chat.turnId]);
+
+  useEffect(() => {
+    // 通知から開いたときの `?session=` は、読み込み直しで再び差し替えないよう取り除く（#1150）
+    if (!openSessionId) return;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("session");
+      window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+    } catch {
+      // URLを書き換えられなくても表示は変わらない
+    }
+  }, [openSessionId]);
 
   useEffect(() => {
     chatRef.current = chat;
@@ -595,6 +617,7 @@ export function ChatView({ userId, initialPending }: Props) {
     [send],
   );
   const onApproval = useCallback((requestId: string, choice: "once" | "deny") => setChat((s) => answerApproval(s, requestId, choice)), []);
+  const onClarify = useCallback((requestId: string, answers: Record<string, ClarifyAnswer>) => setChat((s) => answerClarify(s, requestId, answers)), []);
 
   const unreachable = connection === "unreachable" || connection === "hermes_down";
   // 失敗の通知の「もう一度」は、最後の項目で実行中でないときだけ出す（古い失敗から再送させない）
@@ -707,6 +730,7 @@ export function ChatView({ userId, initialPending }: Props) {
               item={item}
               turnId={chat.turnId}
               onApproval={onApproval}
+              onClarify={onClarify}
               onProposalChange={onProposalChange}
               onRetry={item.id === retryItemId ? onRetry : undefined}
               now={now}

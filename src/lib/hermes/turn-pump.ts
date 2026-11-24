@@ -36,6 +36,11 @@ export class TurnLog<T> {
     this.doneListeners.clear();
   }
 
+  /** 画面が購読しているか（#1150。見ていない間に終わった・質問が来たときだけ通知するため）。 */
+  get watching(): boolean {
+    return this.listeners.size > 0;
+  }
+
   get isEnded(): boolean {
     return this.ended;
   }

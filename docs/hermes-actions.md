@@ -140,7 +140,7 @@ Morrowのprofileでは**持たせない**（`platform_toolsets` から外す）�
 | `mcp_servers.aide.trust` | `full`（既定） | `untrusted` にすると読み取りまで毎回承認になる（上記2）。許可リストで代える |
 | `platform_toolsets`（`serve` のセッションが読むplatformの項目） | MCPと `web` だけ。シェル（`terminal`）・ファイル・ブラウザ・コード実行・委任（`delegation`）を外す | 台帳以外を書き換えない。**toolsetの正確な名前と、`serve` のセッションがどのplatformの項目を読むかは未確認**（defaultの設定は `cli`・`discord` などplatformごとに `hermes-<platform>` を持つ）。profile作成時に `hermes tools` と `-t web` の実測（#725）で確かめる |
 | `approvals.mode` | 既定（`smart`）のまま | 上の絞り込みで危険なコマンドの道具を持たないため。万一届いた承認はブリッジが下記の扱いをする |
-| `approvals.timeout` | 300（既定） | ブリッジの1ターン10分（#726）に収まる |
+| `approvals.timeout` | 300（既定） | ブリッジの1ターン30分（#726・#1150）に収まる |
 | `command_allowlist` | 空 | defaultの許可（`execute_code` 等）を `--clone` で持ち込まない |
 
 - `--clone` で作るとdefaultの `command_allowlist`・MCPの設定を写すので、作った後に上の値へ直す（#738の手作業）
@@ -182,7 +182,16 @@ Morrowのprofileでは**持たせない**（`platform_toolsets` から外す）�
   通知の種類は #488 の仕組みに足す（#728）
 - Hermesの `approval` リクエストが届いた場合（道具を絞っているので通常は来ない）も同じカードで「1回だけ許可」「拒否」を出す。
   **`session`・`always` は出さず、ブリッジでも `once`・`deny` 以外の回答を受け付けない**（`always` はprofileの `command_allowlist` に書き込まれ、
-  以後の確認が消える。#725）。`clarify`（選択肢つきの質問）は承認ではないので、ふつうの質問として出す
+  以後の確認が消える。#725）。`clarify`（選択肢つきの質問）は承認ではないので、選択肢カードで答えを返す（#1150。`docs/hermes-route.md`「選択肢つきの質問」）。
+  答えは書き込みの承認にはならない（取り消せない操作は、答えた後も提案と確認カードを通る）
+
+### 画面を閉じたまま続くターン（#1150）
+
+- 「あとで調べて報告して」型の依頼は、画面を閉じても最後まで続く（上限30分）。**書き込みの分類はここでも変えない**: 取り消せない操作は提案だけで、
+  実行は利用者が確認カードで押したとき。取り消せる書き込みは、頼んだ時点を承認とみなして自動（#727）
+- 読み取り中心に絞る案（非同期のターンだけ別profile・狭い許可リスト）は採らなかった。profileが2つになり、許可リスト・SOUL・記憶を二重に保つ必要があるため。
+  代わりにSOULで「あとで報告型の途中で書き込みが要るときは `clarify` で確かめる」と指示する（保証ではない。保証は許可リストと確認カード）
+- Hermesの `approval`・`clarify` は300秒で期限切れになる。見ていない間に質問が来たら通知（`hermes-reply`）で知らせ、答えが無ければHermesはスキップとして受け取る
 
 ### 期限
 
