@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth-user";
+import { forgetAllMailBodies } from "@/lib/mail/body-cache";
 import { invalidateMailList } from "@/lib/mail/list-cache";
 
 /**
@@ -16,5 +17,6 @@ export async function POST() {
     return NextResponse.json({ error: "ログインが必要です。" }, { status: 401 });
   }
   invalidateMailList(user.id);
+  forgetAllMailBodies(user.id);
   return NextResponse.json({ ok: true });
 }

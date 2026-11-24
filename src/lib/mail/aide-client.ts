@@ -1,4 +1,5 @@
 import { fetchFilteredPage, singleAccountKey, type AccountFilter } from "@/lib/mail/account-filter";
+import { forgetMailBodies, readMailBody, writeMailBody } from "@/lib/mail/body-cache";
 import { cachedMailList, invalidateMailList, mailListKey } from "@/lib/mail/list-cache";
 import { forgetSharedToken, sharedTokenOrEnv } from "@/lib/shared-token";
 
@@ -179,6 +180,41 @@ export async function getMail(user: MailUser, id: string): Promise<MailOutcome<M
   return { ok: true, value: message };
 }
 
+/**
+ * 画面表示用の本文（#1185）。プロセス内に10分持ち、**返すたびに `owner` を照合する**。
+ * 整理操作の事前照合・分析・添付などは必ず `getMail()`（毎回AIDEから取得）を使う。
+ */
+export async function getMailCached(user: MailUser, id: string): Promise<MailOutcome<MailMessageResult>> {
+  const hit = readMailBody<MailMessageResult>(user.id, id);
+  if (hit) {
+    if (!isMailOwner(hit.owner, user.email)) {
+      forgetMailBodies(user.id, [id]);
+      return notOwner(user, "本文");
+    }
+    return { ok: true, value: hit };
+  }
+  const result = await getMail(user, id);
+  if (result.ok) writeMailBody(user.id, id, result.value);
+  return result;
+}
+
+/** 先読み中の利用者（利用者ごとに1本へ束ねる）。 */
+const prefetching = new Set<string>();
+
+/** 先頭の数通の本文を裏で取って持っておく。重なって呼ばれたら何もしない。失敗は黙って捨てる。 */
+export async function prefetchMailBodies(user: MailUser, ids: string[]): Promise<void> {
+  if (prefetching.has(user.id)) return;
+  prefetching.add(user.id);
+  try {
+    for (const id of ids) {
+      if (readMailBody(user.id, id)) continue;
+      await getMailCached(user, id).catch(() => undefined);
+    }
+  } finally {
+    prefetching.delete(user.id);
+  }
+}
+
 /** 添付の取り出しは大きい（最大25MB・base64）ので、本文より長く待つ。 */
 const ATTACHMENT_TIMEOUT_MS = 60_000;
 
@@ -230,5 +266,6 @@ export async function applyMailAction(
   }
 
   invalidateMailList(user.id);
+  forgetMailBodies(user.id, input.ids);
   return { ok: true, value: done };
 }
