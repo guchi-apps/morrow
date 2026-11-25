@@ -139,7 +139,7 @@ Hermesが作る「再利用できる手順（スキル）」は、**Morrowの画
 - **却下・期限切れで保留を残さない**: 却下はHermesの `reject`（消えなければブリッジが保留ファイルを消す）。7日（`PENDING_TTL_MS`）を過ぎた保留は一覧のたびに消す
 - **通知 `hermes-skill`（#488の種類）**: ターン中に `skill_manage` の `tool.complete` が `"staged": true` を返したら、ターン終了時に1回だけ送る（押すと `/skills`）。**ナッジの自動見直しが会話の後に作った保留は通知されない**（`/skills` を開いて分かる。メニューのバッジは未実装）
 - **`skills.guard_agent_created` は有効にしていない**（既定の無効のまま）。有効にするかは、subpcで実Hermesを使った実測の後に決める
-- **保留はprofile単位で、利用者ごとに分けない**。そのため記憶・スキルの画面とAPI（一覧・承認・却下・削除・件数）は、環境変数 `HERMES_PROFILE_OWNER_EMAIL` のメールの利用者だけに開く（`src/lib/hermes/profile-owner.ts`。未設定は全員403。メニューにも出さない。#1181）。記憶・スキルの確認待ち通知（`hermes-memory`・`hermes-skill`）も持ち主のターンだけ送る。**チャット（`POST /api/hermes/turns`・会話一覧・履歴・`/chat` 画面）も同じ持ち主だけに開く**（会話の開始時に記憶が注入されるため。非所有者は403、画面は案内文のみ。左メニュー・下部タブの「チャット」の項目は隠していない）。**GitHub変数 `HERMES_PROFILE_OWNER_EMAIL` の登録と、VPSのgateがこの変数名を受け付けるかの確認は人の作業**
+- **保留はprofile単位で、利用者ごとに分けない**。そのため記憶・スキルの画面とAPI（一覧・承認・却下・削除・件数）は、環境変数 `HERMES_PROFILE_OWNER_EMAIL` のメールの利用者だけに開く（`src/lib/hermes/profile-owner.ts`。未設定は全員403。メニューにも出さない。#1181）。記憶・スキルの確認待ち通知（`hermes-memory`・`hermes-skill`）も持ち主のターンだけ送る。**チャット（`POST /api/hermes/turns`・実行中のターンの回答・承認・中断・受け直し〔`/api/hermes/turns/<id>/*`。#1188〕・会話一覧・履歴・`/chat` 画面）も同じ持ち主だけに開く**（会話の開始時に記憶が注入されるため。非所有者は403、画面は案内文のみ。左メニュー・下部タブの「チャット」の項目は隠していない）。**GitHub変数 `HERMES_PROFILE_OWNER_EMAIL` の登録と、VPSのgateがこの変数名を受け付けるかの確認は人の作業**
 
 ### 手作業（人の作業。マージ後）
 
