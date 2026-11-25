@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import { buildAnalyzePrompt, parseAnalyzeReply } from "@/lib/mail/analyze-core";
 import {
+  cardConfirmArgs,
   cardConfirmSourceKey,
   evaluateCardWithdrawal,
   evaluateWithdrawal,
@@ -11,6 +12,7 @@ import {
   parseBalances,
   parseCardWithdrawals,
   parseWithdrawalReply,
+  sharesRun,
   shortageTask,
   withPickedAccount,
   type BalanceAccount,
@@ -200,6 +202,33 @@ describe("カード引き落とし見込みとの突き合わせ（#910）", () 
     assert.equal(check?.status === "mismatch" ? check.displayedAmount : 0, 193731);
     // 利用者が選んだ口座（VNEO）は残高の判定にだけ使い、カードの特定は変わらない
     assert.equal(evaluateCardWithdrawal(mail({ account: "VNEO 代表口座" }), real, "m1")?.status, "mismatch");
+  });
+  it("固有の部分が2文字のカードでも、請求元に丸ごと含まれれば当てる（#1196）", () => {
+    // 2026-11-25にClaude CodeのAIDEコネクタから asset_manager_card_withdrawals {days:10} を呼んだ応答の一部（額・名前はそのまま）
+    const real = parseCardWithdrawals({
+      status: "ok",
+      withdrawals: [
+        { cardId: 3, cardName: "三井住友ゴールドカード VISA", bankId: 1, bankName: "VNEO 代表口座", paymentDate: "2026-11-26", amountJpy: 184591, estimatedAmountJpy: 200891, source: "confirmed", confirmation: { sourceKey: "morrow-mail:x" } },
+        { cardId: 14, cardName: "楽天カード", bankId: 1, bankName: "VNEO 代表口座", paymentDate: "2026-11-27", amountJpy: 3654, estimatedAmountJpy: 3654, source: "estimate", confirmation: null },
+      ],
+    });
+    // メールの分析が読んだ値（請求元は社名、口座はAsset Managerの口座名と違う）
+    const rakuten = w({ amount: 3654, date: "2026-11-27", account: "ドコモＳＭＴＢネット銀行 Ｖポイント支店", payee: "楽天カード株式会社" });
+    const check = evaluateCardWithdrawal(rakuten, real, "m1");
+    assert.deepEqual(check, { status: "match", cardId: 14, cardName: "楽天カード", paymentDate: "2026-11-27", amount: 3654 });
+    // 額が一致していても確定額として登録できる（推計のままを確定に変える）
+    assert.deepEqual(check?.status === "match" ? cardConfirmArgs(check, "m1") : null, {
+      cardId: 14, paymentDate: "2026-11-27", amount: 3654, sourceKey: cardConfirmSourceKey("m1"), note: "メールの確定額（Morrowから登録）",
+    });
+    assert.equal(evaluateCardWithdrawal({ ...rakuten, amount: 4000 }, real, "m1")?.status, "mismatch");
+    // 別の会社の名前は当てない（「カード」「株式会社」だけでは一致にしない）
+    assert.equal(evaluateCardWithdrawal({ ...rakuten, payee: "イオンカード株式会社" }, real, "m1")?.status, "none");
+  });
+  it("名前の照合: 社名の語・記号を除いた固有の部分で比べる", () => {
+    assert.equal(sharesRun("楽天カード株式会社", "楽天カード"), true);
+    assert.equal(sharesRun("三井住友カード", "三井住友ゴールドカード VISA"), true);
+    assert.equal(sharesRun("株式会社ジェーシービー", "楽天カード"), false);
+    assert.equal(sharesRun("◯◯ペイ", "楽天カード"), false);
   });
   it("取得できなかった回は unknown（一致と混ぜない）。引き落とし日が無ければ何も出さない", () => {
     assert.equal(evaluateCardWithdrawal(mail(), null, "m1")?.status, "unknown");

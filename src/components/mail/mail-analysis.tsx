@@ -366,7 +366,7 @@ function BalanceCard({
 
       <section className="flex flex-col gap-1.5 rounded-[10px] border border-border px-3 py-2" aria-label="Asset Managerの引き落とし見込み">
         <h3 className="text-xs font-bold">Asset Managerの引き落とし見込みへ反映</h3>
-        <p className="text-[0.6875rem] text-muted">メールの額は確定額です。見込みと違うときは「メールの額で登録」でAsset Managerの見込みを置き換えます。</p>
+        <p className="text-[0.6875rem] text-muted">メールの額は確定額です。「メールの額で登録」でAsset Managerの見込みを確定額に置き換えます。</p>
         <CardMatch card={card} mailAmount={check.amount} busy={cardBusy} error={cardError} onConfirm={onConfirmCard} />
         {card?.status === "unknown" && (
           <div>
@@ -406,7 +406,31 @@ function CardMatch({ card, mailAmount, busy, error, onConfirm }: { card: CardChe
   if (!card) return <p className="text-[0.6875rem] text-muted">メールに引き落とし日が無いため、見込みと突き合わせられません。</p>;
   if (card.status === "unknown") return <p className="text-danger">{card.reason}</p>;
   if (card.status === "none") return <p className="text-[0.6875rem] text-muted">{card.reason}</p>;
-  if (card.status === "match") return <p className="text-[0.6875rem] text-muted">Asset Managerの見込み（{card.cardName}・{card.paymentDate}）はメールの額と一致しています。</p>;
+  if (card.status === "match") {
+    // 額は同じでも Asset Manager では推計のまま。確定額として記録できるようにする（#1196）
+    return (
+      <div className="flex flex-col gap-1.5" aria-label="カード引き落とし見込みと一致">
+        <p className="text-[0.6875rem] text-muted">
+          Asset Managerの見込み（{card.cardName}・{card.paymentDate}）はメールの額{yen(card.amount)}と一致しています。確定額として登録すると、見込みが「確定」になります。
+        </p>
+        <div>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onConfirm}
+            className="rounded-[9px] border border-border bg-background px-2.5 py-1 text-[0.6875rem] font-bold transition-colors hover:bg-rail-active disabled:opacity-60"
+          >
+            {busy ? "登録しています…" : "確定額として登録"}
+          </button>
+        </div>
+        {error && (
+          <p role="alert" className="text-danger">
+            {error}
+          </p>
+        )}
+      </div>
+    );
+  }
   if (card.status === "confirmed") {
     return (
       <p className="text-[0.6875rem] text-emerald-700 dark:text-emerald-300">

@@ -58,7 +58,8 @@ export type CardConfirmOutcome =
 
 /**
  * メールの確定額で見込みを上書きする（#910）。**承認後にサーバーが値を決め直す**（画面から額・カードは受け取らない）:
- * 額・日はメールの分析（サーバーの記憶）、カードは見込みの読み直しで1件に決まったものだけ。食い違っていなければ書かない。
+ * 額・日はメールの分析（サーバーの記憶）、カードは見込みの読み直しで1件に決まったものだけ。
+ * 額が見込みと一致していても書ける（推計のままを確定に変える。#1196）。このメールで登録済みなら書かない。
  * 冪等キーは `cardConfirmSourceKey()`（メールごと）。呼び出し側が先にメールの持ち主を照合する。
  */
 export async function confirmCardWithdrawal(userId: string, withdrawal: Withdrawal, messageId: string): Promise<CardConfirmOutcome> {
@@ -67,12 +68,13 @@ export async function confirmCardWithdrawal(userId: string, withdrawal: Withdraw
   if (!server) return { ok: false, message: "AIDEが接続されていません。設定の接続から繋いでください。" };
   const check = evaluateCardWithdrawal(withdrawal, await loadCardItems(userId), messageId);
   if (!check || check.status === "unknown" || check.status === "none") return { ok: false, message: "Asset Managerの見込みを確かめられなかったため、登録しませんでした。" };
-  if (check.status !== "mismatch") return { ok: false, message: check.status === "confirmed" ? "このメールの額はすでに登録されています。" : "見込みはすでにメールの額と一致しています。" };
+  // 額が一致していても、確定額として記録すれば Asset Manager で「推計」から「確定」に変わる（#1196）
+  if (check.status === "confirmed") return { ok: false, message: "このメールの額はすでに登録されています。" };
   try {
     const json = await callCardWithdrawalWriteToolJson(server, "asset_manager_confirm_card_withdrawal", cardConfirmArgs(check, messageId));
     const result = json.result === "unchanged" || json.result === "created" ? json.result : "replaced";
     const previous = typeof json.previousAmountJpy === "number" ? json.previousAmountJpy : null;
-    return { ok: true, result, previousAmount: previous, card: { status: "confirmed", cardName: check.cardName, paymentDate: check.paymentDate, amount: check.mailAmount } };
+    return { ok: true, result, previousAmount: previous, card: { status: "confirmed", cardName: check.cardName, paymentDate: check.paymentDate, amount: withdrawal.amount } };
   } catch (error) {
     console.error("[aide-bot] カード引き落とし見込みの上書きに失敗した", error instanceof Error ? error.message : error);
     const reason = error instanceof McpCallError && error.reason ? `（${error.reason}）` : "";
