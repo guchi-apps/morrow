@@ -5,6 +5,7 @@ import { ChatShell } from "@/components/chat/chat-shell";
 import { AppBadgeSync } from "@/components/app-badge-sync";
 import { MailUnreadBadge } from "@/components/chat/mail-unread-badge";
 import { MenuInfo } from "@/components/chat/menu-info";
+import { PendingArchiveSync } from "@/components/mail/pending-archive-sync";
 import { APP_VERSION } from "@/lib/app-version";
 import { getCurrentUser } from "@/lib/auth-user";
 import { isHermesProfileOwner } from "@/lib/hermes/profile-owner";
@@ -49,6 +50,7 @@ export default async function ChatLayout({ children }: { children: React.ReactNo
       }
     >
       <AppBadgeSync enabled={user.appBadgeEnabled} />
+      <PendingArchiveSync />
       {children}
     </ChatShell>
   );

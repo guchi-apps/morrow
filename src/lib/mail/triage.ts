@@ -6,13 +6,12 @@ import { runCodexRecorded } from "@/lib/codex-run";
 import { db } from "@/lib/db";
 import { prefetchAnalysesSafely } from "@/lib/mail/analyze";
 import { extractSecurityCode } from "@/lib/mail/security-code";
-import { deleteListSummaries, summarizeMissingSafely } from "@/lib/mail/list-summary";
+import { summarizeMissingSafely } from "@/lib/mail/list-summary";
 import { isPushKindEnabled } from "@/lib/push/kinds-server";
 import { sendPushToUser, usersWithSubscriptions } from "@/lib/push/subscriptions";
 
-import { applyMailAction, listMail } from "@/lib/mail/aide-client";
-import { recordArchived } from "@/lib/mail/archive-log";
-import { deleteAnalyses } from "@/lib/mail/analysis-store";
+import { runMailAction } from "@/lib/mail/action-run";
+import { listMail } from "@/lib/mail/aide-client";
 import { mailAccountKeyOf, type MailFailureKind } from "@/lib/mail/contract";
 import { gmailPushConfigFrom, isMainAccountMessage } from "@/lib/mail/gmail-push-core";
 import { normalizeLearnedRules } from "@/lib/mail/learn-core";
@@ -287,16 +286,9 @@ async function archiveJudged(user: CheckUser, ids: string[]) {
     groups.set(key, [...(groups.get(key) ?? []), id]);
   }
   for (const group of groups.values()) {
-    const result = await applyMailAction(user, { action: "archive", ids: group, labelId: null });
-    if (!result.ok) {
-      console.warn(`[aide-bot] メールの自動アーカイブに失敗した: ${result.kind}`);
-      continue;
-    }
-    // 手動のアーカイブ（`/api/mail/actions`）と同じ後始末
-    await deleteListSummaries(user.id, group).catch(() => undefined);
-    await deleteAnalyses(user.id, group).catch(() => undefined);
-    // 自動で外したメールも「最近のアーカイブ」から見返せるようにする（#1122）
-    await recordArchived(user.id, group).catch(() => undefined);
+    // 手動の操作と同じ列・同じ後始末（#1192。最近のアーカイブの控え〔#1122〕も含む）
+    const { result } = await runMailAction(user, { action: "archive", ids: group, labelId: null });
+    if (!result.ok) console.warn(`[aide-bot] メールの自動アーカイブに失敗した: ${result.kind}`);
   }
 }
 
