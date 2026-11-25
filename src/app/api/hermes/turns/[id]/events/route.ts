@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth-user";
+import { isHermesProfileOwner, PROFILE_OWNER_ONLY_MESSAGE } from "@/lib/hermes/profile-owner";
 import type { RelayEvent } from "@/lib/hermes/stream-view";
 import { turnLogOf } from "@/lib/hermes/turn-pump";
 import { streamOf } from "@/lib/hermes/turn-stream";
@@ -17,6 +18,8 @@ export const maxDuration = 1860;
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "ログインが必要です。" }, { status: 401 });
+  // 共有profileの持ち主だけ（#1188）。切替前に始まった非所有者のターンも操作させない
+  if (!isHermesProfileOwner(user)) return NextResponse.json({ error: PROFILE_OWNER_ONLY_MESSAGE }, { status: 403 });
 
   const { id } = await context.params;
   const raw = new URL(request.url).searchParams.get("after") ?? "0";

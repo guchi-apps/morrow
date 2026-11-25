@@ -5,6 +5,7 @@ import { hermesClient } from "@/lib/hermes/client";
 import { HermesError } from "@/lib/hermes/client-core";
 import { toHermesClarifyAnswers, type ClarifyAnswer } from "@/lib/hermes/contract";
 import { describeHermesError } from "@/lib/hermes/errors";
+import { isHermesProfileOwner, PROFILE_OWNER_ONLY_MESSAGE } from "@/lib/hermes/profile-owner";
 import { clarifyQuestionsOf } from "@/lib/hermes/stream-view";
 import type { RelayEvent } from "@/lib/hermes/stream-view";
 import { ownsTurn } from "@/lib/hermes/turn-owners";
@@ -21,6 +22,8 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "ログインが必要です。" }, { status: 401 });
+  // 共有profileの持ち主だけ（#1188）。切替前に始まった非所有者のターンも操作させない
+  if (!isHermesProfileOwner(user)) return NextResponse.json({ error: PROFILE_OWNER_ONLY_MESSAGE }, { status: 403 });
 
   const { id } = await context.params;
   const body = await readJsonObject(request);
