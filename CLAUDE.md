@@ -879,6 +879,15 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 - 整理操作の成功時（`forgetMailBodies()`）と「いま確認」・更新（`forgetAllMailBodies()`）で破棄する。Gmail側の直接操作は10分以内なら反映されない
 - 受信トレイの**初回ページだけ**、先頭の未読5通を `after()` で先読みする（`prefetchMailBodies()`。利用者ごとに1本。続きのページ `/api/mail/list` では先読みしない）
 
+### アーカイブはアプリを閉じても進む（#1192）
+
+順番待ちは画面ではなく**サーバーに持つ**（`src/lib/mail/action-jobs.ts`。利用者ごとに直列・プロセス内）。画面の列に積むと、閉じた時点で未送信の分が止まる。
+
+- **整理操作は `action-run.ts` の `runMailAction()`／`submitMailAction()` を通す**（AIDEの操作と後始末〔控え・要約・分析〕を1件のジョブにする）。画面の操作も新着確認の自動アーカイブも同じ列。後始末を足すときはここへ
+- **`POST /api/mail/actions` は `opId` が付くと完了を待たず202（`state: "running"`）を返し**、画面が同じ本文で問い合わせ直す。同じ `opId` は10分間は二度実行しない。**応答を完了まで持たない**——本番はHTTP/1.1で、ブラウザの同時接続（6本）を超えた分が未送信のまま残る。未読の既読化は `markRead` で同じ1件にする
+- 画面（`components/mail/archive-sender.ts`）は押した時点で localStorage に控え（`pending-archive.ts`。`opId`・メールID・既読の要否・時刻だけ。10分）、結果が分からなければ確かめ直す。開き直し・復帰・通信復帰は `PendingArchiveSync`（`(chat)` レイアウト）。受信トレイへ戻す・ゴミ箱へ移すと控えから外す
+- 再起動でサーバーの列は消える（10分以内にアプリを開けば再送、過ぎれば一覧が正）。圏外で押した分も同じ
+
 ### メール一覧の上部とアカウントの切り替え（#997）
 
 一覧の上部は「表示切替（受信トレイ／未読／すべて／ゴミ箱）＋右端に最終確認」と検索の2段だけで、`sticky` で上に固定し、その下の一覧だけが流れる。見出し（「受信トレイ」など）と説明文は出さない。
@@ -975,7 +984,7 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
 ### メール詳細の操作と要約（#717）
 
 - **本文を開いた時点で未読なら自動で既読にする**（#835。`MailDetailActions` のeffect。開いたメールごとに1回だけで、成功の表示は出さず失敗だけ赤字。「未読に戻す」を押しても再度は既読にしない）
-- **本文のアーカイブは完了を待たずに一覧へ戻る**（#1023）。`archiveRow(id, false, true)`（楽観モード）が先に `rememberArchived()` で一覧から隠し、`router.push(back)` の後ろで共有の直列キューが送る。失敗したら `forgetArchived()` で行を戻し、モジュール共有の失敗通知（`use-mail-action.ts`）を一覧の赤い帯に出す。待ちの間は一覧の「アーカイブ中…」が出る
+- **本文のアーカイブは完了を待たずに一覧へ戻る**（#1023）。`archiveRow(id, false, true)`（楽観モード）が先に `rememberArchived()` で一覧から隠し、`router.push(back)` の後ろで送る。失敗したら `forgetArchived()` で行を戻し、モジュール共有の失敗通知（`use-mail-action.ts`）を一覧の赤い帯に出す。待ちの間は一覧の「アーカイブ中…」が出る
 - **本文の画面の操作は「既読／未読に戻す」と「アーカイブ（アーカイブ済みなら受信トレイへ戻す）」だけ**（`mail-detail-actions.tsx`）。スター・ラベル・ゴミ箱は使わないので出さない。サーバー側の `star`／`label-*`／`trash`（`aide-client`・`/api/mail/actions`・契約）は一覧が使うので残してある。ラベル名のための一覧取得も詳細からは外した（「処理済み」ラベルの自動付与〔#689〕はサーバー側で一覧を引くので残る）
 - **要約は#766で提案と1回のAI呼び出しにまとめた**（下の「メールのAI分析」）。「📝 要約する」ボタン・`POST /api/mail/flow/summary`・`summary.ts`・用途「メールの要約」（`mail_summary`）は消した。`summary-core.ts` には要約の決まりごと（`SUMMARY_RULES`）と返答の検証（`parseSummaryReply()`）だけが残る。使用量の機能名 `mail_summary` は過去の記録の名前としてだけ残す
 

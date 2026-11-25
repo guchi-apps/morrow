@@ -2,10 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth-user";
 import { readJsonObject } from "@/lib/json-body";
-import { applyMailAction } from "@/lib/mail/aide-client";
-import { forgetArchivedLog, recordArchived } from "@/lib/mail/archive-log";
-import { deleteAnalyses } from "@/lib/mail/analysis-store";
-import { deleteListSummaries } from "@/lib/mail/list-summary";
+import { runMailAction, submitMailAction, type MailActionRun } from "@/lib/mail/action-run";
 import {
   MAIL_ACTION_DONE,
   MAIL_ACTION_MAX_IDS,
@@ -20,6 +17,7 @@ import {
  *
  * **持ち主本人の照合は `applyMailAction()` が送る前と後の両方で行う**（AIDEは変更した後でしか `owner` を返さない）。
  * AIDEに拒否された理由（複数アカウントにまたがる等）は `message` に載せて画面へ返す。
+ * 実行は利用者ごとの列（`action-run.ts`）で、接続が切れても最後まで走る（#1192）。
  */
 
 export const dynamic = "force-dynamic";
@@ -45,38 +43,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "ラベルを選んでください。" }, { status: 400 });
   }
 
-  const result = await applyMailAction(user, { action, ids: [...new Set(rawIds)], labelId });
+  const markRead = body?.markRead === true && action === "archive";
+  const input = { action, ids: [...new Set(rawIds)], labelId, markRead };
+
+  // `opId` 付き（アーカイブ）は完了を待たずに受け付ける。画面は同じ `opId` で結果を問い合わせる（#1192）
+  const opId = body?.opId;
+  let run: MailActionRun;
+  if (typeof opId === "string" && /^[A-Za-z0-9-]{8,64}$/.test(opId)) {
+    const state = submitMailAction(user, input, opId);
+    if (state.state === "running") return NextResponse.json({ state: "running" }, { status: 202 });
+    run = state.value;
+  } else {
+    run = await runMailAction(user, input);
+  }
+
+  const { result, markedRead } = run;
   if (!result.ok) {
     const status =
       result.kind === "not_owner" ? 403 : result.kind === "invalid_request" ? 400 : result.kind === "not_found" ? 404 : 502;
     const reason = result.message ? `${MAIL_FAILURE_MESSAGES[result.kind]}（${result.message}）` : MAIL_FAILURE_MESSAGES[result.kind];
-    return NextResponse.json({ error: reason, kind: result.kind }, { status });
-  }
-
-  // アーカイブ・ゴミ箱に移したメールの要約は消す（#851）。消せなくても操作の成功は返す（残りは一覧・30日掃除が拾う）
-  if (action === "archive" || action === "trash") {
-    await deleteListSummaries(user.id, [...new Set(rawIds)]).catch((error: unknown) =>
-      console.warn("[aide-bot] 一覧の要約の削除に失敗した", error instanceof Error ? error.message : error),
-    );
-  }
-
-  // 保存した分析（#883）も同じ契機で消す
-  if (action === "archive" || action === "trash") {
-    await deleteAnalyses(user.id, [...new Set(rawIds)]).catch((error: unknown) =>
-      console.warn("[aide-bot] メールの分析の削除に失敗した", error instanceof Error ? error.message : error),
-    );
-  }
-
-  // 最近のアーカイブ（#1122）。アーカイブは時刻を控え、受信トレイへ戻す・ゴミ箱へ移すと控えを消す
-  const uniqueIds = [...new Set(rawIds)];
-  if (action === "archive") {
-    await recordArchived(user.id, uniqueIds).catch((error: unknown) =>
-      console.warn("[aide-bot] アーカイブの控えの保存に失敗した", error instanceof Error ? error.message : error),
-    );
-  } else if (action === "inbox" || action === "trash") {
-    await forgetArchivedLog(user.id, uniqueIds).catch((error: unknown) =>
-      console.warn("[aide-bot] アーカイブの控えの削除に失敗した", error instanceof Error ? error.message : error),
-    );
+    return NextResponse.json({ error: reason, kind: result.kind, markedRead }, { status });
   }
 
   return NextResponse.json({ done: MAIL_ACTION_DONE[action], count: result.value.count });
