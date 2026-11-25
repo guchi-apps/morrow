@@ -19,6 +19,8 @@ type Props = {
   pendingProposalCount: number;
   userLabel: string;
   userEmail: string | null;
+  /** 記憶・スキルのメニューを出すか（Hermes profileの持ち主だけ。#1181）。 */
+  showHermesProfile?: boolean;
   appVersion: string;
   /** メニュー上部の情報カード（#719）。 */
   infoSlot?: React.ReactNode;
@@ -50,6 +52,7 @@ export function ChatShell({
   pendingProposalCount,
   userLabel,
   userEmail,
+  showHermesProfile = false,
   appVersion,
   infoSlot,
   mailBadgeSlot,
@@ -72,6 +75,8 @@ export function ChatShell({
   const isMail = pathname === "/mail" || pathname.startsWith("/mail/");
   const isWeather = pathname === "/weather";
   const isChat = pathname === "/chat";
+  const isSkills = pathname === "/skills";
+  const isMemory = pathname === "/memory";
   const heading = isDashboard
     ? "ホーム"
     : isSettings
@@ -86,7 +91,11 @@ export function ChatShell({
               ? "天気"
               : isChat
                 ? "チャット"
-                : "Morrow";
+                : isSkills
+                  ? "スキル"
+                  : isMemory
+                    ? "記憶"
+                    : "Morrow";
 
   // 開いたドロワーは、閉じるボタン・スクリム・中のリンク（onNavigate）で閉じる。
   // pathnameの変化をuseEffectで見て閉じる形にはしない——描画のたびにsetStateが走る。
@@ -134,9 +143,12 @@ export function ChatShell({
           isChatActive={isChat}
           pendingProposalCount={pendingProposalCount}
           isModelsActive={isModels}
+          isSkillsActive={isSkills}
+          isMemoryActive={isMemory}
           topicCount={topicCount}
           userLabel={userLabel}
           userEmail={userEmail}
+          showHermesProfile={showHermesProfile}
           appVersion={appVersion}
           infoSlot={infoSlot}
           mailBadgeSlot={mailBadgeSlot}
@@ -175,9 +187,12 @@ export function ChatShell({
           isChatActive={isChat}
           pendingProposalCount={pendingProposalCount}
               isModelsActive={isModels}
+          isSkillsActive={isSkills}
+          isMemoryActive={isMemory}
               topicCount={topicCount}
               userLabel={userLabel}
               userEmail={userEmail}
+              showHermesProfile={showHermesProfile}
               appVersion={appVersion}
           infoSlot={infoSlot}
           mailBadgeSlot={mailBadgeSlot}

@@ -1,11 +1,15 @@
 import {
   APPROVAL_CHOICES,
+  parseClarifyQuestions,
+  toHermesClarifyAnswers,
   isApprovalChoice,
   type ApprovalChoice,
   type BridgeEvent,
+  type ClarifyQuestion,
   type HermesUsage,
   type TurnRequestBody,
 } from "../src/lib/hermes/contract.ts";
+import { checkImageBase64, imageFilename, type TurnImage } from "../src/lib/hermes/image-core.ts";
 import { HermesRpcError, type HermesLink } from "./hermes-link.ts";
 
 /**
@@ -68,21 +72,44 @@ export function allowedChoices(choices: unknown): ApprovalChoice[] {
 export interface TurnHandle {
   /** 承認待ちの `requestId` に答える。待っていない `requestId` なら false。 */
   respondApproval(requestId: string, choice: ApprovalChoice): Promise<boolean>;
+  /**
+   * 選択肢つきの質問（#1150）に答える。待っていない `requestId` なら "not_found"、回答の形が合わなければ "invalid"。
+   * Hermesへはサーバー要求への応答 `{answers, outcome: "submitted"}` で返す（`clarify.lock` は使わない）。
+   */
+  respondClarify(requestId: string, answers: unknown): "ok" | "not_found" | "invalid";
   /** 実行中のターンを中断する（切断・上限超過・利用者の中断）。 */
   interrupt(): Promise<void>;
   /** ターンが終わったら解決する（正常・エラー・中断のどれでも）。 */
   done: Promise<void>;
 }
 
+/** 画像を `prompt.submit` の前に1枚ずつ添付する。種類は署名で決め直し、申告のファイル名は使わない（#1157）。 */
+export async function attachImages(link: HermesLink, sessionId: string, images: readonly TurnImage[]): Promise<void> {
+  for (const [index, image] of images.entries()) {
+    const checked = checkImageBase64(image.data);
+    if (!checked.ok) throw new Error(checked.reason);
+    await link.rpc("image.attach_bytes", {
+      session_id: sessionId,
+      content_base64: image.data,
+      filename: imageFilename(index, checked.type),
+    });
+  }
+}
+
 export function runTurn(options: {
   link: HermesLink;
   session: OpenedSession;
   text: string;
+  /** 添付する画像（#1157）。`prompt.submit` の前に1枚ずつ `image.attach_bytes` で添付する。 */
+  images?: TurnImage[];
   emit: (event: BridgeEvent) => void;
   timeoutMs: number;
 }): TurnHandle {
   const { link, session, text, emit, timeoutMs } = options;
+  const images = options.images ?? [];
   const pendingApprovals = new Set<string>();
+  /** 答えを待っている質問（要求のid → 質問）。 */
+  const pendingClarify = new Map<string, ClarifyQuestion[]>();
   let finished = false;
   let finish: () => void = () => {};
   const done = new Promise<void>((resolve) => {
@@ -156,6 +183,14 @@ export function runTurn(options: {
         emit({ type: "error", data: { reason: "hermes_error", message: str(payload.message) } });
         end();
         break;
+      case "request.cancel": {
+        // 待っていた質問が期限切れ（既定300秒）・中断で閉じた。画面のカードを閉じさせる
+        const requestId = str(payload.id);
+        if (requestId && pendingClarify.delete(requestId)) {
+          emit({ type: "clarify.closed", data: { requestId, reason: str(payload.reason) ?? "cancelled" } });
+        }
+        break;
+      }
       default:
         // 通さないイベント（スキン・ステータス・変更通知など）
         break;
@@ -179,8 +214,13 @@ export function runTurn(options: {
       return;
     }
     if (request.method === "clarify") {
-      // 答える口をブリッジに持たない（承認と中断だけ）。辞退で返し、質問は利用者へ見せる。
-      emit({ type: "clarify", data: { questions: request.params.questions } });
+      // 要求を保留し、画面の回答（`POST /turns/<id>/clarify`）で応答する（#1150）。読める質問が無ければ辞退
+      const questions = parseClarifyQuestions(request.params.questions);
+      if (questions.length > 0) {
+        pendingClarify.set(request.id, questions);
+        emit({ type: "clarify", data: { requestId: request.id, questions } });
+        return;
+      }
     }
     // 知らない要求（sudo・secretなど）は「処理できない」で返す。承認を勝手に通さない
     link.reply(request.id, { error: { code: -32601, message: "このクライアントは対応していません" } });
@@ -192,8 +232,8 @@ export function runTurn(options: {
     end();
   });
 
-  link
-    .rpc("prompt.submit", { session_id: session.liveId, text })
+  attachImages(link, session.liveId, images)
+    .then(() => (finished ? undefined : link.rpc("prompt.submit", { session_id: session.liveId, text })))
     .catch((error: unknown) => {
       if (finished) return;
       emit({ type: "error", data: { reason: "hermes_error", message: error instanceof Error ? error.message : "prompt.submit に失敗した" } });
@@ -206,6 +246,15 @@ export function runTurn(options: {
       pendingApprovals.delete(requestId);
       await link.rpc("approval.respond", { session_id: session.liveId, request_id: requestId, choice, all: false });
       return true;
+    },
+    respondClarify(requestId, answers) {
+      const questions = pendingClarify.get(requestId);
+      if (!questions || finished) return "not_found";
+      const converted = toHermesClarifyAnswers(questions, answers);
+      if (!converted) return "invalid";
+      pendingClarify.delete(requestId);
+      link.reply(requestId, { result: { answers: converted, outcome: "submitted" } });
+      return "ok";
     },
     interrupt,
     done,

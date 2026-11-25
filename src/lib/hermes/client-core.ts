@@ -3,6 +3,7 @@ import {
   HISTORY_DEFAULT_LIMIT,
   HISTORY_MAX_LIMIT,
   type ApprovalChoice,
+  type ClarifyAnswer,
   type BridgeEvent,
   type HealthBody,
   type HistoryBody,
@@ -14,6 +15,21 @@ import {
   type TurnRequestBody,
 } from "./contract.ts";
 import { readBridgeEvents } from "./sse.ts";
+import {
+  parseMemoryEntriesBody,
+  parsePendingMemoriesBody,
+  type MemoryEntry,
+  type MemoryTarget,
+  type PendingMemory,
+} from "./memory-core.ts";
+import {
+  parseInstalledSkillsBody,
+  parsePendingSkillsBody,
+  PENDING_ID_PATTERN,
+  SKILL_NAME_PATTERN,
+  type InstalledSkill,
+  type PendingSkill,
+} from "./skill-core.ts";
 
 /**
  * Hermesブリッジのクライアント本体（#737。設定の読み出しは `client.ts`）。
@@ -41,7 +57,12 @@ export type HermesErrorKind =
   | "session_busy"
   | "bridge_busy"
   | "turn_not_found"
+  | "skill_not_found"
+  | "skill_rejected"
+  | "memory_not_found"
+  | "memory_rejected"
   | "bad_request"
+  | "bridge_outdated"
   | "bad_response";
 
 export class HermesError extends Error {
@@ -63,7 +84,7 @@ export interface HermesClientConfig {
   connectTimeoutMs?: number;
 }
 
-const ERROR_KINDS: ReadonlySet<string> = new Set(["no_session", "session_busy", "bridge_busy", "turn_not_found", "bad_request"]);
+const ERROR_KINDS: ReadonlySet<string> = new Set(["no_session", "session_busy", "bridge_busy", "turn_not_found", "skill_not_found", "skill_rejected", "memory_not_found", "memory_rejected", "bad_request"]);
 
 /** 応答の状態とブリッジの `{ error }` から、失敗の種類を決める。 */
 export function classifyFailure(status: number, reason: string | undefined): HermesError {
@@ -75,6 +96,8 @@ export function classifyFailure(status: number, reason: string | undefined): Her
       : new HermesError("unreachable", "ブリッジが一時的に使えない（HTTP 503）");
   }
   if (reason && ERROR_KINDS.has(reason)) return new HermesError(reason as HermesErrorKind, `ブリッジの応答: ${reason}`);
+  // ブリッジが知らない経路へは 404 `not_found` を返す。Morrowだけが新しいAPIを呼んでいる＝subpcのブリッジが古い（#1145・#1175）
+  if (status === 404 && reason === "not_found") return new HermesError("bridge_outdated", "ブリッジにこのAPIが無い（HTTP 404。ブリッジが古い）");
   return new HermesError("bad_response", `ブリッジの応答が不正（HTTP ${status}）`);
 }
 
@@ -150,7 +173,7 @@ export function createHermesClient(config: HermesClientConfig) {
   const connectTimeoutMs = config.connectTimeoutMs ?? CONNECT_TIMEOUT_MS;
 
   /** 接続（ヘッダーが届くまで）に5秒。本文のストリームには掛けない。 */
-  async function request(path: string, init: { method: "GET" | "POST"; body?: unknown; signal?: AbortSignal }): Promise<Response> {
+  async function request(path: string, init: { method: "GET" | "POST" | "DELETE"; body?: unknown; signal?: AbortSignal }): Promise<Response> {
     if (!config.baseUrl || !config.token) {
       throw new HermesError("not_configured", "HERMES_BRIDGE_URL または MORROW_HERMES_BRIDGE_TOKEN が未設定");
     }
@@ -236,10 +259,95 @@ export function createHermesClient(config: HermesClientConfig) {
       return parsed.sessions;
     },
 
+    /** 承認待ちのスキル（#1154）。古い順。ブリッジが期限切れ（7日）を消してから返す。 */
+    async pendingSkills(signal?: AbortSignal): Promise<PendingSkill[]> {
+      const response = await request("/skills/pending", { method: "GET", signal });
+      if (!response.ok) throw await failureOf(response);
+      const parsed = parsePendingSkillsBody(await response.json().catch(() => null));
+      if (!parsed) throw new HermesError("bad_response", "ブリッジのスキル一覧の形が不正");
+      return parsed.pending;
+    },
+
+    /** 承認（Hermesが保留を実際のスキルとして書く）。`skill_not_found`＝保留が無い、`skill_rejected`＝適用されなかった。 */
+    async approveSkill(id: string, signal?: AbortSignal): Promise<void> {
+      if (!PENDING_ID_PATTERN.test(id)) throw new HermesError("bad_request", "保留のidの形が正しくない");
+      const response = await request(`/skills/pending/${id}/approve`, { method: "POST", body: {}, signal });
+      if (!response.ok) throw await failureOf(response);
+    },
+
+    async discardSkill(id: string, signal?: AbortSignal): Promise<void> {
+      if (!PENDING_ID_PATTERN.test(id)) throw new HermesError("bad_request", "保留のidの形が正しくない");
+      const response = await request(`/skills/pending/${id}/discard`, { method: "POST", body: {}, signal });
+      if (!response.ok) throw await failureOf(response);
+    },
+
+    /** 登録済みのスキル（同梱を含む。`bundled` で見分ける）。 */
+    async installedSkills(signal?: AbortSignal): Promise<InstalledSkill[]> {
+      const response = await request("/skills/installed", { method: "GET", signal });
+      if (!response.ok) throw await failureOf(response);
+      const parsed = parseInstalledSkillsBody(await response.json().catch(() => null));
+      if (!parsed) throw new HermesError("bad_response", "ブリッジのスキル一覧の形が不正");
+      return parsed.skills;
+    },
+
+    async deleteSkill(name: string, signal?: AbortSignal): Promise<void> {
+      if (!SKILL_NAME_PATTERN.test(name)) throw new HermesError("bad_request", "スキル名の形が正しくない");
+      const response = await request(`/skills/installed/${encodeURIComponent(name)}`, { method: "DELETE", signal });
+      if (!response.ok) throw await failureOf(response);
+    },
+
+    /** 承認待ちの記憶（#1155）。古い順。ブリッジが期限切れ（7日）を消してから返す。 */
+    async pendingMemories(signal?: AbortSignal): Promise<PendingMemory[]> {
+      const response = await request("/memory/pending", { method: "GET", signal });
+      if (!response.ok) throw await failureOf(response);
+      const parsed = parsePendingMemoriesBody(await response.json().catch(() => null));
+      if (!parsed) throw new HermesError("bad_response", "ブリッジの記憶の保留の形が不正");
+      return parsed.pending;
+    },
+
+    /** 承認（Hermesが保留を実際の記憶へ書く）。`memory_not_found`＝保留が無い、`memory_rejected`＝適用されなかった。 */
+    async approveMemory(id: string, signal?: AbortSignal): Promise<void> {
+      if (!PENDING_ID_PATTERN.test(id)) throw new HermesError("bad_request", "保留のidの形が正しくない");
+      const response = await request(`/memory/pending/${id}/approve`, { method: "POST", body: {}, signal });
+      if (!response.ok) throw await failureOf(response);
+    },
+
+    async discardMemory(id: string, signal?: AbortSignal): Promise<void> {
+      if (!PENDING_ID_PATTERN.test(id)) throw new HermesError("bad_request", "保留のidの形が正しくない");
+      const response = await request(`/memory/pending/${id}/discard`, { method: "POST", body: {}, signal });
+      if (!response.ok) throw await failureOf(response);
+    },
+
+    /** 保存済みの記憶（あなたについての記憶・Hermesのメモ）。 */
+    async memoryEntries(signal?: AbortSignal): Promise<MemoryEntry[]> {
+      const response = await request("/memory/entries", { method: "GET", signal });
+      if (!response.ok) throw await failureOf(response);
+      const parsed = parseMemoryEntriesBody(await response.json().catch(() => null));
+      if (!parsed) throw new HermesError("bad_response", "ブリッジの記憶一覧の形が不正");
+      return parsed.entries;
+    },
+
+    /** 1項目の削除。全文が一致した項目だけ消える（`memory_not_found`＝すでに変わった）。 */
+    async deleteMemoryEntry(target: MemoryTarget, text: string, signal?: AbortSignal): Promise<void> {
+      if (text.trim() === "") throw new HermesError("bad_request", "記憶の本文が空");
+      const response = await request("/memory/entries", { method: "DELETE", body: { target, text }, signal });
+      if (!response.ok) throw await failureOf(response);
+    },
+
     async answerApproval(turnId: string, requestId: string, choice: ApprovalChoice, signal?: AbortSignal): Promise<void> {
       const response = await request(`/turns/${encodeURIComponent(turnId)}/approval`, {
         method: "POST",
         body: { requestId, choice },
+        signal,
+      });
+      if (!response.ok) throw await failureOf(response);
+    },
+
+    /** 選択肢つきの質問への回答（#1150）。`answers` は `{qid: 選択肢 | 選択肢[] | 文 | null}`。形の検証はブリッジでも行う。 */
+    async answerClarify(turnId: string, requestId: string, answers: Record<string, ClarifyAnswer>, signal?: AbortSignal): Promise<void> {
+      const response = await request(`/turns/${encodeURIComponent(turnId)}/clarify`, {
+        method: "POST",
+        body: { requestId, answers },
         signal,
       });
       if (!response.ok) throw await failureOf(response);

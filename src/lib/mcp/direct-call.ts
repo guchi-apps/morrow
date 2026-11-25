@@ -1,7 +1,7 @@
 import { listConnectedServers, type ConnectedServer } from "@/lib/mcp/connections";
 import { findPreset } from "@/lib/mcp/presets";
 import { readMcpBody } from "@/lib/mcp/rpc-body";
-import { toolErrorReason, toolErrorStatus } from "@/lib/mcp/tool-error";
+import { toolErrorJson, toolErrorReason, toolErrorStatus } from "@/lib/mcp/tool-error";
 
 /**
  * MCPの道具をモデルを通さずに1本呼ぶ（#573）。
@@ -27,10 +27,16 @@ export class McpCallError extends Error {
   readonly reason: string | null;
   /** 道具が `isError` の結果に載せた `status`（`conflict` など。#1100）。無ければnull。 */
   readonly status: string | null;
-  constructor(message: string, reason: string | null = null, status: string | null = null) {
+  /**
+   * `isError` の結果をJSONとして読めたときの中身（#1170。給与の道具は `code`・`existingSalaryId`・`registered` を載せる）。
+   * 読むのは呼び出し側が形を検証してから。画面・ログへそのまま出さない。
+   */
+  readonly body: ToolJson | null;
+  constructor(message: string, reason: string | null = null, status: string | null = null, body: ToolJson | null = null) {
     super(message);
     this.reason = reason;
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -155,6 +161,26 @@ export async function callUtilityBillWriteToolJson(
 }
 
 /**
+ * 給与明細PDFの取り込み（#1170）の許可リスト。メール画面で利用者が押したときだけ、Morrowのサーバーが呼ぶ。
+ * 解析（preview）はAsset Managerに承認待ちの記録を作るので書き込み扱い。保存（commit）は本人がAsset Managerの画面で
+ * 承認した後だけ（AIDE・Asset Managerの両方が承認状態を確かめる）。PDFの解析が重いので待ち時間を長めにとる。
+ */
+export const SALARY_WRITE_TOOLS = ["asset_manager_salary_preview", "asset_manager_salary_commit"] as const;
+export type SalaryWriteTool = (typeof SALARY_WRITE_TOOLS)[number];
+const SALARY_CALL_TIMEOUT_MS = 60_000;
+
+export async function callSalaryWriteToolJson(
+  server: ConnectedServer,
+  tool: SalaryWriteTool,
+  args: Record<string, unknown>,
+): Promise<ToolJson> {
+  if (!(SALARY_WRITE_TOOLS as readonly string[]).includes(tool)) {
+    throw new McpCallError(`${tool} は許可していない書き込みの道具です`);
+  }
+  return callTool(server, tool, args, SALARY_CALL_TIMEOUT_MS);
+}
+
+/**
  * Hermesの提案（#748）を利用者が承認したあとだけ、Morrowのサーバーが呼ぶ書き込みの許可リスト。
  * メール用（上）とは型を分けてあり、広げても `callWriteToolJson()` の3本は変わらない。
  * `docs/hermes-actions.md` の「取り消せない書き込み」の表と揃える。
@@ -230,7 +256,7 @@ async function callTool(
 
   if (result.isError === true) {
     const reason = toolErrorReason(result);
-    throw new McpCallError(`${tool} が失敗を返しました${reason ? `: ${reason}` : ""}`, reason, toolErrorStatus(result));
+    throw new McpCallError(`${tool} が失敗を返しました${reason ? `: ${reason}` : ""}`, reason, toolErrorStatus(result), toolErrorJson(result));
   }
 
   if (result.structuredContent && typeof result.structuredContent === "object") {

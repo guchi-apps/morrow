@@ -11,6 +11,9 @@ export const PUSH_KINDS = [
   "scheduled-push",
   "mail-notice",
   "hermes-approval",
+  "hermes-skill",
+  "hermes-memory",
+  "hermes-reply",
 ] as const;
 
 export type PushKind = (typeof PUSH_KINDS)[number];
@@ -46,7 +49,7 @@ export const PUSH_KIND_INFO: Record<PushKind, PushKindInfo> = {
     },
   },
   // Hermesの提案の確認待ち（#794）。押すとチャットを開くだけで、通知から直接は承認しない（値を見ずに押せてしまうため）。
-  // 「返答が届きました」は出さない（画面を閉じると中断するため）。
+  // 返答・質問の知らせは別の種類（`hermes-reply`。#1150）。
   "hermes-approval": {
     label: "チャットの確認待ち",
     hint: "チャットでHermesが出した提案のうち、あなたの確認が要るもの（取り消せない操作）があるときに知らせます。押すとチャットが開きます。",
@@ -54,6 +57,40 @@ export const PUSH_KIND_INFO: Record<PushKind, PushKindInfo> = {
     sample: {
       title: "確認待ちがあります",
       body: "（見本）チャットを開いて、内容を確かめてください。",
+      url: "/chat",
+    },
+  },
+  // Hermesが作ったスキル案の確認待ち（#1154）。押すとスキルの画面を開くだけで、通知から直接は承認しない。
+  "hermes-skill": {
+    label: "スキルの確認待ち",
+    hint: "チャットでHermesが「次からも使える手順（スキル）」の案を作ったとき、登録してよいか確認を求めます。押すとスキルの画面が開きます。",
+    when: "Hermesがスキル案を作ったとき",
+    sample: {
+      title: "スキルの確認待ちがあります",
+      body: "（見本）スキルの画面を開いて、内容を確かめてください。",
+      url: "/skills",
+    },
+  },
+  // Hermesが作った記憶の案の確認待ち（#1155）。押すと記憶の画面を開くだけで、通知から直接は承認しない。
+  "hermes-memory": {
+    label: "記憶の確認待ち",
+    hint: "チャットでHermesが「次からも覚えておく」案を作ったとき、保存してよいか確認を求めます。押すと記憶の画面が開きます。",
+    when: "Hermesが記憶の案を作ったとき",
+    sample: {
+      title: "記憶の確認待ちがあります",
+      body: "（見本）記憶の画面を開いて、内容を確かめてください。",
+      url: "/memory",
+    },
+  },
+  // 画面を見ていない間に、Hermesのターンが終わった・質問が来た（#1150）。押すとその会話を開くだけ。
+  // 本文には返答の中身を載せない（通知はAppleやブラウザの配信サービスを通るため）。
+  "hermes-reply": {
+    label: "チャットの返答",
+    hint: "チャットの画面を閉じている間に、Hermesの返答が届いたとき・Hermesが選択肢で確認したいことがあるときに知らせます。押すとその会話が開きます。",
+    when: "画面を閉じている間にHermesの返答・質問が届いたとき",
+    sample: {
+      title: "Hermesの返答が届きました",
+      body: "（見本）チャットを開いて、結果を確かめてください。",
       url: "/chat",
     },
   },

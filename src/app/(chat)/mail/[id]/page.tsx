@@ -13,7 +13,7 @@ import { MailDetailActions } from "@/components/mail/mail-detail-actions";
 import { mailFullTime } from "@/components/mail/mail-format";
 import { getCurrentUser } from "@/lib/auth-user";
 import { jstTimeLabel } from "@/lib/day-key";
-import { getMail } from "@/lib/mail/aide-client";
+import { getMailCached } from "@/lib/mail/aide-client";
 import { safeMailBack } from "@/lib/mail/back-path";
 import { listedAttachments } from "@/lib/mail/body-images";
 import { MAIL_FAILURE_MESSAGES, isMailMessageId, mailAccountKeyOf } from "@/lib/mail/contract";
@@ -57,7 +57,7 @@ export default async function MailMessagePage({ params, searchParams }: Props) {
   // 本文と判定は同時に取る（#699。以前は本文→一覧→判定の順に1本ずつ待っていた）。
   // 判定はDBだけなので、本文が取れなかった回に引いても害は無い。
   const [result, triage, feedback, flowRecords, mailLinks] = await Promise.all([
-    isMailMessageId(id) ? getMail(user, id) : Promise.resolve({ ok: false, kind: "not_found", message: null } as const),
+    isMailMessageId(id) ? getMailCached(user, id) : Promise.resolve({ ok: false, kind: "not_found", message: null } as const),
     mailTriageFor(user.id, id),
     // 押した印（#833）。メッセージIDと向きだけ
     db.mailFeedback.findUnique({ where: { userId_messageId: { userId: user.id, messageId: id } }, select: { notify: true, archive: true } }),

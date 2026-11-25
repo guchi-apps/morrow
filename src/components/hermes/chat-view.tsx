@@ -4,6 +4,7 @@ import { History, Loader2, Plus, SendHorizontal, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ChatItemView, elapsedText } from "@/components/hermes/chat-items";
+import { ImageAttachButton, ImageAttachThumbs, useImageAttachments } from "@/components/hermes/image-attach";
 import { ProposalCard } from "@/components/hermes/proposal-card";
 import { SessionList } from "@/components/hermes/session-list";
 import { locateOnce } from "@/lib/geolocation";
@@ -33,11 +34,14 @@ import {
   saveSessionId,
   peekActiveTurn,
 } from "@/lib/hermes/session-memory";
+import type { ClarifyAnswer } from "@/lib/hermes/contract";
 import { readSseEvents } from "@/lib/hermes/sse";
+import { IMAGE_ONLY_TEXT } from "@/lib/hermes/image-core";
 import { mentionsWeather } from "@/lib/weather/chat-context-core";
 import {
   addNotice,
   answerApproval,
+  answerClarify,
   applyEvent,
   endTurn,
   initialChatState,
@@ -54,7 +58,8 @@ import {
  *
  * 会話の本文はMorrowのサーバーに残さない。端末にはセッションidだけを覚え（#929。`session-memory.ts`）、開いたときに
  * Hermesの履歴（#752）から前回の発言を取り直す。「新しい会話」で記憶を消す。
- * **画面を閉じるとMorrowとの接続が切れて実行は中断される**（#726）。確認待ちは保存されているので、開き直せば承認できる。
+ * 画面を閉じてもターンはMorrowのサーバーで続く（#1000）。見ていない間に終わったら「返答が届きました」を通知し、
+ * 押すと `?session=` でその会話を開く（#1150）。確認待ちは保存されているので、開き直せば承認できる。
  */
 
 type Props = {
@@ -62,6 +67,11 @@ type Props = {
   userId: string;
   /** 前の会話から残っている確認待ち（開いた時点でDBにあるもの）。 */
   initialPending: ProposalView[];
+  /**
+   * 開く会話（#1150。通知「Hermesの返答が届きました」の `/chat?session=<id>`）。サーバーが持ち主を確かめた値だけが渡る。
+   * 端末に覚えた会話と違えば差し替えて、その会話の履歴を取り直す。
+   */
+  openSessionId?: string | null;
 };
 
 const STATUS_TEXT: Record<ChatConnection, string> = {
@@ -153,9 +163,11 @@ function interruptStorage(): InterruptStorage | null {
   }
 }
 
-export function ChatView({ userId, initialPending }: Props) {
+export function ChatView({ userId, initialPending, openSessionId }: Props) {
   // 控えがあれば取り直さず即表示する。画面を離れるとこのコンポーネントは捨てられるため、戻るたびの履歴取得を避ける
   const [{ snapshot, resumeFrom }] = useState(() => {
+    // 通知から開いた会話を、覚えた会話より先に決める（控えは別の会話のものになるので使われず、履歴を取り直す）
+    if (openSessionId && openSessionId !== loadSessionId(browserStorage(), userId)) saveSessionId(browserStorage(), userId, openSessionId);
     const saved = snapshotFor(userId);
     // 実行中のまま離れた会話は、続きを受け直せるときだけ実行中として開く（#1000）。受け直せなければ終わった扱い
     const active = saved?.running ? peekActiveTurn(userId, saved) : null;
@@ -185,12 +197,25 @@ export function ChatView({ userId, initialPending }: Props) {
   const restoreAbortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  const attachments = useImageAttachments();
   const busy = sending || chat.running;
   const sendBlocked = busy || restoring;
 
   useEffect(() => {
     turnRef.current = chat.turnId;
   }, [chat.turnId]);
+
+  useEffect(() => {
+    // 通知から開いたときの `?session=` は、読み込み直しで再び差し替えないよう取り除く（#1150）
+    if (!openSessionId) return;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("session");
+      window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+    } catch {
+      // URLを書き換えられなくても表示は変わらない
+    }
+  }, [openSessionId]);
 
   useEffect(() => {
     chatRef.current = chat;
@@ -439,10 +464,13 @@ export function ChatView({ userId, initialPending }: Props) {
   }, [resumeFrom, resume]);
 
   const send = useCallback(async (override?: string) => {
-    const text = (override ?? input).trim();
-    if (text === "" || sendBlocked) return;
+    // 再送（override）は画像を持たない。画像つきの回は入力欄へ戻る（retryOf）
+    const sentImages = override === undefined ? attachments.items : [];
+    const text = (override ?? input).trim() || (sentImages.length > 0 ? IMAGE_ONLY_TEXT : "");
+    if (text === "" || sendBlocked || attachments.busy) return;
     setSending(true);
     setInput("");
+    if (sentImages.length > 0) attachments.take();
     const controller = new AbortController();
     abortRef.current = controller;
     let started = false;
@@ -452,13 +480,14 @@ export function ChatView({ userId, initialPending }: Props) {
       const response = await fetch("/api/hermes/turns", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, ...(chat.sessionId ? { sessionId: chat.sessionId } : {}), ...(location ? { location } : {}) }),
+        body: JSON.stringify({ text, ...(sentImages.length > 0 ? { images: sentImages.map((image) => ({ data: image.data })) } : {}), ...(chat.sessionId ? { sessionId: chat.sessionId } : {}), ...(location ? { location } : {}) }),
         signal: controller.signal,
       });
       if (!response.ok || !response.body) {
         // 送れなかった指示は入力欄へ戻す（溜めて後で送ることはしない）
         const data = (await response.json().catch(() => null)) as { error?: string; kind?: string } | null;
-        setInput(text);
+        setInput(text === IMAGE_ONLY_TEXT ? "" : text);
+        if (sentImages.length > 0) attachments.restore(sentImages);
         const kind = data?.kind;
         const failure = kind && kind !== "invalid" && kind !== "rate_limited" ? describeHermesError(kind as HermesErrorKind) : null;
         if (failure?.connection) setConnection(failure.connection);
@@ -476,7 +505,8 @@ export function ChatView({ userId, initialPending }: Props) {
       endedRef.current = false;
       // ターンIDはヘッダーで本文より先に届く。最初のイベント前の「止める」でもinterruptを送れる（#1005）
       turnRef.current = readTurnIdHeader(response.headers);
-      setChat((s) => startTurn(s, text));
+      setChat((s) => startTurn(s, text, Date.now(), sentImages.length));
+      attachments.release(sentImages);
       try {
         await consume(response.body);
       } catch {
@@ -507,7 +537,8 @@ export function ChatView({ userId, initialPending }: Props) {
           );
           void fetchStatus().then(applyStatus);
         } else {
-          setInput(text);
+          setInput(text === IMAGE_ONLY_TEXT ? "" : text);
+          if (sentImages.length > 0) attachments.restore(sentImages);
           setConnection("unreachable");
           setChat((s) => addNotice(s, "error", "Morrowに接続できませんでした。もう一度試してください。"));
         }
@@ -517,7 +548,7 @@ export function ChatView({ userId, initialPending }: Props) {
       setSending(false);
       if (abortRef.current === controller) abortRef.current = null;
     }
-  }, [input, sendBlocked, chat.sessionId, consume, resume, applyStatus]);
+  }, [input, sendBlocked, chat.sessionId, consume, resume, applyStatus, attachments]);
 
   const stop = useCallback(async () => {
     const controller = abortRef.current;
@@ -595,6 +626,7 @@ export function ChatView({ userId, initialPending }: Props) {
     [send],
   );
   const onApproval = useCallback((requestId: string, choice: "once" | "deny") => setChat((s) => answerApproval(s, requestId, choice)), []);
+  const onClarify = useCallback((requestId: string, answers: Record<string, ClarifyAnswer>) => setChat((s) => answerClarify(s, requestId, answers)), []);
 
   const unreachable = connection === "unreachable" || connection === "hermes_down";
   // 失敗の通知の「もう一度」は、最後の項目で実行中でないときだけ出す（古い失敗から再送させない）
@@ -707,6 +739,7 @@ export function ChatView({ userId, initialPending }: Props) {
               item={item}
               turnId={chat.turnId}
               onApproval={onApproval}
+              onClarify={onClarify}
               onProposalChange={onProposalChange}
               onRetry={item.id === retryItemId ? onRetry : undefined}
               now={now}
@@ -730,7 +763,9 @@ export function ChatView({ userId, initialPending }: Props) {
           else void send();
         }}
       >
+        <ImageAttachThumbs attachments={attachments} disabled={busy} />
         <div className="mx-auto flex max-w-[760px] items-end gap-2">
+          <ImageAttachButton attachments={attachments} disabled={sendBlocked} />
           <textarea
             aria-label="Hermesへの指示"
             value={input}
@@ -748,7 +783,7 @@ export function ChatView({ userId, initialPending }: Props) {
           />
           <button
             type="submit"
-            disabled={!busy && (restoring || input.trim() === "")}
+            disabled={!busy && (restoring || attachments.busy || (input.trim() === "" && attachments.items.length === 0))}
             className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl px-4 text-sm text-white disabled:opacity-45 ${busy ? "bg-red-600" : "bg-accent"}`}
           >
             {busy ? <Square className="size-3.5" aria-hidden="true" /> : <SendHorizontal className="size-3.5" aria-hidden="true" />}

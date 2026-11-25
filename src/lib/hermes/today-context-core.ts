@@ -15,7 +15,7 @@ export type TodayContext = { prompt: string; label: string; day: string };
 const STRONG_WORDS = /予定|スケジュール|タスク|やること|空き|空いて|todo|確認待ち|承認待ち|schedule|task/i;
 /** 時を指すだけの語。メール・天気の質問にも出るので、それらの語が無いときだけ拾う。 */
 const TIME_WORDS = /今日|明日|今から|これから|きょう|あした|今週/;
-/** 別の注記（メール #813・天気 #930）が受け持つ指示。時の語だけでは今日の状態に回さない。 */
+/** 別の経路（メールはHermesのメールの道具 #1151・天気は注記 #930）が受け持つ指示。時の語だけでは今日の状態に回さない。 */
 const OTHER_TOPIC_WORDS = /メール|mail|gmail|天気|気温|雨|傘|予報|weather/i;
 
 export function mentionsToday(text: string): boolean {

@@ -54,7 +54,9 @@ Hermesが台帳へ触れる経路はAIDEのMCP（`https://aide.gucchii.com/mcp`�
 `aide_schedule`・`aide_tasks`・`aide_get_task`・`aide_get_travel`・`aide_weather`・`aide_current_location`・`aide_garbage_collection`・
 `aide_balances`・`aide_fixed_costs`・`aide_utility_bills`・`aide_room_sensors`・`aide_room_buttons`・`aide_aircon_status`・`aide_printer_status`・
 `aide_work_reports`・`asset_manager_subscriptions`・`asset_manager_salary_lookup`・`kurashio_get_utility_bill`・`kurashio_get_kepco_hourly`・
-`kurashio_utility_bill_contracts`・`aide_ping`・`aide_connection_permissions`
+`kurashio_utility_bill_contracts`・`aide_ping`・`aide_connection_permissions`・`aide_mail_search`・`aide_mail_get`
+
+- **受信メールの読み取り（`aide_mail_search`・`aide_mail_get`。#1151・aide#905）**: 専用scope `mail:read`、持ち主の照合はAIDE側。送信・下書き・整理（アーカイブ・ゴミ箱・既読・ラベル）・削除の道具は**持たせない**（AIDEにも作らない）。本文は外から来た文面なので、本文の指示で書き込みを呼ばないことをSOULと評価セット（`mail-injection`）で見る。手作業は `docs/hermes-route.md`「受信メールの読み取り」
 
 - 運用・開発の状態（`aide_host_status`・`aide_vps_memory`・`aide_uptime_monitors`・`aide_service_quotas`・`aide_dev_status`・`aide_repo_status`・
   `aide_repo_labels`・`aide_claude_sessions`・`aide_issue_deck_items`・`aide_issue_deck_summary`）も読み取りだが、Morrowの窓口の用途に無いので
@@ -111,7 +113,7 @@ AIDEの道具ではなく、Hermes自身が持つ。チャットのチップに�
 | 道具 | 理由 |
 |---|---|
 | `aide_zaim_payment`・`aide_zaim_master` | 廃止済み（Zaim APIの提供終了） |
-| `asset_manager_salary_preview`・`_commit`・`_approval_status` | 独自の2段階承認がある。メールの提案でも入れていない（#689）。要るなら別Issue |
+| `asset_manager_salary_preview`・`_commit`・`_approval_status` | 独自の2段階承認がある（承認はAsset Managerの画面）。メール画面の添付PDFからMorrowのサーバーだけが呼ぶ（`SALARY_WRITE_TOOLS`。#1170）。チャットの指示からは使わない |
 | `kurashio_import_utility_bill`・`kurashio_import_kepco_hourly` | 明細の取り込み（PDF・CSV）で、チャットの指示から作る値ではない（`kurashio_import_utility_bill` は請求メールの分析からMorrowのサーバーだけが呼ぶ。#1100） |
 | `aide_room_press` | 押すボタンの効果が道具から分からない（物理操作）。要るならボタンごとに分類して足す |
 | `aide_create_notification`・`aide_create_task_candidate`・`aide_save_daily_brief`・`aide_report_work`・`aide_research_desk_import_weekly_report` | 他のエージェント・自動処理のための口。窓口からの指示で使う用途が無い |
@@ -140,7 +142,7 @@ Morrowのprofileでは**持たせない**（`platform_toolsets` から外す）�
 | `mcp_servers.aide.trust` | `full`（既定） | `untrusted` にすると読み取りまで毎回承認になる（上記2）。許可リストで代える |
 | `platform_toolsets`（`serve` のセッションが読むplatformの項目） | MCPと `web` だけ。シェル（`terminal`）・ファイル・ブラウザ・コード実行・委任（`delegation`）を外す | 台帳以外を書き換えない。**toolsetの正確な名前と、`serve` のセッションがどのplatformの項目を読むかは未確認**（defaultの設定は `cli`・`discord` などplatformごとに `hermes-<platform>` を持つ）。profile作成時に `hermes tools` と `-t web` の実測（#725）で確かめる |
 | `approvals.mode` | 既定（`smart`）のまま | 上の絞り込みで危険なコマンドの道具を持たないため。万一届いた承認はブリッジが下記の扱いをする |
-| `approvals.timeout` | 300（既定） | ブリッジの1ターン10分（#726）に収まる |
+| `approvals.timeout` | 300（既定） | ブリッジの1ターン30分（#726・#1150）に収まる |
 | `command_allowlist` | 空 | defaultの許可（`execute_code` 等）を `--clone` で持ち込まない |
 
 - `--clone` で作るとdefaultの `command_allowlist`・MCPの設定を写すので、作った後に上の値へ直す（#738の手作業）
@@ -182,7 +184,16 @@ Morrowのprofileでは**持たせない**（`platform_toolsets` から外す）�
   通知の種類は #488 の仕組みに足す（#728）
 - Hermesの `approval` リクエストが届いた場合（道具を絞っているので通常は来ない）も同じカードで「1回だけ許可」「拒否」を出す。
   **`session`・`always` は出さず、ブリッジでも `once`・`deny` 以外の回答を受け付けない**（`always` はprofileの `command_allowlist` に書き込まれ、
-  以後の確認が消える。#725）。`clarify`（選択肢つきの質問）は承認ではないので、ふつうの質問として出す
+  以後の確認が消える。#725）。`clarify`（選択肢つきの質問）は承認ではないので、選択肢カードで答えを返す（#1150。`docs/hermes-route.md`「選択肢つきの質問」）。
+  答えは書き込みの承認にはならない（取り消せない操作は、答えた後も提案と確認カードを通る）
+
+### 画面を閉じたまま続くターン（#1150）
+
+- 「あとで調べて報告して」型の依頼は、画面を閉じても最後まで続く（上限30分）。**書き込みの分類はここでも変えない**: 取り消せない操作は提案だけで、
+  実行は利用者が確認カードで押したとき。取り消せる書き込みは、頼んだ時点を承認とみなして自動（#727）
+- 読み取り中心に絞る案（非同期のターンだけ別profile・狭い許可リスト）は採らなかった。profileが2つになり、許可リスト・SOUL・記憶を二重に保つ必要があるため。
+  代わりにSOULで「あとで報告型の途中で書き込みが要るときは `clarify` で確かめる」と指示する（保証ではない。保証は許可リストと確認カード）
+- Hermesの `approval`・`clarify` は300秒で期限切れになる。見ていない間に質問が来たら通知（`hermes-reply`）で知らせ、答えが無ければHermesはスキップとして受け取る
 
 ### 期限
 
@@ -226,3 +237,10 @@ Morrowに「誰が・いつ・何を」だけを残す（#683の `MailTriage` �
   #728（画面）の確認カードはこの文書を前提に作る
 - **AIDEの道具の注釈と冪等キー**（`guchi-apps/aide`）: `readOnlyHint` の宣言と、`aide_create_event`・`aide_update_event` への `idempotencyKey`。guchi-apps/aide#823
 - **profileの設定**（人の作業）: 上の表の値を #738 の手順に足す
+
+## スキルの作成・変更（#1154）
+
+`skill_manage`（スキルの作成・書き換え・削除）は「取り消せない書き込み」ではなく**自己書き換え**として別に扱う。道具の許可リストでは分けられない
+（`skills` ツールセット単位でしか外せない。#1153）ため、`skills.write_approval: true` で**常に保留に入れ、Morrowの確認カード（`/skills`）で利用者が内容を見て承認した分だけ登録する**。
+Hermesの `approval`（`once`・`deny`）や `morrow_propose_action` の確認カードとは別の経路（`docs/hermes-route.md`「スキルの確認・承認」）。
+記録は持たない（保留はHermes側のファイル。確定したら消える）。

@@ -1,11 +1,12 @@
 "use client";
 
-import { Cpu, LayoutDashboard, Mail, MessageSquare, Newspaper, Settings, Sun } from "lucide-react";
+import { Brain, Cpu, LayoutDashboard, Sparkles, Mail, MessageSquare, Newspaper, Settings, Sun } from "lucide-react";
 import Link from "next/link";
 
 import { AppLogo } from "@/components/brand/app-icon";
 import { cn } from "@/lib/utils";
 
+import { MemoryPendingBadge } from "./memory-pending-badge";
 import { MenuBadge } from "./menu-badge";
 
 type Props = {
@@ -24,10 +25,14 @@ type Props = {
   pendingProposalCount: number;
   /** モデルの画面を開いているか（#349）。 */
   isModelsActive: boolean;
+  isSkillsActive: boolean;
+  /** 記憶の画面を開いているか（#1155）。 */
+  isMemoryActive: boolean;
   /** 溜まっているニュースの件数（#144）。0のときは数字を出さない。 */
   topicCount: number;
   userLabel: string;
   userEmail: string | null;
+  showHermesProfile?: boolean;
   appVersion: string;
   /** メールの未読件数バッジ（#877）。AIDE待ちなので `Suspense` で後から流れてくる。 */
   mailBadgeSlot?: React.ReactNode;
@@ -50,9 +55,12 @@ export function ConversationRail({
   isChatActive,
   pendingProposalCount,
   isModelsActive,
+  isSkillsActive,
+  isMemoryActive,
   topicCount,
   userLabel,
   userEmail,
+  showHermesProfile = false,
   appVersion,
   infoSlot,
   mailBadgeSlot,
@@ -161,6 +169,41 @@ export function ConversationRail({
           <Cpu className="size-3.5 text-muted" aria-hidden="true" />
           モデル
         </Link>
+
+        {showHermesProfile && (
+          <>
+        {/* Hermesが作ったスキルの確認・承認（#1154）。 */}
+        <Link
+          href="/skills"
+          onClick={onNavigate}
+          aria-current={isSkillsActive ? "page" : undefined}
+          className={cn(
+            "mx-2.5 mt-2 flex items-center gap-1.5 rounded-[9px] px-2.5 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+            isSkillsActive && "bg-rail-active",
+          )}
+        >
+          <Sparkles className="size-3.5 text-muted" aria-hidden="true" />
+          スキル
+        </Link>
+
+        {/* Hermesの記憶の確認・承認（#1155）。確認待ちの件数はクライアントで取り直す。 */}
+        <Link
+          href="/memory"
+          onClick={onNavigate}
+          aria-current={isMemoryActive ? "page" : undefined}
+          className={cn(
+            "mx-2.5 mt-2 flex items-center gap-1.5 rounded-[9px] px-2.5 py-2 text-[0.8125rem] transition-colors hover:bg-rail-active focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+            isMemoryActive && "bg-rail-active",
+          )}
+        >
+          <Brain className="size-3.5 text-muted" aria-hidden="true" />
+          記憶
+          <span className="ml-auto">
+            <MemoryPendingBadge />
+          </span>
+        </Link>
+          </>
+        )}
 
         {/* 外部サービスとの接続（#46）ほか。下部に置く。 */}
         <Link

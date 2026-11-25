@@ -23,6 +23,8 @@ describe("失敗の区別（#214）", () => {
     assert.equal(kind(409, "session_busy"), "session_busy");
     assert.equal(kind(429, "bridge_busy"), "bridge_busy");
     assert.equal(kind(500), "bad_response");
+    assert.equal(kind(404, "not_found"), "bridge_outdated");
+    assert.equal(kind(404), "bad_response");
   });
 
   it("宛先やトークンが未設定なら、通信せずに not_configured", async () => {
@@ -74,7 +76,11 @@ describe("失敗の区別（#214）", () => {
     assert.deepEqual(events, []);
   });
 
-  it("Bearerを付けて呼び、接続のタイムアウトはストリーム本文には掛からない", async () => {
+  // 実際のHTTPサーバーへ繋ぐ試験は、接続の上限を既定（5秒）のままにする。
+  // 以前は「本文には上限が掛からない」も同じ試験で40msの上限を付けて確かめていたが、
+  // 負荷の高いCIランナーでは最初の接続（fetchの初期化を含む）が40msに間に合わず
+  // unreachable で落ちていた（#1180。手元で16並列にすると16回中13回落ちた）。
+  it("Bearerを付けてブリッジを呼び、SSEを読み切る", async () => {
     const seen: { auth: string | undefined }[] = [];
     const server = createServer((req, res) => {
       seen.push({ auth: req.headers.authorization });
@@ -83,16 +89,45 @@ describe("失敗の区別（#214）", () => {
       setTimeout(() => {
         res.write('event: message.complete\ndata: {"text":"ok"}\n\n');
         res.end();
-      }, 80);
+      }, 20);
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     after(() => server.close());
     const { port } = server.address() as AddressInfo;
-    const client = createHermesClient({ baseUrl: `http://127.0.0.1:${port}`, token: "secret-t", connectTimeoutMs: 40 });
+    const client = createHermesClient({ baseUrl: `http://127.0.0.1:${port}`, token: "secret-t" });
     const types: string[] = [];
     for await (const event of await client.startTurn({ text: "x" })) types.push(event.type);
     assert.deepEqual(types, ["turn", "message.complete"]);
     assert.equal(seen[0].auth, "Bearer secret-t");
+  });
+
+  // ヘッダーが届いた時点で上限のタイマーは外れる。fetchを差し替えて応答を即座に返し、
+  // 本文の続きは上限を十分に超えてから流すので、実際の接続の速さに左右されない。
+  it("接続のタイムアウトはストリーム本文には掛からない", async () => {
+    const connectTimeoutMs = 20;
+    let signal: AbortSignal | undefined;
+    const encoder = new TextEncoder();
+    const client = createHermesClient({
+      baseUrl: "http://x",
+      token: "t",
+      connectTimeoutMs,
+      fetchImpl: async (_input, init) => {
+        signal = init?.signal ?? undefined;
+        const body = new ReadableStream<Uint8Array>({
+          async start(controller) {
+            controller.enqueue(encoder.encode('event: turn\ndata: {"turnId":"t","sessionId":"s"}\n\n'));
+            await new Promise((resolve) => setTimeout(resolve, connectTimeoutMs * 5));
+            controller.enqueue(encoder.encode('event: message.complete\ndata: {"text":"ok"}\n\n'));
+            controller.close();
+          },
+        });
+        return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+      },
+    });
+    const types: string[] = [];
+    for await (const event of await client.startTurn({ text: "x" })) types.push(event.type);
+    assert.deepEqual(types, ["turn", "message.complete"]);
+    assert.equal(signal?.aborted, false);
   });
 });
 

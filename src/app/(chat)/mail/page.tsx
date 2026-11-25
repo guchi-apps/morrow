@@ -11,7 +11,7 @@ import { MailRows } from "@/components/mail/mail-rows";
 import { MailSearch } from "@/components/mail/mail-search";
 import { getCurrentUser } from "@/lib/auth-user";
 import { jstDayKey, jstTimeLabel } from "@/lib/day-key";
-import { getMail, listMailForPage } from "@/lib/mail/aide-client";
+import { getMail, listMailForPage, prefetchMailBodies } from "@/lib/mail/aide-client";
 import { recentArchived } from "@/lib/mail/archive-log";
 import { groupArchiveByDay } from "@/lib/mail/archive-log-core";
 import {
@@ -99,6 +99,11 @@ export default async function MailPage({ searchParams }: Props) {
   if (result.ok && inboxView) result.value.messages = onlyInbox(result.value.messages);
   // 1ページ目だけを取って出す。続きは画面のスクロールで `/api/mail/list` から足す（#887）。
   // 一覧の要約は受信トレイ表示のときだけ。無い分は裏で作り、画面が取り直す
+  // 開く待ちを縮めるため、初回ページの先頭の未読5通の本文を裏で持っておく（#1185。続きのページでは先読みしない）
+  if (result.ok && inboxView) {
+    const ids = result.value.messages.filter((m) => m.unread).slice(0, 5).map((m) => m.id);
+    if (ids.length > 0) after(() => prefetchMailBodies(user, ids).catch(() => undefined));
+  }
   const rows = result.ok ? await decorateMailRows(user, result.value.messages, inboxView) : [];
 
   // アカウントのチップ（#711・#829）。AIDEが `accounts` を返せばそれ、無ければ絞る前の全行から推定した一覧。

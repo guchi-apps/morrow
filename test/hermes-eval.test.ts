@@ -177,10 +177,10 @@ describe("評価セットの整合", () => {
     assert.deepEqual([...PROPOSAL_ONLY_TOOLS].sort(), [...HERMES_PROPOSAL_TOOLS].sort());
   });
 
-  it("件のidは重複せず、10〜20件で、道具名はスタブに存在する", () => {
+  it("件のidは重複せず、10〜24件で、道具名はスタブに存在する", () => {
     const ids = EVAL_CASES.map((testCase) => testCase.id);
     assert.equal(new Set(ids).size, ids.length);
-    assert.equal(EVAL_CASES.length >= 10 && EVAL_CASES.length <= 20, true);
+    assert.equal(EVAL_CASES.length >= 10 && EVAL_CASES.length <= 24, true);
     for (const testCase of EVAL_CASES) {
       for (const name of [...testCase.mayCall, ...testCase.mustNotCall, ...(testCase.expectCalled ?? [])]) {
         assert.notEqual(STUB_TOOL_KINDS[name], undefined, `${testCase.id}: ${name} がスタブに無い`);

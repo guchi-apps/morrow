@@ -34,6 +34,17 @@ MorrowはAIDEのMCPの道具を呼ぶ。道具の実装は別リポジトリ（`
 | `asset_manager_import_payment`（書き） | `mail/suggest.ts`・Hermesの承認 | `gmailMessageId`・`date`・`confidence`・`review:true` ほか | `gmailMessageId`・`confidence`(0〜1) 必須。`amount` は整数1以上。`review:true` なら `place`・`amount` 省略可。`items` は1〜100件で `name`・`amount` 必須 | `mail-suggest` |
 | `aide_delete_event`（書き） | `hermes`（`previewDeleteEvent`・承認後の実行） | `eventId`・`calendarId`・`title`（確認は `dryRun:true`） | 3項目必須 | `hermes-proposal` |
 | `asset_manager_create_subscription` ほかサブスク3本（書き） | Hermesの承認 | Hermesの提案の引数をそのまま検証して渡す | 入力定義は未固定（下記） | `hermes-proposal` |
+| `asset_manager_salary_preview`（書き扱い）・`asset_manager_salary_commit`（書き） | `mail/salary.ts`（`callSalaryWriteToolJson`。#1170） | `mailbox`（AIDE応答の `owner`）・`gmailMessageId`・`pdfBase64`（＋commitは `previewId`・`previewToken`） | `mailbox` はメールアドレスの形・255字、`pdfBase64` はデコード後700,000バイトまで・先頭 `%PDF-`。OAuthのscopeは `salary-agent:read`（preview）・`salary-agent:write`（commit）。previewの応答は `{previewId, previewToken, approvalUrl, salaryDate:{year,month,candidate}, lines[], unassignedLabels[], totals:{computed,pdf,difference}, blockers[{code,message}], existing:{alreadyImportedSalaryId,sameDateSalaryId}, canSave}`。パスワード付きは `isError`＋`code:"needs_password"`。commitの成功は `{status:"saved_unverified", registered:true, salaryId}`、`already_registered`・`not_approved`・応答待ち切れの `unknown` は `isError`（`McpCallError.body`）。2026-11-24に `~/apps/aide` の `src/mcp/tools/salary-agent.ts` と asset-manager の `lib/payroll/agent-import-server.ts` のソースで確認（実物は未呼び出し） | `mail-salary`・`external-tool-contracts` |
+| `asset_manager_salary_approval_status`・`asset_manager_salary_lookup`（読み） | `mail/salary.ts`（#1170） | `{previewId}`／`{salaryId}` | どちらも `^[A-Za-z0-9_-]{1,64}$`。承認状態は `{status:"ok", previewId, approval: pending/approved/rejected/consumed/expired}`、読み戻しは `{status:"found", salary:{id, salaryDate, grossSalary, netSalary}}`／`not_found` | `mail-salary` |
+
+### Hermesが呼ぶメールの読み取り（#1151・aide#905。Morrowのサーバーは呼ばない）
+
+Hermes（morrow profile）が許可リストで呼ぶ。Morrowの評価のスタブ（`hermes-bridge/eval/stub-aide.ts`）と表示名（`tool-labels.ts`）がこの形に依存するので、`test/external-tool-contracts.test.ts`「Hermesが呼ぶメールの読み取り」が入力と、スタブの応答が形・上限に収まることを固定する。**2026-11-24にaide#905の実装（guchi-apps/aide PR #906・`src/mcp/tools/mail.ts`・README「メールの検索・取得（MCP）」。developへマージ済み）のソースで確認した**（実物は本番反映前で未呼び出し）。
+
+| 道具 | 入力 | 応答 | scope・失敗 |
+|---|---|---|---|
+| `aide_mail_search` | `query`（必須・1〜200字。Gmailの検索式可、追加アカウント〔IMAP〕は語の全文検索だけ）・`view`（`inbox`/`all`。既定 `all`）・`limit`（1〜20。既定10） | `{partial, failedAccounts[], messages[].{id, from, subject, receivedAt, snippet(200字), unread, inInbox}}`。`receivedAt` はISO8601（UTC）か `null`。ゴミ箱・迷惑メールは対象外。0件は `messages: []` | `mail:read`（無ければ道具の一覧に出ない）。本人記録の無い古いトークン・持ち主でない・取得できないは `isError`（どれも「メールが0件という意味ではありません」を含む文） |
+| `aide_mail_get` | `ids`（必須・1〜5件の文字列。重複は1つにまとめる） | `{notice, messages[].{id, from, to, subject, receivedAt, body(1通3,000字), truncated}, missing[]}`。HTMLだけの本文はタグを除いたテキスト。全体12,000字を超えた分は後ろの通から削って `truncated: true`。見つからないidは `missing`（全体は失敗にしない）。添付は返さない | 同上 |
 
 ### AIDEのメールAPI（REST。MCPではない）の添付（#1101・aide#867）
 

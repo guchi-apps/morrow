@@ -16,6 +16,7 @@ const KNOWN_TYPES: ReadonlySet<BridgeEventType> = new Set<BridgeEventType>([
   "tool.complete",
   "approval",
   "clarify",
+  "clarify.closed",
   "message.complete",
   "error",
 ]);

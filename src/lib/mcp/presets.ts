@@ -77,7 +77,9 @@ export const MCP_PRESETS: McpPreset[] = [
     // 予定・家計簿・天気などはscope不要。
     // 電気・ガスの請求のクラシオへの反映（`kurashio_*`。#1100）は `kurashio-bills:read`（契約候補・保存済みの確認）と
     // `kurashio-bills:write`（登録）。足した後は利用者のAIDEの繋ぎ直しが要る。
-    scopes: ["tasks:read", "tasks:write", "kurashio-bills:read", "kurashio-bills:write"],
+    // 給与明細PDFの取り込み（`asset_manager_salary_*`。#1170）は `salary-agent:read`（解析・承認状態・読み戻し）と
+    // `salary-agent:write`（保存）。これも繋ぎ直しが要る。
+    scopes: ["tasks:read", "tasks:write", "kurashio-bills:read", "kurashio-bills:write", "salary-agent:read", "salary-agent:write"],
     description: "資産と固定費・部屋の状態・VPS・DeskMini・Mac miniの稼働・今日の見通し・開発状況",
     provides: [
       "いまの室温・湿度・CO2（aide_room_sensors）とエアコンの運転状態（aide_aircon_status）",
@@ -134,6 +136,10 @@ export const MCP_PRESETS: McpPreset[] = [
       // #1100。電気・ガスの請求をクラシオへ登録する（`UTILITY_BILL_WRITE_TOOLS`）。AIDE側が冪等で、既存の行は書き換えない。
       "kurashio_import_utility_bill",
       "aide_research_desk_import_weekly_report",
+      // #1170。給与明細の解析（Asset Managerに承認待ちの記録を作る）と保存。メール画面で押したときだけ
+      // `SALARY_WRITE_TOOLS` から呼ぶ。承認状態・読み戻し（`_approval_status`・`_lookup`）は読み取りなので挙げない。
+      "asset_manager_salary_preview",
+      "asset_manager_salary_commit",
     ],
     // #366。読み取り・疎通確認だけの道具。AIDEが道具を足しても、ここへ足すまでは
     // 書き込みを渡さない回に見えない。足すときは道具の説明文が「読み取りだけ」と言えるか確かめる。

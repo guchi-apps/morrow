@@ -56,3 +56,19 @@ export function toolErrorStatus(result: Record<string, unknown>): string | null 
   const status = record && typeof record === "object" ? (record as { status?: unknown }).status : null;
   return typeof status === "string" && /^[a-z_]{1,40}$/.test(status) ? status : null;
 }
+
+/**
+ * `isError` の結果をJSONのオブジェクトとして読む（#1170）。読めなければnull。
+ * 中身は外から来た値なので、使う側が形を検証する。
+ */
+export function toolErrorJson(result: Record<string, unknown>): Record<string, unknown> | null {
+  if (result.structuredContent && typeof result.structuredContent === "object" && !Array.isArray(result.structuredContent)) {
+    return result.structuredContent as Record<string, unknown>;
+  }
+  try {
+    const parsed: unknown = JSON.parse(firstText(result) ?? "");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}

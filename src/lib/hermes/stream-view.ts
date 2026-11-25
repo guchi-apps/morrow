@@ -1,4 +1,5 @@
-import type { BridgeEvent, BridgeEventType, HermesUsage } from "./contract.ts";
+import { parseClarifyQuestions, type BridgeEvent, type BridgeEventType, type ClarifyAnswer, type ClarifyQuestion, type HermesUsage } from "./contract.ts";
+import { stripImageMarkers } from "./image-core.ts";
 import { stripAttachments } from "./prompt-attachment.ts";
 import type { ProposalView } from "./proposal-core.ts";
 import { argLines, isAutoWriteTool, knownToolKey, resultFailed, resultSummary, toolHint, toolLabel, type ArgLine, type ResultSummary } from "./tool-labels.ts";
@@ -22,6 +23,7 @@ export const RELAY_EVENT_TYPES: ReadonlySet<string> = new Set<BridgeEventType | 
   "tool.complete",
   "approval",
   "clarify",
+  "clarify.closed",
   "message.complete",
   "error",
   "proposal",
@@ -29,7 +31,7 @@ export const RELAY_EVENT_TYPES: ReadonlySet<string> = new Set<BridgeEventType | 
 ]);
 
 export type ChatItem =
-  | { kind: "user"; id: number; text: string }
+  | { kind: "user"; id: number; text: string; /** 添付した画像の枚数（#1157。画像そのものは持たない）。 */ images?: number }
   | { kind: "assistant"; id: number; text: string; done: boolean }
   | {
       kind: "tool";
@@ -59,7 +61,18 @@ export type ChatItem =
       description: string | null;
       status: "waiting" | "once" | "deny";
     }
-  | { kind: "clarify"; id: number; text: string }
+  | {
+      kind: "clarify";
+      id: number;
+      /** 回答の宛先（#1150）。古いブリッジ（辞退で返す）から来た質問は null で、質問文だけを出す。 */
+      requestId: string | null;
+      questions: ClarifyQuestion[];
+      /** 質問文（古いブリッジ・形の読めない質問の表示用）。 */
+      text: string;
+      /** waiting: 回答待ち／answered: 答えた／closed: 期限切れ・ターン終了で答えられない。 */
+      status: "waiting" | "answered" | "closed";
+      answers?: Record<string, ClarifyAnswer>;
+    }
   | {
       kind: "notice";
       id: number;
@@ -94,9 +107,15 @@ export function restoreFromHistory(
   const items: ChatItem[] = [];
   for (const m of messages) {
     // 利用者の発言は、Morrowが先頭へ足した注記・メール本文を落とした入力部分だけ出す
-    const text = m.role === "user" ? stripAttachments(m.text) : m.text;
-    if (text.trim() === "") continue;
-    items.push(m.role === "user" ? { kind: "user", id: nextId++, text } : { kind: "assistant", id: nextId++, text, done: true });
+    const stripped = m.role === "user" ? stripImageMarkers(stripAttachments(m.text)) : { text: m.text, images: 0 };
+    const text = stripped.text;
+    // 画像は復元しない。「画像 N 枚」とだけ出す（#1157）
+    if (text.trim() === "" && stripped.images === 0) continue;
+    items.push(
+      m.role === "user"
+        ? { kind: "user", id: nextId++, text, ...(stripped.images > 0 ? { images: stripped.images } : {}) }
+        : { kind: "assistant", id: nextId++, text, done: true },
+    );
   }
   if (items.length === 0) return { ...state, sessionId };
   return { ...state, sessionId, items: [...items, ...state.items], nextId };
@@ -113,8 +132,8 @@ function replaceAt(state: ChatState, index: number, item: ChatItem): ChatState {
 }
 
 /** 利用者の指示を送った（接続できたあと）。 */
-export function startTurn(state: ChatState, text: string, now: number = Date.now()): ChatState {
-  return { ...push(state, (id) => ({ kind: "user", id, text })), running: true, turnId: null, activityAt: now };
+export function startTurn(state: ChatState, text: string, now: number = Date.now(), images: number = 0): ChatState {
+  return { ...push(state, (id) => ({ kind: "user", id, text, ...(images > 0 ? { images } : {}) })), running: true, turnId: null, activityAt: now };
 }
 
 /** 生成中の吹き出しを閉じる（道具・承認など別の要素が挟まるとき）。 */
@@ -131,6 +150,8 @@ export function endTurn(state: ChatState): ChatState {
     if (item.kind === "assistant" && !item.done) return { ...item, done: true };
     // 終わったのに「実行中」のまま残さない。結果は分からないので、成功（done）にも失敗にもせず unknown にする
     if (item.kind === "tool" && item.status === "running") return { ...item, status: "unknown" };
+    // ターンが終わったら質問にはもう答えられない（Hermesの待ちも終わっている）
+    if (item.kind === "clarify" && item.status === "waiting") return { ...item, status: "closed" };
     return item;
   });
   return { ...state, items, running: false, turnId: null, activityAt: null };
@@ -145,6 +166,28 @@ export function answerApproval(state: ChatState, requestId: string, choice: "onc
   const item = state.items[index];
   if (item?.kind !== "approval") return state;
   return replaceAt(state, index, { ...item, status: choice });
+}
+
+/** 選択肢つきの質問に答えた（送れたあと。#1150）。 */
+export function answerClarify(state: ChatState, requestId: string, answers: Record<string, ClarifyAnswer>): ChatState {
+  const index = state.items.findIndex((item) => item.kind === "clarify" && item.requestId === requestId);
+  const item = state.items[index];
+  if (item?.kind !== "clarify" || item.status !== "waiting") return state;
+  return replaceAt(state, index, { ...item, status: "answered", answers });
+}
+
+/** 溜めたイベントから、`requestId` の質問を探す（回答の検証用。#1150）。答えられない（閉じた・無い）なら null。 */
+export function clarifyQuestionsOf(events: readonly RelayEvent[], requestId: string): ClarifyQuestion[] | null {
+  let found: ClarifyQuestion[] | null = null;
+  for (const event of events) {
+    if (event.type === "clarify" && event.data.requestId === requestId) {
+      const questions = parseClarifyQuestions(event.data.questions);
+      found = questions.length > 0 ? questions : null;
+    } else if (event.type === "clarify.closed" && event.data.requestId === requestId) {
+      found = null;
+    }
+  }
+  return found;
 }
 
 export function updateProposal(state: ChatState, proposal: ProposalView): ChatState {
@@ -175,7 +218,10 @@ export function retryOf(state: ChatState): { text: string; risky: boolean } | nu
   const user = state.items[index];
   if (user?.kind !== "user") return null;
   const after = state.items.slice(index + 1);
-  const risky = after.some(
+  // 画像は送り直せない（端末の添付を持たない）ので、画像つきの回は自動で再送せず入力欄へ戻す（#1157）
+  const risky =
+    (user.images ?? 0) > 0 ||
+    after.some(
     (item) =>
       (item.kind === "tool" && item.auto && item.status !== "failed") ||
       item.kind === "proposal" ||
@@ -266,8 +312,26 @@ function applyEventInner(state: ChatState, event: RelayEvent, now: number): Chat
         status: "waiting",
       }));
 
-    case "clarify":
-      return push(closeAssistant(state), (id) => ({ kind: "clarify", id, text: clarifyText(event.data.questions) }));
+    case "clarify": {
+      const data = event.data as { requestId?: unknown; questions?: unknown };
+      const questions = parseClarifyQuestions(data.questions);
+      const requestId = typeof data.requestId === "string" && data.requestId !== "" && questions.length > 0 ? data.requestId : null;
+      return push(closeAssistant(state), (id) => ({
+        kind: "clarify",
+        id,
+        requestId,
+        questions: requestId ? questions : [],
+        text: clarifyText(data.questions),
+        status: requestId ? "waiting" : "closed",
+      }));
+    }
+
+    case "clarify.closed": {
+      const index = state.items.findIndex((item) => item.kind === "clarify" && item.requestId === event.data.requestId);
+      const item = state.items[index];
+      if (item?.kind !== "clarify" || item.status !== "waiting") return state;
+      return replaceAt(state, index, { ...item, status: "closed" });
+    }
 
     case "message.complete": {
       let next = state;

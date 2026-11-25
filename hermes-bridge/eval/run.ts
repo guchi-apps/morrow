@@ -197,7 +197,9 @@ async function runOnce(options: Options, target: HermesTarget, testCase: EvalCas
           void handle?.respondApproval(event.data.requestId, "deny");
           break;
         case "clarify":
+          // 評価では答えない。全問スキップで返し、Hermesに答えが無いときの振る舞いを見る（#1150）
           clarifies += 1;
+          handle?.respondClarify(event.data.requestId, Object.fromEntries(event.data.questions.map((q) => [q.qid, null])));
           break;
         case "error":
           error = event.data.reason + (event.data.message ? `: ${event.data.message}` : "");

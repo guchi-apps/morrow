@@ -16,11 +16,14 @@ import {
   type HealthBody,
   type TurnRequestBody,
 } from "../src/lib/hermes/contract.ts";
+import { parseTurnImages, TURN_BODY_MAX_BYTES_WITH_IMAGES } from "../src/lib/hermes/image-core.ts";
 import { aideHealthFromStatus, type AideHealth } from "../src/lib/hermes/aide-health.ts";
 import { authorize, parseAllowedIps } from "./auth.ts";
 import { connectHermes, type HermesLink } from "./hermes-link.ts";
 import { createHistoryReader, HistoryNotFoundError, type HistoryReader } from "./history.ts";
 import { createSessionLister, type SessionLister } from "./sessions.ts";
+import { createMemoryStore, MemoryConflictError, MemoryNotFoundError, MemoryRejectedError, type MemoryStore } from "./memory.ts";
+import { createSkillStore, SkillNotFoundError, SkillRejectedError, type SkillStore } from "./skills.ts";
 import { TurnLimiter } from "./limits.ts";
 import { createProposeMcpServer } from "./propose-mcp.ts";
 import { NoSessionError, openSession, runTurn, type TurnHandle } from "./turn.ts";
@@ -43,6 +46,10 @@ export interface BridgeOptions {
   history?: HistoryReader;
   /** 会話の一覧を読む関数（#1156。テストでは差し替える）。未指定なら一覧は503。 */
   sessions?: SessionLister;
+  /** Hermesが作るスキルの確認・承認（#1154。テストでは差し替える）。未指定ならスキルの口は503。 */
+  skills?: SkillStore;
+  /** 記憶の確認・承認（#1155）。 */
+  memory?: MemoryStore;
   turnTimeoutMs?: number;
   heartbeatMs?: number;
   maxConcurrent?: number;
@@ -61,12 +68,12 @@ function sendError(res: ServerResponse, status: number, reason: BridgeErrorReaso
   sendJson(res, status, { error: reason, ...(message ? { message } : {}) });
 }
 
-async function readJson(req: IncomingMessage): Promise<Record<string, unknown> | null> {
+async function readJson(req: IncomingMessage, maxBytes: number = MAX_BODY_BYTES): Promise<Record<string, unknown> | null> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     size += (chunk as Buffer).length;
-    if (size > MAX_BODY_BYTES) return null;
+    if (size > maxBytes) return null;
     chunks.push(chunk as Buffer);
   }
   try {
@@ -82,11 +89,13 @@ export function formatSse(event: BridgeEvent): string {
 }
 
 function parseTurnBody(body: Record<string, unknown>): TurnRequestBody | null {
-  const { text, sessionId, title } = body;
+  const { text, sessionId, title, images } = body;
   if (typeof text !== "string" || text.trim() === "" || text.length > MAX_TEXT_LENGTH) return null;
   if (sessionId !== undefined && (typeof sessionId !== "string" || !SESSION_ID_PATTERN.test(sessionId))) return null;
   if (title !== undefined && (typeof title !== "string" || title.length > 200)) return null;
-  return { text, ...(sessionId ? { sessionId } : {}), ...(title ? { title } : {}) };
+  const parsedImages = parseTurnImages(images);
+  if (!parsedImages) return null;
+  return { text, ...(sessionId ? { sessionId } : {}), ...(title ? { title } : {}), ...(parsedImages.length > 0 ? { images: parsedImages } : {}) };
 }
 
 export function createBridgeServer(options: BridgeOptions): Server {
@@ -116,7 +125,8 @@ export function createBridgeServer(options: BridgeOptions): Server {
   }
 
   async function handleStartTurn(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const raw = await readJson(req);
+    // 画像つきの本文はこの口だけ大きく受ける（#1157）。他の口は64KBのまま
+    const raw = await readJson(req, TURN_BODY_MAX_BYTES_WITH_IMAGES);
     const body = raw ? parseTurnBody(raw) : null;
     if (!body) return sendError(res, 400, "bad_request");
 
@@ -180,7 +190,7 @@ export function createBridgeServer(options: BridgeOptions): Server {
       };
       emit({ type: "turn", data: { turnId, sessionId: session.storedId } });
 
-      const handle = runTurn({ link, session, text: body.text, emit, timeoutMs: turnTimeoutMs });
+      const handle = runTurn({ link, session, text: body.text, images: body.images, emit, timeoutMs: turnTimeoutMs });
       turns.set(turnId, handle);
 
       const heartbeat = setInterval(() => {
@@ -211,13 +221,23 @@ export function createBridgeServer(options: BridgeOptions): Server {
     req: IncomingMessage,
     res: ServerResponse,
     turnId: string,
-    action: "approval" | "interrupt",
+    action: "approval" | "interrupt" | "clarify",
   ): Promise<void> {
     const handle = turns.get(turnId);
     if (!handle) return sendError(res, 404, "turn_not_found");
 
     if (action === "interrupt") {
       await handle.interrupt();
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (action === "clarify") {
+      // 選択肢つきの質問への回答（#1150）。質問のidと選択肢に合う形だけ通す
+      const body = await readJson(req);
+      if (!body || typeof body.requestId !== "string") return sendError(res, 400, "bad_request");
+      const outcome = handle.respondClarify(body.requestId, body.answers);
+      if (outcome === "invalid") return sendError(res, 400, "bad_request");
+      if (outcome === "not_found") return sendError(res, 404, "turn_not_found", "待っている質問がありません");
       return sendJson(res, 200, { ok: true });
     }
 
@@ -267,6 +287,86 @@ export function createBridgeServer(options: BridgeOptions): Server {
     }
   }
 
+  /** スキルの口（#1154）。保留の一覧・承認・却下、登録済みの一覧・削除。 */
+  async function handleSkills(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
+    const pendingAction = /^\/skills\/pending\/([0-9a-f]{8})\/(approve|discard)$/.exec(pathname);
+    const installed = /^\/skills\/installed\/([^/]+)$/.exec(pathname);
+    const isRoute = pathname === "/skills/pending" || pathname === "/skills/installed" || pendingAction || installed;
+    if (!isRoute) return false;
+    const skills = options.skills;
+    if (!skills) {
+      sendError(res, 503, "hermes_down");
+      return true;
+    }
+    try {
+      if (req.method === "GET" && pathname === "/skills/pending") sendJson(res, 200, { pending: await skills.listPending() });
+      else if (req.method === "GET" && pathname === "/skills/installed") sendJson(res, 200, { skills: await skills.listInstalled() });
+      else if (req.method === "POST" && pendingAction) {
+        if (pendingAction[2] === "approve") await skills.approve(pendingAction[1]);
+        else await skills.discard(pendingAction[1]);
+        sendJson(res, 200, { ok: true });
+      } else if (req.method === "DELETE" && installed) {
+        let name: string;
+        try {
+          name = decodeURIComponent(installed[1]);
+        } catch {
+          sendError(res, 400, "bad_request");
+          return true;
+        }
+        await skills.removeInstalled(name);
+        sendJson(res, 200, { ok: true });
+      } else sendJson(res, 404, { error: "not_found" });
+    } catch (error) {
+      if (error instanceof SkillNotFoundError) sendError(res, 404, "skill_not_found");
+      else if (error instanceof SkillRejectedError) sendError(res, 409, "skill_rejected", error.message);
+      else {
+        console.error("[morrow-hermes-bridge] スキルの処理に失敗した", error instanceof Error ? error.message : error);
+        sendError(res, 503, "hermes_down");
+      }
+    }
+    return true;
+  }
+
+  /** 記憶の口（#1155）。保留の一覧・承認・却下、保存済みの一覧・1項目の削除。 */
+  async function handleMemory(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
+    const pendingAction = /^\/memory\/pending\/([0-9a-f]{8})\/(approve|discard)$/.exec(pathname);
+    const isRoute = pathname === "/memory/pending" || pathname === "/memory/entries" || pendingAction;
+    if (!isRoute) return false;
+    const memory = options.memory;
+    if (!memory) {
+      sendError(res, 503, "hermes_down");
+      return true;
+    }
+    try {
+      if (req.method === "GET" && pathname === "/memory/pending") sendJson(res, 200, { pending: await memory.listPending() });
+      else if (req.method === "GET" && pathname === "/memory/entries") sendJson(res, 200, { entries: await memory.listEntries() });
+      else if (req.method === "POST" && pendingAction) {
+        if (pendingAction[2] === "approve") await memory.approve(pendingAction[1]);
+        else await memory.discard(pendingAction[1]);
+        sendJson(res, 200, { ok: true });
+      } else if (req.method === "DELETE" && pathname === "/memory/entries") {
+        const body = await readJson(req);
+        const target = body?.target;
+        const text = body?.text;
+        if ((target !== "user" && target !== "memory") || typeof text !== "string" || text.trim() === "") {
+          sendError(res, 400, "bad_request");
+          return true;
+        }
+        await memory.removeEntry(target, text);
+        sendJson(res, 200, { ok: true });
+      } else sendJson(res, 404, { error: "not_found" });
+    } catch (error) {
+      if (error instanceof MemoryNotFoundError) sendError(res, 404, "memory_not_found");
+      else if (error instanceof MemoryConflictError) sendError(res, 409, "memory_rejected", "記憶が同時に更新されました。画面を開き直してもう一度試してください。");
+      else if (error instanceof MemoryRejectedError) sendError(res, 409, "memory_rejected", error.message);
+      else {
+        console.error("[morrow-hermes-bridge] 記憶の処理に失敗した", error instanceof Error ? error.message : error);
+        sendError(res, 503, "hermes_down");
+      }
+    }
+    return true;
+  }
+
   return createServer((req, res) => {
     const verdict = authorize({
       authorization: req.headers.authorization,
@@ -280,6 +380,8 @@ export function createBridgeServer(options: BridgeOptions): Server {
     const url = new URL(req.url ?? "/", "http://bridge");
     const route = (async () => {
       if (req.method === "GET" && url.pathname === "/health") return handleHealth(res);
+      if (await handleSkills(req, res, url.pathname)) return;
+      if (await handleMemory(req, res, url.pathname)) return;
       if (req.method === "POST" && url.pathname === "/turns") return handleStartTurn(req, res);
       if (req.method === "GET" && url.pathname === "/sessions") return handleSessionList(res, url.searchParams.get("ids"));
       const historyMatch = /^\/sessions\/([^/]+)\/messages$/.exec(url.pathname);
@@ -292,8 +394,8 @@ export function createBridgeServer(options: BridgeOptions): Server {
         }
         return handleHistory(res, sessionId, url.searchParams.get("limit"));
       }
-      const match = /^\/turns\/([\w-]{1,64})\/(approval|interrupt)$/.exec(url.pathname);
-      if (req.method === "POST" && match) return handleTurnAction(req, res, match[1], match[2] as "approval" | "interrupt");
+      const match = /^\/turns\/([\w-]{1,64})\/(approval|interrupt|clarify)$/.exec(url.pathname);
+      if (req.method === "POST" && match) return handleTurnAction(req, res, match[1], match[2] as "approval" | "interrupt" | "clarify");
       sendJson(res, 404, { error: "not_found" });
     })();
     route.catch((error: unknown) => {
@@ -324,7 +426,16 @@ function main(): void {
     connect: () => connectHermes({ url: hermesUrl, token: hermesToken, timeoutMs: 3_000 }),
     history: createHistoryReader({ url: hermesUrl, token: hermesToken, timeoutMs: 5_000 }),
     sessions: createSessionLister({ url: hermesUrl, token: hermesToken, timeoutMs: 5_000 }),
+    // スキルの確認・承認（#1154）。profileのディレクトリが分からなければ立てない（口は503）
+    skills: process.env.MORROW_HERMES_HOME
+      ? createSkillStore({ hermesHome: process.env.MORROW_HERMES_HOME, connect: () => connectHermes({ url: hermesUrl, token: hermesToken, timeoutMs: 3_000 }) })
+      : undefined,
+    // 記憶の確認・承認（#1155）。スキルと同じく profile のディレクトリが要る
+    memory: process.env.MORROW_HERMES_HOME
+      ? createMemoryStore({ hermesHome: process.env.MORROW_HERMES_HOME, connect: () => connectHermes({ url: hermesUrl, token: hermesToken, timeoutMs: 3_000 }) })
+      : undefined,
   });
+  if (!process.env.MORROW_HERMES_HOME) console.warn("MORROW_HERMES_HOME が未設定のため、スキル・記憶の確認・承認の口は503を返します");
   // tailscale serve からはループバックでしか届かない。外へバインドしない
   server.listen(port, "127.0.0.1", () => console.log(`morrow-hermes-bridge: 127.0.0.1:${port}`));
 

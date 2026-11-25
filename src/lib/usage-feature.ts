@@ -44,7 +44,7 @@ export const USAGE_FEATURE_LABELS: Record<UsageFeature, string> = {
   mail_suggest: "メールの分析（要約・提案）",
   mail_summary: "メールの要約（#766で分析へ統合する前の記録）",
   mail_chat: "メールへの指示",
-  mail_chat_query: "チャットのメール検索条件づくり",
+  mail_chat_query: "チャットのメール検索条件づくり（#1151で廃止する前の記録）",
   mail_learn: "メール通知の学習",
   mail_list_summary: "メール一覧の要約",
   mail_search_query: "メール検索の条件づくり",

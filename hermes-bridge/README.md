@@ -14,9 +14,13 @@ pnpm hermes-bridge   # node hermes-bridge/server.ts
 | `HERMES_DASHBOARD_SESSION_TOKEN` | Hermesのトークン（subpcの外へ出さない） |
 | `MORROW_HERMES_BRIDGE_TOKEN` | Morrowが送るBearer。**未設定なら全部401** |
 | `MORROW_HERMES_PROPOSE_MCP_PORT` | 任意。提案用の何もしないMCP（`morrow_propose_action`）の待受ポート（127.0.0.1の `/mcp`。外へ出さない）。Morrow専用profileの `mcp_servers` の接続先にする |
+| `MORROW_HERMES_HOME` | 任意。Morrow専用profileのディレクトリ（例 `~/.hermes/profiles/morrow`）。**スキルの確認・承認（#1154）に必要**。未設定ならスキルの口は503 |
 | `MORROW_HERMES_BRIDGE_ALLOWED_IPS` | 許可する送信元（`X-Forwarded-For`）をカンマ区切りで。**空なら全部403** |
 
 API: `GET /health`（#1158から、Hermesの `mcp.servers.status` を読んでAIDEの道具の読み込み状態 `aide` も返す）・`POST /turns`（SSE）・`POST /turns/<id>/approval`（`once`・`deny` だけ）・`POST /turns/<id>/interrupt`・`GET /sessions/<id>/messages?limit=N`（#752。直近N件・既定50・上限100）。
+記憶（#1155）: `GET /memory/pending`（保留。`<HERMES_HOME>/pending/memory/*.json` を読み、7日超は消す）・`POST /memory/pending/<id>/approve|discard`（`command.dispatch` の `memory approve|reject <id>`。`arg` は `pending`・`approve`・`reject`＋8桁hexだけ）・`GET /memory/entries`（`memories/{USER,MEMORY}.md` を `\n§\n` で分けて返す）・`DELETE /memory/entries`（`{ target, text }`。全文が一致した1項目だけをファイルから外す）。
+
+スキル（#1154）: `GET /skills/pending`（保留。`<HERMES_HOME>/pending/skills/*.json` を読み、7日超は消す）・`POST /skills/pending/<id>/approve|discard`（Hermesの `command.dispatch` の `skills approve|reject <id>` へ。`arg` は `pending`・`diff`・`approve`・`reject`＋8桁hexだけ通す）・`GET /skills/installed`・`DELETE /skills/installed/<name>`（同梱スキルは409）。
 1セッション1ターン（409）・全体2本（429）・1ターン10分・15秒ハートビート・切断で中断。
 
 **Morrowのデプロイでは配られない。** subpcでは `~/apps/morrow-hermes-bridge` のチェックアウトから動くので、このディレクトリを変えたらmainへ入った後に `scripts/update-hermes-bridge.sh` で更新・再起動する（#1145。`docs/hermes-route.md`）。

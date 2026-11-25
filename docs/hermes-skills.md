@@ -6,6 +6,8 @@
 **検証は本番の `morrow` profile に触れず、検証用の `morrow-eval`（`hermes profile create morrow-eval --clone-from morrow --no-alias`）で行った。**
 `morrow` の `config.yaml`・`memories/`・`skills/` は変更されていない（更新時刻が実測前のまま）。
 
+> **#1154で、この実測の結果を使った承認フローを実装した**（`docs/hermes-route.md`「スキルの確認・承認」）。
+
 ## 結論
 
 - **Morrowの画面で承認する形は組める。** 書き込みは `<HERMES_HOME>/pending/{skills,memory}/<id>.json` に保留され、
@@ -116,3 +118,13 @@ HERMES_DASHBOARD_SESSION_TOKEN=<任意> hermes -p morrow-eval serve --isolated -
 # 後始末（serve を止める）
 hermes profile delete morrow-eval
 ```
+
+## 追記（#1155）記憶ファイルの書式と反映のタイミング（2026-11-24）
+
+一時ディレクトリを `HERMES_HOME` にして、Hermesの `MemoryStore`（`tools/memory_tool_store.py`）で `add` を実走して確かめた（本番profileには触れていない）。
+
+- **項目は `\n§\n` で区切る。末尾の改行は無い**。`add("user", "呼び名はかずさん")`→`add("user", "自宅の最寄りは草津駅")` の後の `USER.md` は `呼び名はかずさん\n§\n自宅の最寄りは草津駅`（バイト列で確認）。`MEMORY.md` は `target: memory`、`USER.md` は `target: user`
+- 隣に `<file>.lock`（0600・空）ができる。Hermesの書き込みはこのファイルのflockで直列化され、本体は一時ファイル＋renameで置き換わる
+- **記憶は会話（セッション）の開始時に読み込んで固定する**（`_system_prompt_snapshot` は「frozen at load time」。会話の途中の書き込みは反映されない）。承認・削除とも、効くのは新しい会話から
+- 保留の `payload` は `memory` 道具の呼び出しそのもの（`{action, target, content, old_text, matched_entry}` または `{action: "batch", target, operations[]}`）。`replace`/`remove`/`patch` は保留に入る時点で対象の項目の全文が `matched_entry` に固定される（承認時に別の項目へ当たらない）。**`memory` の `command.dispatch` に `diff` は無い**（スキルだけ）
+- **未実測（実機で確かめる）**: ブリッジ経由の `tool.complete` の `name` が `memory` で、`result` に `"staged":true` が入ること（`turns/route.ts` はこれで通知する。違えば通知が出ないだけで、`/memory` の件数バッジで気付ける）

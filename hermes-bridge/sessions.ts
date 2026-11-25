@@ -23,9 +23,13 @@ export function projectSessions(rows: unknown): SessionSummary[] {
     const count = typeof row.message_count === "number" && Number.isFinite(row.message_count) ? Math.max(0, Math.trunc(row.message_count)) : 0;
     if (count === 0) continue;
     const title = typeof row.title === "string" && row.title.trim() !== "" ? row.title.trim().slice(0, 200) : null;
-    // `last_active` は秒（無ければ開始時刻）
-    const seconds = [row.last_active, row.started_at].find((v): v is number => typeof v === "number" && Number.isFinite(v));
-    out.push({ sessionId: row.id, title, lastActiveAt: seconds === undefined ? null : Math.round(seconds * 1000), messageCount: count });
+    // 最終更新（秒）。**`/api/sessions/{id}` の行は `last_active` がnull**（一覧の口〔`/api/sessions`〕だけが埋める。
+    // 2026-11-24に実物で確認）。代わりに載る `last_activity_at`・`ended_at`・`started_at` のうち最も新しい値を使う
+    const seconds = [row.last_active, row.last_activity_at, row.ended_at, row.started_at].filter(
+      (v): v is number => typeof v === "number" && Number.isFinite(v),
+    );
+    const latest = seconds.length === 0 ? null : Math.max(...seconds);
+    out.push({ sessionId: row.id, title, lastActiveAt: latest === null ? null : Math.round(latest * 1000), messageCount: count });
   }
   return out;
 }
