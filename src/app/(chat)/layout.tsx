@@ -21,12 +21,14 @@ export default async function ChatLayout({ children }: { children: React.ReactNo
   }
 
   const now = new Date();
+  const hermesOwner = isHermesProfileOwner(user);
 
   // ニュースの未読件数（#964）。`count` 1本なので待ち時間はほとんど足さない。
   const [topicCount, pendingProposalCount] = await Promise.all([
     unreadTopicCount(user.id, user.topicsSeenAt, now),
     // Hermesの確認待ちの件数（#794）。左メニューのバッジ。`count` 1本
-    countPendingProposals(user.id, now),
+    // profileの持ち主でない利用者は `/chat` でカードを見られないので数えない（#1189。切替前の確認待ちがバッジに残る）
+    hermesOwner ? countPendingProposals(user.id, now) : 0,
   ]);
 
   return (
@@ -35,7 +37,7 @@ export default async function ChatLayout({ children }: { children: React.ReactNo
       pendingProposalCount={pendingProposalCount}
       userLabel={user.name ?? user.email ?? "ログイン中"}
       userEmail={user.email}
-      showHermesProfile={isHermesProfileOwner(user)}
+      showHermesProfile={hermesOwner}
       appVersion={APP_VERSION}
       mailBadgeSlot={
         <Suspense fallback={null}>
