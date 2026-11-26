@@ -3,6 +3,7 @@
 import { Check, CircleAlert, Loader2 } from "lucide-react";
 import { useState } from "react";
 
+import { ChatMarkdown } from "@/components/hermes/chat-markdown";
 import { ProposalCard } from "@/components/hermes/proposal-card";
 import type { ClarifyAnswer, ClarifyQuestion } from "@/lib/hermes/contract";
 import { splitLinks } from "@/lib/hermes/linkify";
@@ -37,9 +38,8 @@ export function ChatItemView({ item, turnId, onApproval, onClarify, onProposalCh
 
     case "assistant":
       return (
-        <div className="max-w-[88%] self-start whitespace-pre-wrap break-words rounded-2xl rounded-bl-sm border border-border bg-surface px-3.5 py-2 text-sm">
-          <LinkedText text={item.text} />
-          {!item.done &&<span className="ml-0.5 inline-block animate-pulse text-muted" aria-hidden="true">▍</span>}
+        <div className="min-w-0 max-w-[88%] self-start rounded-2xl rounded-bl-sm border border-border bg-surface px-3.5 py-2">
+          <ChatMarkdown text={item.text} streaming={!item.done} />
         </div>
       );
 
@@ -163,7 +163,7 @@ export function elapsedText(ms: number): string {
   return seconds < 60 ? `${seconds}秒` : `${Math.floor(seconds / 60)}分${seconds % 60}秒`;
 }
 
-/** 返信の本文。http(s)のURLだけ押せるリンクにする（#810）。HTMLは組み立てずReact要素で描く。 */
+/** 質問などの素の文章。http(s)のURLだけ押せるリンクにする（#810）。HTMLは組み立てずReact要素で描く。 */
 function LinkedText({ text }: { text: string }) {
   return (
     <>
