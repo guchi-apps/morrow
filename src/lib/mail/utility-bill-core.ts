@@ -160,11 +160,11 @@ export function importArgs(bill: UtilityBill, contractKey: string, messageId: st
 export type UtilityBillState =
   /** 登録した（`created`）／すでに同じ内容があった（`already`）。 */
   | { status: "reflected"; how: "created" | "already"; bill: UtilityBill }
-  /** クラシオに同じ月の行があるが、額がメールと違う（書き換えない）。 */
-  | { status: "differs"; bill: UtilityBill; savedAmountYen: number }
+  /** クラシオに同じ月の行があるが、額がメールと違う（書き換えない）。契約を決められないときは候補の行の額が複数になる。 */
+  | { status: "differs"; bill: UtilityBill; savedAmountsYen: number[] }
   /** まだ登録していない（確度が低い・自動の登録を待っている）。 */
   | { status: "pending"; bill: UtilityBill; reason: "low_confidence" | "not_yet" }
-  /** 契約を1つに決められない（候補が0件・複数）。登録していない。 */
+  /** 契約を1つに決められず（候補が0件・複数）、どの候補にも同じ月の行が無い。登録していない。 */
   | { status: "unresolved"; bill: UtilityBill; candidates: number }
   /** 確認・登録できなかった。`scope` は権限不足（繋ぎ直しが要る）。 */
   | { status: "unavailable"; bill: UtilityBill; reason: string; scope: boolean };
@@ -189,7 +189,7 @@ export function describeState(state: UtilityBillState): StateView {
     case "reflected":
       return { tone: "ok", text: state.how === "created" ? `クラシオに反映しました（${what}）` : `クラシオに反映済みです（${what}）` };
     case "differs":
-      return { tone: "warn", text: `クラシオには同じ月の記録がありますが、額が違います（クラシオ ${formatYen(state.savedAmountYen)}／メール ${formatYen(state.bill.amountYen)}）。上書きはしていません` };
+      return { tone: "warn", text: `クラシオには同じ月の記録がありますが、額が違います（クラシオ ${state.savedAmountsYen.map(formatYen).join("・")}／メール ${formatYen(state.bill.amountYen)}）。上書きはしていません` };
     case "pending":
       return state.reason === "low_confidence"
         ? { tone: "muted", text: `クラシオへは反映していません（読み取りの確度が低いため。${what}）` }
