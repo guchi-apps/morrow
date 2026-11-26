@@ -211,13 +211,16 @@ body {
 }
 
 /*
- * 秘書の返答（Markdown）の表示。react-markdown は素のHTMLしか吐かないため、
+ * チャットの返信（Markdown。`ChatMarkdown`。#1203）の表示。吹き出し（surface）の中に置くので、
+ * コードや表の見出しの地は background にする。
+ *react-markdown は素のHTMLしか吐かないため、
  * Tailwindのユーティリティではなくここでまとめて当てる。生成物1つ1つにclassNameを
  * 配ると、要素が増えるたびにコンポーネント側が膨らむ。
  */
 .chat-md {
   font-size: 0.875rem;
-  line-height: 1.85;
+  line-height: 1.75;
+  overflow-wrap: break-word;
 }
 
 .chat-md > :first-child {
@@ -278,6 +281,12 @@ body {
   color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}
+
+.chat-md-host {
+  color: var(--muted);
+  font-size: 0.75rem;
 }
 
 .chat-md blockquote {
@@ -291,7 +300,7 @@ body {
   padding: 0.05em 0.35em;
   border: 1px solid var(--border);
   border-radius: 5px;
-  background: var(--surface);
+  background: var(--background);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.875em;
 }
@@ -301,7 +310,7 @@ body {
   padding: 0.85rem 1rem;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--surface);
+  background: var(--background);
   /* 長い行でページ全体が横に伸びないよう、コードブロックの中だけを横スクロールさせる。 */
   overflow-x: auto;
 }
@@ -334,9 +343,14 @@ body {
   vertical-align: top;
 }
 
+/* 列が潰れて1文字ずつ折れないようにする。足りないぶんは表の中で横スクロールする */
+.chat-md td {
+  min-width: 7.5em;
+}
+
 .chat-md th {
-  background: var(--rail);
-  font-weight: 500;
+  background: var(--background);
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -344,6 +358,19 @@ body {
   margin: 1.25rem 0;
   border: 0;
   border-top: 1px solid var(--border);
+}
+
+/* 応答中のカーソル */
+.chat-md-streaming > :last-child::after {
+  content: "▍";
+  margin-left: 0.125rem;
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .chat-md-streaming > :last-child::after {
+    animation: analysis-caret 1s steps(1) infinite;
+  }
 }
 
 /* 話題のテーマ別タブ（#404）。切り替えたときの短いフェード。 */
