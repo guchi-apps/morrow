@@ -184,7 +184,7 @@ describe("カード引き落とし見込みとの突き合わせ（#910）", () 
     assert.match(check?.status === "none" ? check.reason : "", /決められません/);
   });
   it("このメールの確定額が登録済みなら confirmed（二重に提案しない）", () => {
-    const done = items.map((i) => (i.cardId === 3 ? { ...i, amountJpy: 184591, source: "confirmed" as const, confirmationSourceKey: cardConfirmSourceKey("m1") } : i));
+    const done = items.map((i) => (i.cardId === 3 ? { ...i, billedAmountJpy: 184591, source: "confirmed" as const, confirmationSourceKey: cardConfirmSourceKey("m1") } : i));
     assert.equal(evaluateCardWithdrawal(mail(), done, "m1")?.status, "confirmed");
     assert.equal(evaluateCardWithdrawal(mail(), done, "m2")?.status, "match");
   });
@@ -223,6 +223,23 @@ describe("カード引き落とし見込みとの突き合わせ（#910）", () 
     assert.equal(evaluateCardWithdrawal({ ...rakuten, amount: 4000 }, real, "m1")?.status, "mismatch");
     // 別の会社の名前は当てない（「カード」「株式会社」だけでは一致にしない）
     assert.equal(evaluateCardWithdrawal({ ...rakuten, payee: "イオンカード株式会社" }, real, "m1")?.status, "none");
+  });
+  it("引き落とし済みで残りが0でも、請求額で比べる（#1204）", () => {
+    // asset-manager#1653 の応答の形。amountJpy は残り、billedAmountJpy は請求額
+    const paid = (over: Record<string, unknown>) =>
+      parseCardWithdrawals({
+        status: "ok",
+        withdrawals: [{ cardId: 14, cardName: "楽天カード", bankName: "楽天銀行", paymentDate: "2026-11-27", amountJpy: 0, billedAmountJpy: 3654, paidAmountJpy: 3654, estimatedAmountJpy: 3654, source: "estimate", confirmation: null, ...over }],
+      });
+    const m = mail({ amount: 3654, date: "2026-11-27", account: "楽天銀行", payee: "楽天カード株式会社" });
+    assert.deepEqual(evaluateCardWithdrawal(m, paid({}), "m1"), { status: "match", cardId: 14, cardName: "楽天カード", paymentDate: "2026-11-27", amount: 3654 });
+    const done = paid({ source: "confirmed", confirmation: { sourceKey: cardConfirmSourceKey("m1") } });
+    assert.deepEqual(evaluateCardWithdrawal(m, done, "m1"), { status: "confirmed", cardName: "楽天カード", paymentDate: "2026-11-27", amount: 3654 });
+    const differs = evaluateCardWithdrawal({ ...m, amount: 4000 }, paid({}), "m1");
+    assert.equal(differs?.status === "mismatch" ? differs.displayedAmount : null, 3654);
+  });
+  it("billedAmountJpy が無い応答（#1653より前）は amountJpy を請求額とする", () => {
+    assert.equal(items[0].billedAmountJpy, 193731);
   });
   it("名前の照合: 社名の語・記号を除いた固有の部分で比べる", () => {
     assert.equal(sharesRun("楽天カード株式会社", "楽天カード"), true);
