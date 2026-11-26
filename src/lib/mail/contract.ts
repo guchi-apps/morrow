@@ -221,6 +221,8 @@ export type MailActionResult = { owner: string; count: number };
 export type MailFailureKind =
   | "unconfigured"
   | "unauthorized"
+  /** AIDEからGmail・IMAPへの認証が断られた（#1209）。AIDEは `error: "unauthorized"` を502で返す。共有トークンの不一致（401）とは別 */
+  | "mailbox_unauthorized"
   | "not_found"
   | "failed"
   | "invalid_request"
@@ -232,6 +234,7 @@ export type MailFailureKind =
 export const MAIL_FAILURE_MESSAGES: Record<MailFailureKind, string> = {
   unconfigured: "メールの取得が設定されていません（AIDEの設定、またはMorrowとAIDEの共有トークンが未登録です）。",
   unauthorized: "AIDEに接続を断られました（共有トークンの不一致）。",
+  mailbox_unauthorized: "AIDEからGmail・IMAPへのログインに失敗しました。一時的なものなら、時間をおいて読み込み直すと直ります。",
   not_found: "メールが見つかりませんでした（削除・移動された可能性があります）。",
   failed: "メールを取得できませんでした（AIDEからGmail・IMAPへ届かないか、応答が不正です）。",
   invalid_request: "操作できませんでした。",
@@ -372,19 +375,36 @@ export function parseMailActionResponse(json: unknown): MailActionResult | null 
   return { owner: json.owner, count: typeof json.count === "number" ? json.count : 0 };
 }
 
-/** 失敗の応答の `error` と `message`（拒否の理由。複数アカウントにまたがる等）。 */
+/**
+ * 失敗の応答の `error` と `message`（拒否の理由。複数アカウントにまたがる等）。
+ *
+ * **`error: "unauthorized"` は2つの意味を持つ**（#1209）。HTTP 401はAIDEの入口でBearer（共有トークン）が合わなかった回。
+ * それ以外（AIDEは502で返す）は、AIDEからGmail API（401・403。レート制限の403を含む）やIMAPのログインが断られた回で、
+ * 共有トークンとは関係が無い。後者を「共有トークンの不一致」と出すと、通信の混雑で起きた一時的な失敗を設定の誤りに見せる。
+ */
 export function parseMailFailure(json: unknown, status: number): { kind: MailFailureKind; message: string | null } {
   const error = isRecord(json) ? json.error : undefined;
   const message = isRecord(json) && typeof json.message === "string" && json.message !== "" ? json.message : null;
+  if (status === 401) return { kind: "unauthorized", message };
+  if (error === "unauthorized") return { kind: "mailbox_unauthorized", message };
   const known: MailFailureKind[] = ["unconfigured", "unauthorized", "not_found", "failed", "invalid_request", "locked", "too_large"];
   const kind = known.find((k) => k === error);
   if (kind) return { kind, message };
   if (status === 404) return { kind: "not_found", message };
-  if (status === 401) return { kind: "unauthorized", message };
   if (status === 503) return { kind: "unconfigured", message };
   if (status === 400) return { kind: "invalid_request", message };
   if (status === 413) return { kind: "too_large", message };
   return { kind: "failed", message };
+}
+
+/**
+ * やり直せば通りうる断りか（#767・#1209）。401（共有トークンを読み直してから送り直す）と、
+ * AIDEからGmail・IMAPへの認証の断り（同時に重なったIMAPのログインやGmailのレート制限の403で一時的に起きる）。
+ */
+export function isTransientMailStatus(status: number, json: unknown): boolean {
+  if (status >= 200 && status < 300) return false;
+  const { kind } = parseMailFailure(json, status);
+  return kind === "unauthorized" || kind === "mailbox_unauthorized";
 }
 
 /**

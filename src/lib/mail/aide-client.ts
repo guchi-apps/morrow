@@ -7,6 +7,7 @@ import {
   isMailAccountKey,
   inferMailAccounts,
   isMailOwner,
+  isTransientMailStatus,
   isMailAttachmentId,
   parseMailActionResponse,
   parseMailAttachmentResponse,
@@ -51,12 +52,12 @@ function baseUrl(): string {
 const RETRY_DELAY_MS = 400;
 
 /**
- * AIDEを1回呼ぶ。401・届かないときは1回だけやり直す（#767。連続操作の重なりで一時的に断られる）。
+ * AIDEを1回呼ぶ。届かない・一時的な断り（`isTransientMailStatus()`）は1回だけやり直す（#767。連続操作の重なりで一時的に断られる）。
  * 取り直しても二重に効かない呼び出し（読み取り・アーカイブ等）だけ `retry: true` で呼ぶ。
  */
 async function call(path: string, init: RequestInit = {}, retry = true): Promise<{ status: number; json: unknown } | MailOutcome<never>> {
   const first = await callOnce(path, init);
-  const transient = "ok" in first ? !first.ok && first.kind === "unreachable" : first.status === 401;
+  const transient = "ok" in first ? !first.ok && first.kind === "unreachable" : isTransientMailStatus(first.status, first.json);
   if (!retry || !transient) return first;
   await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
   return callOnce(path, init);

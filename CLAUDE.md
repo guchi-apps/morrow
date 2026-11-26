@@ -852,6 +852,7 @@ Morrowのサーバーが AIDEの `/api/mail/*`（契約の正はAIDEのREADME「
   必ず照合し、違えば中身を捨てて `not_owner`。一覧・本文・整理・新着確認のすべてが `aide-client.ts` を通る
 - **整理の操作はAIDEが変更した後でしか `owner` を返さない**ので、送る前に毎回1通目の本文を引いて照合し、応答の `owner` も事後に照合する。
   **照合の結果をプロセス内に持ち回さない**——手元で、ページとRoute Handlerが別のモジュールを持ち、持ち主が変わった後も古い照合結果で操作が通った
+- **AIDEの `error: "unauthorized"` は2通りある**（#1209）。HTTP 401は共有トークンの不一致、502はAIDEからGmail API（401・403。レート制限を含む）・IMAPのログインが断られた回で、`parseMailFailure()` が `unauthorized`／`mailbox_unauthorized` に分ける。後者を「共有トークンの不一致」と出していた。どちらも一時的に起きうるので、読み取り・冪等な操作は1回やり直す（`isTransientMailStatus()`）
 - **`partial`（一部のアカウントが読めない）を「メールが無い」と読ませない。** 一覧は赤い帯で知らせ、新着確認は既読位置（`User.mailCheckedAt`）を進めない
 - 本文のHTMLは加工されていないので、`sandbox="allow-popups allow-popups-to-escape-sandbox"`（`allow-scripts`・`allow-same-origin` なし）の
   `iframe srcdoc` に閉じ込め、内側のCSPで外部画像を「画像を表示」まで止める（`mailSrcdoc()`）
