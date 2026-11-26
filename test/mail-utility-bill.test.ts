@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { buildAnalyzePrompt, parseAnalyzeReply } from "@/lib/mail/analyze-core";
+import { syncUtilityBill, type UtilityBillIo } from "@/lib/mail/utility-bill";
 import { McpCallError } from "@/lib/mcp/direct-call";
 import { toolErrorStatus } from "@/lib/mcp/tool-error";
 import {
@@ -116,7 +117,7 @@ describe("状態の表示", () => {
     assert.match(describeState({ status: "reflected", how: "created", bill: b }).text, /反映しました（2026年11月分・電気 8,912円・275kWh）/);
     assert.match(describeState({ status: "reflected", how: "already", bill: b }).text, /反映済みです/);
     assert.equal(describeState({ status: "reflected", how: "already", bill: b }).tone, "ok");
-    assert.match(describeState({ status: "differs", bill: b, savedAmountYen: 8000 }).text, /クラシオ 8,000円.*メール 8,912円.*上書きはしていません/);
+    assert.match(describeState({ status: "differs", bill: b, savedAmountsYen: [8000] }).text, /クラシオ 8,000円.*メール 8,912円.*上書きはしていません/);
     assert.match(describeState({ status: "pending", bill: b, reason: "not_yet" }).text, /まだ反映されていません/);
     assert.match(describeState({ status: "pending", bill: b, reason: "low_confidence" }).text, /確度が低い/);
     assert.match(describeState({ status: "unresolved", bill: b, candidates: 2 }).text, /契約を1つに決められません/);
@@ -135,5 +136,49 @@ describe("道具のエラーの status（#1100）", () => {
     assert.equal(toolErrorStatus({ isError: true, content: [{ type: "text", text: "プレーン" }] }), null);
     assert.equal(new McpCallError("x", "r", "conflict").status, "conflict");
     assert.equal(new McpCallError("x").status, null);
+  });
+});
+
+describe("契約を1つに決められないとき（#1200）", () => {
+  const b = bill({ kind: "gas", planName: null });
+  const found = (amountYen: number) => ({ status: "found", record: { amountYen } });
+  const none = { status: "not_found" };
+
+  /** 契約k1・k2の2件。`rows` は契約ごとの `kurashio_get_utility_bill` の応答（Errorなら照会失敗）。 */
+  async function run(rows: Record<string, Record<string, unknown> | Error>) {
+    const writes: string[] = [];
+    const io: UtilityBillIo = {
+      connect: async () => ({}) as never,
+      read: async (_server, tool, args) => {
+        if (tool === "kurashio_utility_bill_contracts") return { status: "ok", contracts: [{ contractKey: "k1" }, { contractKey: "k2" }] };
+        const { contractKey, billingMonth } = args as { contractKey: string; billingMonth: string };
+        assert.equal(billingMonth, b.billingMonth);
+        const row = rows[contractKey]!;
+        if (row instanceof Error) throw row;
+        return row;
+      },
+      write: async (_server, tool) => {
+        writes.push(tool);
+        return { status: "created" };
+      },
+    };
+    const state = await syncUtilityBill("u1", "msg-1", b, null, { write: true }, io);
+    assert.deepEqual(writes, [], "契約を決められないときは登録しない");
+    return state;
+  }
+
+  it("片方に同じ請求月・同じ金額の行があれば反映済み", async () => {
+    assert.deepEqual(await run({ k1: none, k2: found(b.amountYen) }), { status: "reflected", how: "already", bill: b });
+    assert.equal((await run({ k1: new McpCallError("x", "時間切れ"), k2: found(b.amountYen) })).status, "reflected");
+  });
+  it("行はあるが額が違えば differs（上書きしない）", async () => {
+    assert.deepEqual(await run({ k1: found(100), k2: found(200) }), { status: "differs", bill: b, savedAmountsYen: [100, 200] });
+  });
+  it("どの候補にも行が無ければ unresolved", async () => {
+    assert.deepEqual(await run({ k1: none, k2: none }), { status: "unresolved", bill: b, candidates: 2 });
+  });
+  it("照会に失敗した回は「行が無い」と混ぜない", async () => {
+    assert.equal((await run({ k1: none, k2: new McpCallError("x", "時間切れ") })).status, "unavailable");
+    assert.equal((await run({ k1: found(100), k2: { status: "failed" } })).status, "unavailable");
   });
 });
