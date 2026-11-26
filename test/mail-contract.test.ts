@@ -10,6 +10,7 @@ import {
   mailSrcdoc,
   parseMailActionResponse,
   parseMailFailure,
+  isTransientMailStatus,
   parseMailListResponse,
   parseMailMessageResponse,
   senderName,
@@ -105,6 +106,25 @@ describe("parseMailFailure", () => {
   it("読めない応答はHTTPステータスから寄せる", () => {
     assert.equal(parseMailFailure(null, 503).kind, "unconfigured");
     assert.equal(parseMailFailure(null, 500).kind, "failed");
+  });
+  it("401だけを共有トークンの不一致とし、Gmail・IMAPの認証の断り（502）とは分ける（#1209）", () => {
+    // AIDEの入口（authorize）の断り
+    assert.equal(parseMailFailure({ ok: false, error: "unauthorized", message: "unauthorized" }, 401).kind, "unauthorized");
+    assert.equal(parseMailFailure(null, 401).kind, "unauthorized");
+    // AIDEの failure(): Gmail APIの401・403やIMAPのログイン失敗は error: "unauthorized" を502で返す
+    assert.equal(parseMailFailure({ ok: false, error: "unauthorized" }, 502).kind, "mailbox_unauthorized");
+    assert.equal(parseMailFailure({ ok: false, error: "failed" }, 502).kind, "failed");
+  });
+});
+
+describe("isTransientMailStatus", () => {
+  it("401とGmail・IMAPの認証の断りだけをやり直す（#767・#1209）", () => {
+    assert.equal(isTransientMailStatus(401, { ok: false, error: "unauthorized" }), true);
+    assert.equal(isTransientMailStatus(502, { ok: false, error: "unauthorized" }), true);
+    assert.equal(isTransientMailStatus(200, { ok: true }), false);
+    assert.equal(isTransientMailStatus(502, { ok: false, error: "failed" }), false);
+    assert.equal(isTransientMailStatus(404, { ok: false, error: "not_found" }), false);
+    assert.equal(isTransientMailStatus(429, { ok: false, error: "locked" }), false);
   });
 });
 
