@@ -8,7 +8,7 @@ import { RECEIVED_DATE_NOTE, itemsTotal, paymentBlocker } from "@/lib/mail/payme
 import type { PaymentFields, Suggestion, SuggestKind } from "@/lib/mail/suggest-core";
 import { ASSET_MANAGER_SUBSCRIPTIONS_URL, subscriptionLink } from "@/lib/mail/subscription-link";
 import type { RegisteredSubscription, SubscriptionMatch } from "@/lib/mail/subscription-match-core";
-import { registeredDetails, registeredSummary } from "@/lib/mail/subscription-match-view";
+import { differingInvoiceAmount, registeredDetails, registeredSummary } from "@/lib/mail/subscription-match-view";
 import { CARRIERS, CARRIER_LABELS, trackingBlocker, trackingUrl } from "@/lib/mail/tracking-link";
 import { cn } from "@/lib/utils";
 
@@ -160,7 +160,7 @@ export function FlowSheet({ card, recommended, outcome, match, onChangeLink, cal
   const meta = card ? KIND_META[card.kind] : null;
   const app = card ? FLOW_APP_LINKS[card.kind] : null;
   // Asset Managerに同じ項目があるとき（#884）は登録内容を出し、読み取った値の入力欄は参考へ畳む
-  // 家計簿の提案も、定期払いとして登録済みなら登録内容を出す（#896。取り込みのボタン・読み取った値はそのまま）
+  // 家計簿の提案も、定期払いに登録があれば登録内容を出す（#896。取り込みのボタン・読み取った値はそのまま）
   const found = (card?.kind === "subscription" || card?.kind === "payment") && match?.status === "matched" ? match.matches : null;
   const byAmount = match?.status === "matched" && match.by === "amount";
 
@@ -187,11 +187,11 @@ export function FlowSheet({ card, recommended, outcome, match, onChangeLink, cal
           </div>
           <p className="text-[0.6875rem] leading-relaxed text-muted">
             {found && byAmount
-              ? `金額（${found[0].amount?.toLocaleString("ja-JP") ?? ""}円）が一致する定期払いがAsset Managerに1件あります。名前は一致していないので、同じものか確かめてください。`
+              ? `金額（${found[0].amount?.toLocaleString("ja-JP") ?? ""}円）が一致する定期払いがAsset Managerに1件あります。名前は一致していないので、同じものか確かめてください。${card.kind === "payment" ? "今回の請求を記録したという意味ではありません。" : ""}`
               : found && card.kind === "payment"
-              ? "この支払いはAsset Managerに定期払いとして登録されています。家計簿への取り込みは下のボタンから行えます。"
+              ? "Asset Managerの定期払いの一覧に、この支払いに合う登録があります。今回の請求を記録したという意味ではありません。家計簿への取り込みは下のボタンから行えます。"
               : found
-              ? "Asset Managerに同じ項目が見つかったので、そちらの登録内容を表示しています（読み取った値より優先）。"
+              ? "Asset Managerの定期払いの一覧に同じ項目が見つかったので、そちらの登録内容を表示しています（読み取った値より優先）。"
               : card.kind === "payment"
               ? "AIが本文から読み取った値です。Asset Managerの画面で直してから確定してください。"
               : card.kind === "link"
@@ -200,7 +200,7 @@ export function FlowSheet({ card, recommended, outcome, match, onChangeLink, cal
             {card.reason && <>　理由: {card.reason}</>}
           </p>
 
-          {found && <RegisteredPanel key={found.map((r) => r.id).join(",")} matches={found} manual={match?.status === "matched" && match.by === "manual"} />}
+          {found && <RegisteredPanel key={found.map((r) => r.id).join(",")} card={card} matches={found} manual={match?.status === "matched" && match.by === "manual"} />}
           {match?.status === "unlinked" && (card.kind === "payment" || card.kind === "subscription") && (
             <p className="rounded-[10px] border border-dashed border-border bg-background px-3 py-2.5 text-xs text-muted">定期払いには紐づけていません。</p>
           )}
@@ -220,7 +220,7 @@ export function FlowSheet({ card, recommended, outcome, match, onChangeLink, cal
               <dd>{card.fields.dateText ? card.fields.dateText.replaceAll("-", "/") : "なし"}</dd>
             </dl>
           )}
-          {card.kind === "subscription" && match?.status === "error" && <p className="text-[0.6875rem] text-muted">Asset Managerとの照合はできませんでした（登録済みかは未確認）。</p>}
+          {card.kind === "subscription" && match?.status === "error" && <p className="text-[0.6875rem] text-muted">Asset Managerとの照合はできませんでした（定期払いに登録があるかは未確認）。</p>}
 
           <div className={cn("grid grid-cols-2 gap-2.5", (card.kind === "payment" || card.kind === "link" || found) && "hidden")}>
             {card.kind === "subscription" && (
@@ -399,10 +399,11 @@ export function FlowSheet({ card, recommended, outcome, match, onChangeLink, cal
   );
 }
 
-/** Asset Managerで見つかった登録済みのサブスク（読み取り専用。#884）。候補が複数なら選ぶ。 */
-function RegisteredPanel({ matches, manual = false }: { matches: RegisteredSubscription[]; manual?: boolean }) {
+/** Asset Managerで見つかった定期払いの登録（読み取り専用。#884）。候補が複数なら選ぶ。 */
+function RegisteredPanel({ card, matches, manual = false }: { card: Suggestion; matches: RegisteredSubscription[]; manual?: boolean }) {
   const [picked, setPicked] = useState(0);
   const current = matches[picked] ?? matches[0];
+  const invoice = differingInvoiceAmount(card, current);
   return (
     <div className="flex flex-col gap-2 rounded-[10px] border border-fair/40 bg-fair-surface px-3 py-2.5 text-[0.8125rem]">
       {matches.length > 1 && (
@@ -427,6 +428,7 @@ function RegisteredPanel({ matches, manual = false }: { matches: RegisteredSubsc
           </div>
         ))}
       </dl>
+      {invoice && <p className="rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-xs font-bold text-amber-800 dark:text-amber-300">今回の請求は{invoice}で、登録額と違います。</p>}
     </div>
   );
 }
