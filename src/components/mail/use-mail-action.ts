@@ -6,59 +6,39 @@ import { useEffect, useState } from "react";
 import { forgetArchived, rememberArchived } from "@/lib/mail/archived-memory";
 import type { MailAction } from "@/lib/mail/contract";
 
-import { createRefreshGate, createSerialQueue } from "./action-queue";
+import { createPendingCounter, createRefreshGate } from "./action-queue";
+import {
+  pendingArchives,
+  readBackgroundFailure,
+  send,
+  sendArchive,
+  setBackgroundFailure,
+  subscribeBackgroundFailure,
+  type MailActionNotice,
+} from "./archive-sender";
 
-// 画面で1本だけ持つ列。スワイプのアーカイブはここを通して1通ずつ流す（#767）
-const archiveQueue = createSerialQueue();
+export type { MailActionNotice };
+
+// 画面で1本だけ持つ、結果待ちの件数と取り直しの判定（#767）
+const archiving = createPendingCounter();
 const refreshGate = createRefreshGate();
-
-export type MailActionNotice = { text: string; error: boolean };
-
-// 本文の画面から裏で流したアーカイブ（#1023）の失敗。本文の画面はもう無いので、一覧が拾えるようモジュールで持つ
-let backgroundFailure: MailActionNotice | null = null;
-const failureListeners = new Set<() => void>();
-function setBackgroundFailure(next: MailActionNotice | null) {
-  backgroundFailure = next;
-  failureListeners.forEach((l) => l());
-}
-
-type SendResult = { ok: true; done: string } | { ok: false; error: string };
-
-async function send(action: MailAction, ids: string[], labelId: string | null): Promise<SendResult> {
-  try {
-    const response = await fetch("/api/mail/actions", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action, ids, labelId }),
-    });
-    const data = (await response.json().catch(() => null)) as { done?: string; error?: string } | null;
-    if (!response.ok) {
-      return { ok: false, error: `操作できませんでした: ${data?.error ?? `HTTP ${response.status}`}` };
-    }
-    return { ok: true, done: data?.done ?? "操作しました" };
-  } catch {
-    return { ok: false, error: "操作できませんでした（通信できませんでした）。" };
-  }
-}
 
 /**
  * 整理の操作（#683）を `POST /api/mail/actions` へ送る。成功したら画面を取り直す。
  * 拒否（複数アカウントにまたがる・持ち主でない等）はサーバーが返した理由をそのまま赤で出す。
+ * アーカイブは画面を閉じても進むようサーバーの列で実行する（#1192。`archive-sender.ts`）。
  */
 export function useMailAction(options: { after?: (action: MailAction) => void } = {}) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<MailActionNotice | null>(null);
-  const [queued, setQueued] = useState(archiveQueue.pending());
-  useEffect(() => archiveQueue.subscribe(setQueued), []);
-  const [shared, setShared] = useState<MailActionNotice | null>(backgroundFailure);
+  const [queued, setQueued] = useState(archiving.pending());
+  useEffect(() => archiving.subscribe(setQueued), []);
+  const [shared, setShared] = useState<MailActionNotice | null>(readBackgroundFailure());
   useEffect(() => {
-    const sync = () => setShared(backgroundFailure);
+    const sync = () => setShared(readBackgroundFailure());
     sync();
-    failureListeners.add(sync);
-    return () => {
-      failureListeners.delete(sync);
-    };
+    return subscribeBackgroundFailure(sync);
   }, []);
 
   async function apply(
@@ -72,7 +52,9 @@ export function useMailAction(options: { after?: (action: MailAction) => void } 
     setNotice(null);
     setBackgroundFailure(null);
     try {
-      const result = await send(action, ids, labelId);
+      // 受信トレイへ戻す・ゴミ箱へ移すメールは、確かめ直しで後からアーカイブしない
+      if (action === "inbox" || action === "trash") pendingArchives.dropIds(ids);
+      const result = action === "archive" ? await sendArchive(ids, false) : await send(action, ids, labelId);
       if (!result.ok) {
         setNotice({ text: result.error, error: true });
         return false;
@@ -105,27 +87,24 @@ export function useMailAction(options: { after?: (action: MailAction) => void } 
       }
       return false;
     };
-    return archiveQueue.enqueue(async () => {
-      let markedRead = false;
-      try {
-        if (unread) {
-          const read = await send("read", [id], null);
-          if (!read.ok) return fail(read.error);
-          markedRead = true;
-          refreshGate.markSucceeded();
-        }
-        const archived = await send("archive", [id], null);
-        if (!archived.ok) return fail(markedRead ? `${archived.error}（既読にはしました）` : archived.error);
-        refreshGate.markSucceeded();
-        rememberArchived([id]);
-        if (!optimistic) setNotice({ text: archived.done, error: false });
-        return true;
-      } finally {
-        // 取り直しは列が空になった最後の1回だけ（途中で取り直すとAIDEへの要求が重なる）。
-        // 最後の1通が失敗しても、先に成功した分を一覧へ反映する
-        if (refreshGate.shouldRefresh(archiveQueue.pending())) router.refresh();
+    // 順番を待たずにすぐ送る（順番はサーバーが守る）。未読の既読化も同じ1件で行う
+    archiving.start();
+    try {
+      const archived = await sendArchive([id], unread);
+      if (!archived.ok) {
+        if (archived.markedRead) refreshGate.markSucceeded();
+        return fail(archived.error);
       }
-    });
+      refreshGate.markSucceeded();
+      rememberArchived([id]);
+      if (!optimistic) setNotice({ text: archived.done, error: false });
+      return true;
+    } finally {
+      // 取り直しは結果待ちが無くなる最後の1回だけ（途中で取り直すとAIDEへの要求が重なる）。
+      // 最後の1通が失敗しても、先に成功した分を一覧へ反映する
+      if (refreshGate.shouldRefresh(archiving.pending())) router.refresh();
+      archiving.finish();
+    }
   }
 
   return { apply, archiveRow, pending, notice: notice ?? shared, queued };

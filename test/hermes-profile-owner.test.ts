@@ -30,6 +30,11 @@ describe("Hermes profileの持ち主の照合（#1181）", () => {
     }
   });
 
+  it("確認待ちのバッジの件数は持ち主だけ数える（#1189）", () => {
+    const source = readFileSync("src/app/(chat)/layout.tsx", "utf8");
+    assert.match(source, /hermesOwner \? countPendingProposals\(user\.id, now\) : 0/);
+  });
+
   it("実行中のターンを操作・購読するRoute Handlerは、ターンに触れる前に持ち主を照合する（#1188）", () => {
     const base = "src/app/api/hermes/turns/[id]";
     const names = readdirSync(base);

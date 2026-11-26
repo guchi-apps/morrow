@@ -207,12 +207,24 @@ export function parseCardWithdrawals(json: Record<string, unknown>): CardWithdra
 /** 冪等キー。メールごとに1つ（同じメールの再送は何も変えない）。 */
 export const cardConfirmSourceKey = (messageId: string) => `morrow-mail:${messageId}`.slice(0, 191);
 
-/** どの会社にも付く語（「カード」「銀行」）は名前の手掛かりにしない（「楽天カード」と「三井住友カード」を同じとみなさないため）。 */
-const distinctive = (value: string) => normalizeName(value).replace(/カード|銀行|card|bank/g, "");
+/**
+ * どの会社にも付く語（「カード」「銀行」・会社の種類）は名前の手掛かりにしない（「楽天カード」と「三井住友カード」を同じとみなさないため）。
+ * 記号・空白も落とす（「楽天カード株式会社」→「楽天」。#1196）。
+ */
+const distinctive = (value: string) =>
+  normalizeName(value)
+    .replace(/カード|銀行|card|bank|株式会社|有限会社|\(株\)|㈱/g, "")
+    .replace(/[\s\p{P}\p{S}]/gu, "");
 
-function sharesRun(a: string, b: string, size = 3): boolean {
+/**
+ * 名前が同じ相手を指していそうか。固有の部分が3文字続けて一致するか、片方の固有の部分（2文字以上）がもう片方に丸ごと含まれるとき。
+ * 後者が無いと、固有の部分が2文字のカード（「楽天カード」→「楽天」）がメールの請求元（「楽天カード株式会社」）と合わない（#1196）。
+ */
+export function sharesRun(a: string, b: string, size = 3): boolean {
   const x = distinctive(a);
   const y = distinctive(b);
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  if (short.length >= 2 && long.includes(short)) return true;
   if (x.length < size || y.length < size) return false;
   for (let i = 0; i + size <= x.length; i++) if (y.includes(x.slice(i, i + size))) return true;
   return false;
@@ -221,7 +233,7 @@ function sharesRun(a: string, b: string, size = 3): boolean {
 export type CardCheck =
   | { status: "mismatch"; cardId: number; cardName: string; paymentDate: string; displayedAmount: number; mailAmount: number; source: "estimate" | "confirmed" }
   | { status: "confirmed"; cardName: string; paymentDate: string; amount: number }
-  | { status: "match"; cardName: string; paymentDate: string; amount: number }
+  | { status: "match"; cardId: number; cardName: string; paymentDate: string; amount: number }
   | { status: "none"; reason: string }
   | { status: "unknown"; reason: string };
 
@@ -244,16 +256,16 @@ export function evaluateCardWithdrawal(w: Withdrawal, items: readonly CardWithdr
   if (item.source === "confirmed" && item.confirmationSourceKey === key && item.amountJpy === w.amount) {
     return { status: "confirmed", cardName: item.cardName, paymentDate: item.paymentDate, amount: item.amountJpy };
   }
-  if (item.amountJpy === w.amount) return { status: "match", cardName: item.cardName, paymentDate: item.paymentDate, amount: item.amountJpy };
+  if (item.amountJpy === w.amount) return { status: "match", cardId: item.cardId, cardName: item.cardName, paymentDate: item.paymentDate, amount: item.amountJpy };
   return { status: "mismatch", cardId: item.cardId, cardName: item.cardName, paymentDate: item.paymentDate, displayedAmount: item.amountJpy, mailAmount: w.amount, source: item.source };
 }
 
 /** `asset_manager_confirm_card_withdrawal` へ渡す引数（`test/external-tool-contracts.test.ts` が入力の範囲内であることを固定する）。 */
-export function cardConfirmArgs(check: Extract<CardCheck, { status: "mismatch" }>, messageId: string): Record<string, unknown> {
+export function cardConfirmArgs(check: Extract<CardCheck, { status: "mismatch" | "match" }>, messageId: string): Record<string, unknown> {
   return {
     cardId: check.cardId,
     paymentDate: check.paymentDate,
-    amount: check.mailAmount,
+    amount: check.status === "mismatch" ? check.mailAmount : check.amount,
     sourceKey: cardConfirmSourceKey(messageId),
     note: "メールの確定額（Morrowから登録）",
   };

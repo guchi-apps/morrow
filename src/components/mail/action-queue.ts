@@ -1,5 +1,5 @@
 /**
- * 一覧の取り直しを「列が空になる最後のタスクの終了時に、1通でも成功していれば1回」に絞る判定（#767）。
+ * 一覧の取り直しを「処理中が無くなる最後のタスクの終了時に、1通でも成功していれば1回」に絞る判定（#767）。
  * 最後の1通が失敗しても、先に成功した分が一覧に反映されるようにする。
  */
 export function createRefreshGate() {
@@ -20,28 +20,22 @@ export function createRefreshGate() {
 }
 
 /**
- * メールの整理操作を1通ずつ順番に流すキュー（#767）。
- *
- * 連続スワイプで「事前照合→操作→一覧の再取得」が同時にAIDEへ飛ぶと、重なりで断られて赤い帯が出た。
- * 画面の中で1本の列にして、前の操作が終わってから次を送る。`pending()` は待ち・実行中の合計。
+ * 結果待ちの件数（「アーカイブ中…（残りN通）」の表示用）。
+ * 順番待ちそのものはサーバーが持つ（`src/lib/mail/action-jobs.ts`。#1192）。画面は押した瞬間にすべて送る。
  */
-export function createSerialQueue() {
-  let chain: Promise<unknown> = Promise.resolve();
+export function createPendingCounter() {
   let count = 0;
   const listeners = new Set<(count: number) => void>();
   const emit = () => listeners.forEach((l) => l(count));
 
   return {
-    /** 列の最後に足す。前の操作が失敗していても次は流す。 */
-    enqueue<T>(task: () => Promise<T>): Promise<T> {
+    start() {
       count += 1;
       emit();
-      const run = chain.then(task, task);
-      chain = run.catch(() => undefined);
-      return run.finally(() => {
-        count -= 1;
-        emit();
-      });
+    },
+    finish() {
+      count -= 1;
+      emit();
     },
     pending: () => count,
     subscribe(listener: (count: number) => void): () => void {
