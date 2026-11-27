@@ -1,8 +1,9 @@
 import { SECRETARY_INTRO } from "@/lib/persona";
 
+import { itemsTotal } from "@/lib/mail/payment-receipt";
 import { linkKey, normalizeLinkTarget, type LinkCandidate } from "@/lib/mail/link-core";
 
-import { BODY_LIMIT, FROM_LIMIT, SUBJECT_LIMIT, SUGGEST_EXAMPLE, SUGGEST_KIND_RULES, SUGGEST_LINK_EXAMPLE, SUGGEST_LINK_RULES, SUGGEST_RULES, parseSuggestReply, type SuggestResult } from "@/lib/mail/suggest-core";
+import { BODY_LIMIT, FROM_LIMIT, SUBJECT_LIMIT, SUGGEST_EXAMPLE, SUGGEST_KIND_RULES, SUGGEST_LINK_EXAMPLE, SUGGEST_LINK_RULES, SUGGEST_RULES, normalizeSuggestion, parseSuggestReply, utilityUsage, type SuggestResult } from "@/lib/mail/suggest-core";
 import { SUMMARY_RULES, parseSummaryReply, type MailSummary } from "@/lib/mail/summary-core";
 import { flattenText } from "@/lib/mail/triage-core";
 import { UTILITY_BILL_EXAMPLE, UTILITY_BILL_RULES, parseUtilityBillReply, type UtilityBill } from "@/lib/mail/utility-bill-core";
@@ -104,12 +105,33 @@ export function sanitizeLinkSuggestions(reply: string, candidates: LinkCandidate
   return JSON.stringify({ ...top, suggestions, recommended });
 }
 
+/**
+ * 電気・ガスの請求の使用量（`utilityBill`）を、同じ請求の家計簿の提案の `usage` に入れる（#1202）。
+ * 当てるのは金額が請求額と同じ提案か、家計簿の提案が1件だけで金額の読めないもの。使用量が読めない回は何もしない。
+ */
+function withUtilityUsage(suggest: SuggestResult, bill: UtilityBill | null): SuggestResult {
+  if (!bill || bill.usageValue === null || !bill.usageUnit) return suggest;
+  const usage = utilityUsage(`${bill.usageValue}${bill.usageUnit}`);
+  if (!usage) return suggest;
+  const single = suggest.suggestions.filter((s) => s.kind === "payment").length === 1;
+  return {
+    ...suggest,
+    suggestions: suggest.suggestions.map((s) => {
+      if (s.kind !== "payment") return s;
+      const total = s.fields.amount ?? itemsTotal(s.fields.items);
+      if (total !== bill.amountYen && !(single && total === null)) return s;
+      return normalizeSuggestion("payment", { ...s.fields, usage }, s.reason, s.confidence) ?? s;
+    }),
+  };
+}
+
 /** 返答を読む。要約が読めなければnull（提案だけの返答は受け付けない）。提案の壊れた候補は落とす。 */
 export function parseAnalyzeReply(answer: string): MailAnalysis | null {
   const summary = parseSummaryReply(answer);
   if (!summary) return null;
   const suggest = parseSuggestReply(answer) ?? { recommended: null, suggestions: [] };
-  return { summary, suggest, withdrawal: parseWithdrawalReply(answer), utilityBill: parseUtilityBillReply(answer) };
+  const utilityBill = parseUtilityBillReply(answer);
+  return { summary, suggest: withUtilityUsage(suggest, utilityBill), withdrawal: parseWithdrawalReply(answer), utilityBill };
 }
 
 /** 結果を覚えておく時間（プロセス内のメモリだけ。DBには保存しない）。 */

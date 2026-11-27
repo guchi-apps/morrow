@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { parseSchedule } from "@/lib/dashboard/parse";
 import { jstDayKey } from "@/lib/day-key";
 import { normalizeLinkTarget, type LinkTarget } from "@/lib/mail/link-core";
-import { paymentBlocker, type PaymentItem } from "@/lib/mail/payment-receipt";
+import { itemsTotal, paymentBlocker, type PaymentItem } from "@/lib/mail/payment-receipt";
 import type { SubscriptionFields } from "@/lib/mail/subscription-link";
 import { guessCarrier, isCarrier, normalizeTrackingNumber, type TrackingFields } from "@/lib/mail/tracking-link";
 import { isAttachableTracking, trackingMemoLines } from "@/lib/mail/tracking-task";
@@ -154,6 +154,7 @@ export const SUGGEST_RULES: readonly string[] = [
   "payment の amount は円建ての合計（整数）。外貨建てなら円へ換算せず amount を null にして originalAmount・originalCurrency（ISO 4217）に元の金額を入れる。date は購入日（YYYY-MM-DD）で、メールの受信日を使わない。time は購入時刻（HH:MM）が本文に書かれているときだけ入れ、無ければ null",
   "payment の place は支払先（店名・サービスの提供元。例: Amazon・関西電力）、name は品目（例: 電気料金・○○プラン 1か月）。place が本文から分からなければ null",
   "payment の items は、注文確認・レシートのように品目が分かれて金額が書かれているときだけ、1品目1行で name・amount（値引き後の円の整数）・quantity（数量。分からなければ null）を入れる。送料・手数料も金額があれば1行にする。品目ごとの金額が分からなければ items は空配列にして name にまとめる",
+  "payment の usage は電気・ガスの請求のときだけ、本文に書かれた使用量を単位つきで入れる（例: 250kWh・12m3）。電気・ガスの請求は items を空配列にして1件の支払いにまとめる。本文に使用量が無ければ null で、推測しない",
   "subscription の amount は1回あたりの請求額（円なら整数）、currency は JPY か USD、cycle は MONTHLY か YEARLY、day は請求日（1〜31）、startDate は契約開始日（YYYY-MM-DD）。読み取れない項目は null",
   "task の title は「何をするか」が分かる短いタイトル。due は期限（YYYY-MM-DD）・dueTime はその時刻（HH:MM）、planned は予定日（YYYY-MM-DD）・plannedTime はその時刻（HH:MM）で、どれも本文にあるときだけ（時刻は日付があり、時刻まで書かれているときだけ）。時刻は memo に書かず dueTime・plannedTime に入れる。memo に要点を1〜2文",
   "荷物の受け取り: 再配達の案内・不在票・コンビニ／営業所／宅配ロッカー／置き配の受け取り案内など、利用者が自分で受け取る・再配達を頼む行動が要る配送メールは、task を出す（title は「荷物を受け取る」を基本に、受け取り先や品名が分かれば添える。due は保管期限・受け取り期限が本文にあるときだけ）。発送のお知らせのように届くのを待つだけのメールには、受け取りの task を出さない（追跡番号があれば tracking だけ）。受け取りの案内に追跡番号もあるときは、tracking と task を並べて出してよい",
@@ -236,6 +237,14 @@ function paymentItems(value: unknown): PaymentItem[] {
   return items;
 }
 
+/**
+ * 電気（kWh）・ガス（m3）の使用量なら `250kWh`・`12m3` の形に揃える。それ以外はnull（#1202）。
+ */
+export function utilityUsage(value: string): string | null {
+  const match = /^(\d+(?:\.\d+)?)(kwh|m3)$/i.exec(value.normalize("NFKC").replace(/[,\s]/g, ""));
+  return match ? `${match[1]}${match[2]!.toLowerCase() === "m3" ? "m3" : "kWh"}` : null;
+}
+
 function paymentFields(raw: Record<string, unknown>): PaymentFields | null {
   const name = text(raw.name, TITLE_LIMIT);
   const place = optionalText(raw.place, PLACE_LIMIT);
@@ -245,18 +254,22 @@ function paymentFields(raw: Record<string, unknown>): PaymentFields | null {
   const amount = typeof raw.amount === "number" && Number.isInteger(raw.amount) && raw.amount >= 1 ? raw.amount : null;
   const originalAmount = typeof raw.originalAmount === "number" && raw.originalAmount > 0 ? raw.originalAmount : null;
   const currency = typeof raw.originalCurrency === "string" && /^[A-Za-z]{3}$/.test(raw.originalCurrency) ? raw.originalCurrency.toUpperCase() : null;
-  const usage = optionalText(raw.usage, 32);
+  const rawUsage = optionalText(raw.usage, 32);
+  // 電気・ガスは内訳に分けず1行で送る（Asset Managerは品目があると使用量を品名へ足さない。#1202）
+  const utility = rawUsage ? utilityUsage(rawUsage) : null;
+  const usage = utility ?? rawUsage;
   const date = validDate(raw.date);
   return {
     place,
-    name,
-    amount,
+    name: utility && name === "" && place === null ? items[0]!.name : name,
+    // 内訳を外すと合計が分からなくなるので、合計が無ければ内訳の和を使う
+    amount: utility ? (amount ?? itemsTotal(items)) : amount,
     date,
     // 受信日で補った印は承認後の検証でも残す（登録の控えで購入日と区別するため。#903）
     ...(date && raw.dateEstimated === true ? { dateEstimated: true } : {}),
     // 日付の無い時刻は使わない
     time: date ? validTime(raw.time) : null,
-    items,
+    items: utility ? [] : items,
     usage,
     originalAmount: originalAmount !== null && currency !== null ? originalAmount : null,
     originalCurrency: originalAmount !== null && currency !== null ? currency : null,
