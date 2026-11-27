@@ -12,7 +12,7 @@ import {
   TURN_IMAGE_MAX_COUNT,
 } from "../src/lib/hermes/image-core.ts";
 import { buildPrompt, stripAttachments } from "../src/lib/hermes/prompt-attachment.ts";
-import { initialChatState, restoreFromHistory, retryOf, startTurn } from "../src/lib/hermes/stream-view.ts";
+import { initialChatState, restoreFromHistory, retryOf, sentImageSrc, startTurn } from "../src/lib/hermes/stream-view.ts";
 
 const b64 = (bytes: number[], pad = 12) => Buffer.from([...bytes, ...new Array(pad).fill(0)]).toString("base64");
 const PNG = b64([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -86,6 +86,17 @@ describe("画像つきの発言の表示（#1157）", () => {
       state.items.map((item) => (item.kind === "user" ? [item.text, item.images] : null)),
       [["読んで", 1], ["", 1]],
     );
+    // 画面に出す画像（#1219）は復元しない
+    assert.ok(state.items.every((item) => item.kind !== "user" || item.imageSrcs === undefined));
+  });
+
+  it("送った直後の発言は画像の data: URL を持ち、枚数も揃う（#1219）", () => {
+    const srcs = [sentImageSrc("AAAA"), sentImageSrc("BBBB")];
+    const item = startTurn(initialChatState, "読んで", 0, srcs).items.at(-1);
+    assert.deepEqual(item?.kind === "user" ? [item.images, item.imageSrcs] : null, [2, ["data:image/jpeg;base64,AAAA", "data:image/jpeg;base64,BBBB"]]);
+    assert.equal(retryOf(startTurn(initialChatState, "読んで", 0, srcs))?.risky, true);
+    const plain = startTurn(initialChatState, "やあ", 0, []).items.at(-1);
+    assert.deepEqual(plain?.kind === "user" ? [plain.images, plain.imageSrcs] : null, [undefined, undefined]);
   });
 
   it("画像つきの回は自動で再送しない（risky）", () => {
