@@ -140,6 +140,8 @@ export const MCP_PRESETS: McpPreset[] = [
       // `SALARY_WRITE_TOOLS` から呼ぶ。承認状態・読み戻し（`_approval_status`・`_lookup`）は読み取りなので挙げない。
       "asset_manager_salary_preview",
       "asset_manager_salary_commit",
+      // #1211。追跡番号を既存タスクのメモへ書き足す（`TASK_MEMO_WRITE_TOOLS`）。メール画面で押したときだけ。
+      "aide_update_task",
     ],
     // #366。読み取り・疎通確認だけの道具。AIDEが道具を足しても、ここへ足すまでは
     // 書き込みを渡さない回に見えない。足すときは道具の説明文が「読み取りだけ」と言えるか確かめる。
@@ -152,6 +154,8 @@ export const MCP_PRESETS: McpPreset[] = [
       "aide_schedule",
       // メールの紐づけ（#834）の候補。固定タスクDBの読み取りだけ
       "aide_tasks",
+      // #1211。追記の直前に今のメモと版を読む
+      "aide_get_task",
       "aide_balances",
       "aide_fixed_costs",
       "aide_utility_bills",

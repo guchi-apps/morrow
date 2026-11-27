@@ -261,7 +261,7 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
 
 - **台帳の複製の正ではなく、押した操作の控え**（#732）。持つのは `messageId`・`kind`（event/task）・予定/タスクのid（`targetId`・予定は `calendarId` も）・紐づけ時点の題名・日付・`source`（`created`＝メールから作成／`manual`＝あとから）だけで、件名・差出人・本文は持たない。台帳側で変わっても追従せず、消えても行は残り利用者が解除する。**台帳の中身を読み直して同期する処理は足さない**
 - 純粋な部分は `src/lib/mail/link-core.ts`（`test/mail-link.test.ts`）、DBとAIDEの読み取りは `link.ts`、口は `/api/mail/links`（GET＝候補、POST＝紐づけ、DELETE＝解除）。**紐づけ（POST）は `getMail()` で持ち主を照合してから保存する**
-- **候補**: 予定は `aide_schedule`（`offsetDays: -7, days: 14`。活動記録・中止は除く）、タスクは `aide_tasks`（`status: open`。`readTools` に足した）。形が違っても読めるよう `link-core.ts` が複数の置き場所を見る。**`aide_tasks` の契約は2026-11-09に実物で確認済み（#853）**——入力は `status`（open/completed/skipped）・`limit`（1〜100）・`cursor`・`dateField`・`from`・`to`、応答は `tasks[].{id, title, due, planned, …}`・`hasMore`・`nextCursor`。`{ status: "open", limit: 60 }` は範囲内で、`parseTaskCandidates()` がそのまま読める。形は `test/mail-link.test.ts`「aide_tasks の契約」が固定する。**`hasMore: true`（60件超）でも先頭の60件だけを候補にし、`cursor` は辿らない**（候補は直近の未完了で足りる判断）。**`aide_tasks` はOAuthのscope `tasks:read` を要る**（`tasks:write` では読めない。#922。AIDEのプリセットの `scopes` に両方を挙げ、足した後は利用者の繋ぎ直しが要る。権限不足のときは候補の取得失敗に繋ぎ直しの案内を出す）。AIDEなど外部の道具を呼ぶ処理を足すときは、入力・応答の例をテストかdocsに残す（レビューが契約を確認できず止まるのを防ぐ）
+- **候補**: 予定は `aide_schedule`（`offsetDays: -7, days: 14`。活動記録・中止は除く）、タスクは `aide_tasks`（`status: open`。`readTools` に足した）。形が違っても読めるよう `link-core.ts` が複数の置き場所を見る。**タスクの取り方は#1211で変えた（下の「追跡番号をタスクに残す」）。`aide_tasks` の契約は2026-11-09に実物で確認済み（#853）**——入力は `status`（open/completed/skipped）・`limit`（1〜100）・`cursor`・`dateField`・`from`・`to`、応答は `tasks[].{id, title, due, planned, …}`・`hasMore`・`nextCursor`。`{ status: "open", limit: 60 }` は範囲内で、`parseTaskCandidates()` がそのまま読める。形は `test/mail-link.test.ts`「aide_tasks の契約」が固定する。**`hasMore: true`（60件超）でも先頭の60件だけを候補にし、`cursor` は辿らない**（候補は直近の未完了で足りる判断）。**`aide_tasks` はOAuthのscope `tasks:read` を要る**（`tasks:write` では読めない。#922。AIDEのプリセットの `scopes` に両方を挙げ、足した後は利用者の繋ぎ直しが要る。権限不足のときは候補の取得失敗に繋ぎ直しの案内を出す）。AIDEなど外部の道具を呼ぶ処理を足すときは、入力・応答の例をテストかdocsに残す（レビューが契約を確認できず止まるのを防ぐ）
 - **メールから作成したとき（`applyFlow()`）は自動で紐づく**。作成の応答にidがあればそれ、無ければ作成後に一覧を引いて**題名・時刻が一致する1件だけ**採る（複数なら決められないので紐づけない。失敗は本筋を止めずログのみ）
 - **ダッシュボード**: `ScheduleItem` が `id`・`calendarId` を持つ。`ScheduleBody` が `mailIdsByTarget()` で逆引きし、1通なら `/mail/<id>`、複数なら `details` の小メニューへ。繰り返し予定は1回分のidに紐づく
 - AIDE（予定の説明欄）・YoteiFlow（タスクの構造化リンク）側にメール参照を持たせる案は別リポジトリの変更になるため見送った
@@ -1024,13 +1024,22 @@ AI分析（#766）が、未完了のタスクと前後の予定（`aide_tasks`�
 - **適用時（`applyLink()`。`suggest.ts`）も候補を引き直して存在を確かめる**（完了・削除・書き換えられたidへは紐づけない）。すでに紐づけ済みなら `duplicate`。`MailFlowRecord`（#750）は残さない（`MailLink` が控え）
 - **メールへの指示（#784）は候補を渡さないので `link` を受けない**（`parseChatReply()` が落とす）。決まりごとは `SUGGEST_LINK_RULES`（分析だけが使う）
 
+### 追跡番号をタスクに残す（#1211）
+
+追跡のシートの「📌 タスクに追跡番号を残す」（`tracking-task-section.tsx`）で、未完了タスクのメモの末尾へ追跡番号と追跡ページを足すか、番号入りの新しいタスクを作る。**押したときだけ書く**（届いた時点の自動追記はしない）。
+
+- **追記は `tracking-task-server.ts`・`POST /api/mail/flow/tracking-task`。** 持ち主照合→`aide_get_task`→`aide_update_task`（`TASK_MEMO_WRITE_TOOLS`。引数は `taskId`・`version`・`memo` だけ）。画面から受けるのは番号と追記先で、書き足す文はサーバーが作る。**`aide_update_task` に `idempotencyKey` は無い**ので、二重追記は「毎回読み直して同じ番号があれば足さない」＋版の照合で防ぐ。版の競合は `isError` ではなく `{ok:false,kind:"conflict"}` で返る。2000字を超える回は書かず、今のメモは削らない。追記したタスクは `MailLink` に紐づける
+- **AIの分析は追跡の提案に `taskId`（同じ荷物の受け取りタスク）を付けられる**（渡した候補に無いidは `sanitizeLinkSuggestions()` が落とす）。シートはそれを「おすすめ」として選んでおく
+- **タスクの提案（まとめて登録を含む）は、同じ返答の追跡番号をメモに入れる**（既定オン。シートで外せる。`TaskFields.tracking`。番号があるときは冪等キーにも含める）
+- **未完了タスクの候補は `dateField` を due・planned・none の3通り＋`cursor` で取る**（`link.ts`）。省くと期限のあるタスクしか返らず、予定日だけの受け取りタスクが漏れていた。チャットに添える今日の状態（`today-context.ts`）はまだ省いたまま
+
 ### 荷物の受け取りタスクの提案（#1052）
 
 再配達・不在票・コンビニ／営業所／宅配ロッカーでの受け取り案内など、**利用者が受け取りの行動をするメールは、既存の `task` 提案（title「荷物を受け取る」、due は保管期限があるときだけ）で出す**。専用の種類は足していない。判定はプロンプトの規則（`SUGGEST_RULES`・`SUGGEST_KIND_RULES`）だけ。届くのを待つだけの発送通知は `tracking` だけで、受け取りタスクは出さない。
 
 ### 発送状況の追跡（#972）
 
-提案の種類 `tracking`（配送会社 `carrier`・追跡番号 `number`）。ヤマト・佐川・日本郵便の追跡番号が本文にあるとき、押すと番号入りの追跡ページを新しいタブで開く（`FlowSheet` の `TrackingActions`）。**サブスク（#709）と同じ「リンクを開くだけ」で、Morrowは登録・保存・控え（`MailFlowRecord`）を残さない**（`toolCallFor()` は断る）。
+提案の種類 `tracking`（配送会社 `carrier`・追跡番号 `number`）。ヤマト・佐川・日本郵便の追跡番号が本文にあるとき、押すと番号入りの追跡ページを新しいタブで開く（`FlowSheet` の `TrackingActions`）。**追跡の提案そのものは実行する道具を持たない**（`toolCallFor()` は断る）。シートからタスクへ番号を残せる（下の#1211）。
 
 - URL・桁数の検証・会社の補完は純粋な `src/lib/mail/tracking-link.ts`（`test/mail-tracking.test.ts`）に閉じる。**追跡URLは配送会社の公開ページで仕様の保証は無い**——変わったらここだけ直す。ヤマトは `jizen.kuronekoyamato.co.jp/…NQ0010?id=` が番号入りの追跡フォームへ自動POSTする（2026-11-15にGETで確認）
 - 会社が読めなくても番号の形（日本郵便の11・13桁・`EJ…JP`）で決められるときだけ補う。12桁（ヤマト・佐川）は決められないので画面で選ばせる。桁が合わなければ開くボタンを無効にして理由を出す

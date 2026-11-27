@@ -161,6 +161,24 @@ export async function callUtilityBillWriteToolJson(
 }
 
 /**
+ * 追跡番号を既存タスクのメモへ書き足す（#1211）書き込みの許可リスト。メール画面で利用者が押したときだけ呼ぶ。
+ * **引数は `taskId`・`version`・`memo` に固定する**（題名・期限などは変えない。冪等キーの口は道具に無い）。
+ */
+export const TASK_MEMO_WRITE_TOOLS = ["aide_update_task"] as const;
+export type TaskMemoWriteTool = (typeof TASK_MEMO_WRITE_TOOLS)[number];
+
+export async function callTaskMemoWriteToolJson(
+  server: ConnectedServer,
+  tool: TaskMemoWriteTool,
+  args: { taskId: string; version: string; memo: string },
+): Promise<ToolJson> {
+  if (!(TASK_MEMO_WRITE_TOOLS as readonly string[]).includes(tool)) {
+    throw new McpCallError(`${tool} は許可していない書き込みの道具です`);
+  }
+  return callTool(server, tool, { taskId: args.taskId, version: args.version, memo: args.memo }, WRITE_CALL_TIMEOUT_MS);
+}
+
+/**
  * 給与明細PDFの取り込み（#1170）の許可リスト。メール画面で利用者が押したときだけ、Morrowのサーバーが呼ぶ。
  * 解析（preview）はAsset Managerに承認待ちの記録を作るので書き込み扱い。保存（commit）は本人がAsset Managerの画面で
  * 承認した後だけ（AIDE・Asset Managerの両方が承認状態を確かめる）。PDFの解析が重いので待ち時間を長めにとる。

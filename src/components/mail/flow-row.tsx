@@ -34,7 +34,7 @@ export function FlowRowButton({ card, recommended, registered, receipt = null, m
         <span className="flex flex-wrap items-center gap-1.5 font-bold">
           {meta.title}
           {recommended && <span className="rounded-full bg-accent px-2 py-0.5 text-[0.625rem] font-bold text-accent-foreground">おすすめ</span>}
-          {registered && <span className="rounded-full bg-fair-surface px-2 py-0.5 text-[0.625rem] font-bold text-fair">{card.kind === "link" ? "紐づけ済み" : "登録済み"}</span>}
+          {registered && <span className="rounded-full bg-fair-surface px-2 py-0.5 text-[0.625rem] font-bold text-fair">{card.kind === "link" ? "紐づけ済み" : card.kind === "tracking" ? "タスクに追加済み" : "登録済み"}</span>}
           {found && (
             <span className="rounded-full bg-fair-surface px-2 py-0.5 text-[0.625rem] font-bold text-fair">
               {found.length === 1 ? "定期払いに登録あり" : `定期払いに候補${found.length}件`}
