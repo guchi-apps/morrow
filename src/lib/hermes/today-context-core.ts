@@ -1,5 +1,6 @@
 import { addDays } from "@/lib/dashboard/day-offset";
 import { parseSchedule, type ScheduleItem } from "@/lib/dashboard/parse";
+import { parseTaskRows } from "@/lib/mail/link-core";
 import { flattenText } from "@/lib/mail/triage-core";
 
 /**
@@ -29,7 +30,8 @@ export const PROPOSAL_MAX = 3;
 const TITLE_LIMIT = 60;
 const SUMMARY_LIMIT = 80;
 
-export type TaskLine = { title: string; due: string | null };
+/** 期限（`due`）と予定日（`planned`）は分けて持つ（予定日だけのタスクを「期限」と書かない。#1212）。 */
+export type TaskLine = { title: string; due: string | null; planned?: string | null };
 export type ProposalLine = { label: string; summary: string };
 
 export type TodayInput = {
@@ -72,11 +74,37 @@ function daySection(label: string, date: string | null, items: ScheduleItem[] | 
   return [head, ...shown, ...(items.length > SCHEDULE_ITEM_MAX ? [`- ほか${items.length - SCHEDULE_ITEM_MAX}件`] : [])];
 }
 
-/** 期限の近い順（期限なしは後ろ）に、上限まで。 */
+/**
+ * `aide_tasks` の複数の応答（`dateField` 3通り。#1212）を、idで1件にまとめて並べる。件数は切らない（「ほかN件」に使う）。
+ */
+export function mergeTaskLines(responses: unknown[]): TaskLine[] {
+  const byId = new Map<string, TaskLine>();
+  for (const response of responses) {
+    for (const row of parseTaskRows(response)) byId.set(row.id, { title: row.title, due: row.due, planned: row.planned });
+  }
+  return [...byId.values()];
+}
+
+/** 並べる日付: 期限があれば期限、無ければ予定日。 */
+function dateKey(task: TaskLine): string | null {
+  return task.due ?? task.planned ?? null;
+}
+
+/** 日付（期限、無ければ予定日）の近い順（日付なしは後ろ）に、上限まで。 */
 export function pickTasks(tasks: TaskLine[]): TaskLine[] {
   return [...tasks]
-    .sort((a, b) => (a.due === b.due ? 0 : a.due === null ? 1 : b.due === null ? -1 : a.due < b.due ? -1 : 1))
+    .sort((a, b) => {
+      const x = dateKey(a);
+      const y = dateKey(b);
+      return x === y ? 0 : x === null ? 1 : y === null ? -1 : x < y ? -1 : 1;
+    })
     .slice(0, TASK_MAX);
+}
+
+function taskDateLabel(task: TaskLine): string {
+  if (task.due) return `（期限 ${task.due}）`;
+  if (task.planned) return `（予定日 ${task.planned}）`;
+  return "";
 }
 
 /** 添える文面。取れた節が1つも無ければ null（何も添えない）。 */
@@ -95,9 +123,9 @@ export function formatTodayContext(input: TodayInput): TodayContext | null {
   }
   if (input.tasks !== null) {
     const picked = pickTasks(input.tasks);
-    lines.push("■ 未完了のタスク（期限の近い順）");
+    lines.push("■ 未完了のタスク（期限・予定日の近い順）");
     if (picked.length === 0) lines.push("- なし");
-    for (const task of picked) lines.push(`- ${clean(task.title, TITLE_LIMIT)}${task.due ? `（期限 ${task.due}）` : ""}`);
+    for (const task of picked) lines.push(`- ${clean(task.title, TITLE_LIMIT)}${taskDateLabel(task)}`);
     if (input.tasks.length > picked.length) lines.push(`- ほか${input.tasks.length - picked.length}件`);
   }
   if (input.proposals !== null) {

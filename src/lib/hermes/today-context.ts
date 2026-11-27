@@ -4,14 +4,15 @@ import {
   formatTodayContext,
   InjectionMemory,
   mentionsToday,
+  mergeTaskLines,
   PROPOSAL_MAX,
   type ProposalLine,
   type TaskLine,
   type TodayContext,
 } from "@/lib/hermes/today-context-core";
 import { listProposals } from "@/lib/hermes/proposals";
-import { callToolJson, connectedServerFor } from "@/lib/mcp/direct-call";
-import { parseTaskCandidates } from "@/lib/mail/link-core";
+import { fetchOpenTaskResponses } from "@/lib/mail/link";
+import { connectedServerFor } from "@/lib/mcp/direct-call";
 
 /**
  * Hermesのチャットで予定・タスクなど今日の状態を聞かれたとき、取得済みの値を発言の先頭へ添える（#1149）。**サーバー専用。**
@@ -32,8 +33,8 @@ function openTasks(userId: string, day: string): Promise<TasksView> {
     try {
       const server = await connectedServerFor(userId, "aide");
       if (!server) return { status: "unconnected" };
-      const json = await callToolJson(server, "aide_tasks", { status: "open", limit: 60 });
-      return { status: "ok", tasks: parseTaskCandidates(json).map((t) => ({ title: t.title, due: t.dateText })) };
+      // `dateField` を省くと期限のあるタスクしか返らないので、メールの紐づけ候補と同じく3通り＋続きを取る（#1212）
+      return { status: "ok", tasks: mergeTaskLines(await fetchOpenTaskResponses(server)) };
     } catch (error) {
       console.error("[aide-bot] チャットに添えるタスクを取得できなかった", error instanceof Error ? error.message : error);
       return { status: "failed" };
