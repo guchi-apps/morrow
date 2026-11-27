@@ -19,6 +19,8 @@ export type TrackingFields = {
   carrier: Carrier | null;
   /** 追跡番号（ハイフン・空白を除いたもの）。 */
   number: string;
+  /** 同じ荷物の受け取りだとAIが見た未完了タスクのid（#1211）。分析で渡した候補で検証済み。無ければ持たない。 */
+  taskId?: string;
 };
 
 export function isCarrier(value: unknown): value is Carrier {

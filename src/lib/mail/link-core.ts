@@ -148,6 +148,24 @@ export function parseTaskCandidates(json: unknown): LinkCandidate[] {
   return out;
 }
 
+/**
+ * `aide_tasks` の複数の応答を1つの候補にまとめる（#1211）。同じidは1件にし、日付の近い順（日付なしは後ろ）で上限まで。
+ */
+export function mergeTaskCandidates(responses: unknown[]): LinkCandidate[] {
+  const byId = new Map<string, LinkCandidate>();
+  for (const response of responses) {
+    for (const task of parseTaskCandidates(response)) byId.set(task.targetId, task);
+  }
+  const key = (task: LinkCandidate) => task.dateText ?? "9999-99-99";
+  return [...byId.values()].sort((a, b) => key(a).localeCompare(key(b))).slice(0, CANDIDATE_MAX);
+}
+
+/** 続きがあるときの次のcursor。無ければnull。 */
+export function nextTaskCursor(response: unknown): string | null {
+  const root = record(response);
+  return root?.hasMore === true && typeof root.nextCursor === "string" && root.nextCursor !== "" ? root.nextCursor : null;
+}
+
 /** 作成の応答（`aide_create_event`／`aide_create_task`）から、作ったもののidを探す。無ければnull。 */
 export function createdIdFrom(kind: LinkKind, json: Record<string, unknown>): { targetId: string; calendarId: string | null } | null {
   const holders = [json, record(json.event), record(json.task), record(json.data), record(json.result)].filter((h): h is Record<string, unknown> => h !== null);

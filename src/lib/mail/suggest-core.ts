@@ -6,6 +6,7 @@ import { normalizeLinkTarget, type LinkTarget } from "@/lib/mail/link-core";
 import { paymentBlocker, type PaymentItem } from "@/lib/mail/payment-receipt";
 import type { SubscriptionFields } from "@/lib/mail/subscription-link";
 import { guessCarrier, isCarrier, normalizeTrackingNumber, type TrackingFields } from "@/lib/mail/tracking-link";
+import { isAttachableTracking, trackingMemoLines } from "@/lib/mail/tracking-task";
 import { flattenText } from "@/lib/mail/triage-core";
 
 /**
@@ -73,6 +74,8 @@ export type TaskFields = {
   /** 予定日の時刻 `HH:MM`。メモの先頭に書く（#907）。予定日があるときだけ。 */
   plannedTime: string | null;
   memo: string;
+  /** メモに入れる追跡番号（#1211）。モデルの返答には無く、画面が同じメールの追跡の提案から載せる。 */
+  tracking?: TrackingFields;
 };
 export type EventFields = {
   title: string;
@@ -169,6 +172,7 @@ export const SUGGEST_RULES: readonly string[] = [
 export const SUGGEST_LINK_RULES: readonly string[] = [
   "link: 既存の予定・タスクに紐づける。「既存の予定・タスク」の一覧に、このメールの内容と同じ用件のものがあるときだけ出す（例: 再配達の通知と「荷物受け取り」のタスク）。kind は task か event、targetId・calendarId は一覧の値をそのまま写す（一覧に無いものは出さない・推測しない）",
   "link を出したときは、同じ用件の task・event（新しく作る提案）は出さない。link を recommended にしてよい。tracking など別の用件の提案は従来どおり出す",
+  "tracking を出すとき、一覧に同じ荷物（品名・注文が合う）の受け取りのタスクがあれば、その targetId を tracking の fields.taskId に入れる。確かでなければ入れない",
 ];
 
 /** 紐づけの出力の見本（プロンプト用）。 */
@@ -278,6 +282,8 @@ function taskFields(raw: Record<string, unknown>): TaskFields | null {
   const title = text(raw.title, TITLE_LIMIT);
   if (title === "") return null;
   const due = validDate(raw.due);
+  const attached = record(raw.tracking);
+  const tracking = attached ? trackingFields({ carrier: attached.carrier, number: attached.number }) : null;
   const planned = validDate(raw.planned);
   return {
     title,
@@ -286,6 +292,8 @@ function taskFields(raw: Record<string, unknown>): TaskFields | null {
     planned,
     plannedTime: planned ? validTime(raw.plannedTime) : null,
     memo: text(raw.memo, MEMO_LIMIT),
+    // 桁の合う番号だけ載せる（#1211）
+    ...(tracking && isAttachableTracking(tracking) ? { tracking } : {}),
   };
 }
 
@@ -337,7 +345,8 @@ function trackingFields(raw: Record<string, unknown>): TrackingFields | null {
   if (number === "") return null;
   // 会社が読めなかった回も、番号の形で決められるときだけ補う（12桁などは画面で選ばせる）
   const carrier = isCarrier(raw.carrier) ? raw.carrier : guessCarrier(number);
-  return { carrier, number };
+  const taskId = typeof raw.taskId === "string" && /^[!-~]{1,120}$/.test(raw.taskId) ? raw.taskId : null;
+  return { carrier, number, ...(taskId ? { taskId } : {}) };
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -452,16 +461,16 @@ export function toolCallFor(suggestion: Suggestion, mail: MailRef, userId: strin
   // 紐づけはMorrowの控えに保存するだけで、AIDEの道具は呼ばない（`applyFlow()` が先に扱う。#1029）
   if (suggestion.kind === "link") return { ok: false, reason: "紐づけはAIDEの道具を呼びません。" };
   if (suggestion.kind === "task") {
-    const { title, due, dueTime, planned, plannedTime, memo } = suggestion.fields;
+    const { title, due, dueTime, planned, plannedTime, memo, tracking } = suggestion.fields;
     // 時刻があれば、タイムゾーン付きの日時（+09:00）で送る（aide#857。タイムゾーン無しはAIDEが断る）。#907のメモへの回避は撤去した
     const withTime = (day: string | null, time: string | null) => (day ? (time ? `${day}T${time}:00+09:00` : day) : null);
     const dueValue = withTime(due, dueTime);
     const plannedValue = withTime(planned, plannedTime);
-    const note = [memo, `メール: ${flattenText(mail.subject, 80) || "（件名なし）"}（${flattenText(mail.from, 60)}）`, `Morrowで開く: /mail/${encodeURIComponent(mail.messageId)}`]
+    const note = [memo, ...(tracking ? trackingMemoLines(tracking) : []), `メール: ${flattenText(mail.subject, 80) || "（件名なし）"}（${flattenText(mail.from, 60)}）`, `Morrowで開く: /mail/${encodeURIComponent(mail.messageId)}`]
       .filter((line) => line !== "")
       .join(MEMO_JOIN);
     // 同じメールから同じ内容を二度作らない（再送でも同じキー）
-    const key = createHash("sha256").update(`${userId}\n${mail.messageId}\ntask\n${title}\n${due ?? ""}\n${dueTime ?? ""}\n${planned ?? ""}\n${plannedTime ?? ""}`).digest("hex").slice(0, 40);
+    const key = createHash("sha256").update(`${userId}\n${mail.messageId}\ntask\n${title}\n${due ?? ""}\n${dueTime ?? ""}\n${planned ?? ""}\n${plannedTime ?? ""}${tracking ? `\n${tracking.number}` : ""}`).digest("hex").slice(0, 40);
     return { ok: true, tool: "aide_create_task", args: { title, ...(dueValue ? { due: dueValue } : {}), ...(plannedValue ? { planned: plannedValue } : {}), memo: note, idempotencyKey: `morrow-mail-${key}` } };
   }
   if (suggestion.kind === "event") {

@@ -67,7 +67,7 @@ Hermesが台帳へ触れる経路はAIDEのMCP（`https://aide.gucchii.com/mcp`�
 | 道具 | 取り消し方 | 二重実行の防止 |
 |---|---|---|
 | `aide_create_task` | 完了・スキップ（または画面で削除） | `idempotencyKey`（AIDE側で必須） |
-| `aide_update_task` | もう一度更新（前の値は直前の `aide_get_task` の結果にある） | `version`（409）＋`idempotencyKey` |
+| `aide_update_task` | もう一度更新（前の値は直前の `aide_get_task` の結果にある） | `version`（409。`idempotencyKey` の引数は無い） |
 | `aide_complete_task`・`aide_reopen_task`・`aide_skip_task`・`aide_unskip_task` | 対になる道具 | `idempotencyKey` |
 | `aide_create_travel` | DaySpanの画面で削除 | `idempotencyKey`・`duplicate` |
 | `aide_create_event` | `aide_delete_event`（承認つき）・画面 | **無い**（下の「二重実行」） |

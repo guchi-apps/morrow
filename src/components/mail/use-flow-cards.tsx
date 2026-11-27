@@ -5,9 +5,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { FlowSheet, type CardResult } from "@/components/mail/flow-sheet";
 import type { CalendarChoice } from "@/lib/mail/link-core";
+import type { TrackingTaskTarget } from "@/components/mail/tracking-task-section";
+import { linkAppUrl, taskOpenUrl } from "@/lib/mail/app-links";
 import { receiptUrl } from "@/lib/mail/payment-receipt";
 import type { Suggestion } from "@/lib/mail/suggest-core";
 import { matchQueryOf, type SubscriptionMatch } from "@/lib/mail/subscription-match-core";
+import type { TrackingFields } from "@/lib/mail/tracking-link";
+import { isAttachableTracking } from "@/lib/mail/tracking-task";
 
 /**
  * 提案の行（分析 #766・指示 #784）の状態と、押したときのハーフモーダル（`FlowSheet`）。1通のメールの画面に1つ。
@@ -17,7 +21,16 @@ import { matchQueryOf, type SubscriptionMatch } from "@/lib/mail/subscription-ma
  * 識別子は呼び出し側が付ける（分析は `a-<n>`、指示は `c<返事の番号>-<n>`）。二重登録は `/apply` の冪等キー・`gmailMessageId` が止める。
  */
 
-export type FlowRow = { card: Suggestion; recommended: boolean };
+export type FlowRow = { card: Suggestion; recommended: boolean; /** タスクのメモに追跡番号を入れない（#1211。既定は入れる）。 */ skipTracking?: boolean };
+
+/** 同じ返答（分析・指示の返事1件）の追跡の提案のうち、タスクのメモに入れられる番号（#1211）。 */
+function attachableTracking(rows: Record<string, FlowRow>, rowId: string): TrackingFields | null {
+  const prefix = rowId.slice(0, rowId.indexOf("-") + 1);
+  for (const [id, { card }] of Object.entries(rows)) {
+    if (id.startsWith(prefix) && card.kind === "tracking" && isAttachableTracking(card.fields)) return { carrier: card.fields.carrier, number: card.fields.number };
+  }
+  return null;
+}
 
 export function useFlowCards(mailId: string) {
   const router = useRouter();
@@ -136,7 +149,10 @@ export function useFlowCards(mailId: string) {
    * `/apply` を1回呼ぶ（家計簿のタブは扱わない）。まとめて登録（#1051）と行ごとの登録の共通部分。
    * HTTP・通信の失敗はここで行に表示し `data: null` を返す。`ok` は登録できたとき真。
    */
-  async function applyOne(rowId: string, card: Suggestion): Promise<{ ok: boolean; data: ApplyResponse | null }> {
+  async function applyOne(rowId: string, raw: Suggestion): Promise<{ ok: boolean; data: ApplyResponse | null }> {
+    // タスクには、同じメールの追跡番号をメモに入れる（#1211。シートで外せる）
+    const tracking = raw.kind === "task" && !raw.fields.tracking && !rows[rowId]?.skipTracking ? attachableTracking(rows, rowId) : null;
+    const card: Suggestion = raw.kind === "task" && tracking ? { ...raw, fields: { ...raw.fields, tracking } } : raw;
     try {
       const response = await fetch("/api/mail/flow/apply", {
         method: "POST",
@@ -228,9 +244,61 @@ export function useFlowCards(mailId: string) {
     }
   }
 
+  /** 追跡番号を既存タスクのメモに追記する（#1211）。結果は追跡の行に出す。 */
+  async function appendTracking(rowId: string, target: TrackingTaskTarget) {
+    const card = rows[rowId]?.card;
+    if (card?.kind !== "tracking") return;
+    setRunning(rowId);
+    try {
+      const response = await fetch("/api/mail/flow/tracking-task", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: mailId, taskId: target.taskId, carrier: card.fields.carrier, number: card.fields.number }),
+      });
+      const data = (await response.json().catch(() => null)) as ApplyResponse | null;
+      if (!response.ok) {
+        setOutcomes((o) => ({ ...o, [rowId]: { text: data?.error ?? `追記できませんでした（HTTP ${response.status}）。`, error: true, done: false } }));
+        return;
+      }
+      setOutcomes((o) => ({ ...o, [rowId]: { text: data?.message ?? "追記しました。", error: false, done: true, href: linkAppUrl("task", target.dateText) } }));
+      router.refresh();
+    } catch {
+      setOutcomes((o) => ({ ...o, [rowId]: { text: "追記できたか分かりません（通信できませんでした）。タスクを確かめてください。", error: true, done: false } }));
+    } finally {
+      setRunning(null);
+    }
+  }
+
+  /** 追跡番号を入れた新しいタスクを作る（#1211）。作る経路はタスクの提案と同じ `/apply`。 */
+  async function createTrackingTask(rowId: string, title: string, planned: string | null) {
+    const card = rows[rowId]?.card;
+    if (card?.kind !== "tracking") return;
+    const task: Suggestion = {
+      kind: "task",
+      reason: "",
+      confidence: card.confidence,
+      fields: { title, due: null, dueTime: null, planned, plannedTime: null, memo: "", tracking: { carrier: card.fields.carrier, number: card.fields.number } },
+    };
+    setRunning(rowId);
+    try {
+      const { ok, data } = await applyOne(rowId, task);
+      if (!data) return;
+      setOutcomes((o) => ({ ...o, [rowId]: { text: data.message ?? "実行しました。", error: !ok, done: ok, href: ok ? taskOpenUrl(task.fields) : undefined } }));
+      if (ok) router.refresh();
+    } finally {
+      setRunning(null);
+    }
+  }
+
   const openRow = open ? rows[open] : undefined;
   const sheet = (
     <FlowSheet
+      mailId={mailId}
+      attachable={open && openRow?.card.kind === "task" ? attachableTracking(rows, open) : null}
+      attach={!openRow?.skipTracking}
+      onToggleAttach={(on) => open && setRows((current) => (current[open] ? { ...current, [open]: { ...current[open], skipTracking: !on } } : current))}
+      onAppendTracking={(target) => open && void appendTracking(open, target)}
+      onCreateTrackingTask={(title, planned) => open && void createTrackingTask(open, title, planned)}
       card={openRow?.card ?? null}
       recommended={openRow?.recommended ?? false}
       outcome={open ? outcomes[open] : undefined}

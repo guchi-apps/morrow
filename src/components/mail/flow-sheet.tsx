@@ -9,7 +9,8 @@ import type { PaymentFields, Suggestion, SuggestKind } from "@/lib/mail/suggest-
 import { ASSET_MANAGER_SUBSCRIPTIONS_URL, subscriptionLink } from "@/lib/mail/subscription-link";
 import type { RegisteredSubscription, SubscriptionMatch } from "@/lib/mail/subscription-match-core";
 import { differingInvoiceAmount, registeredDetails, registeredSummary } from "@/lib/mail/subscription-match-view";
-import { CARRIERS, CARRIER_LABELS, trackingBlocker, trackingUrl } from "@/lib/mail/tracking-link";
+import { CARRIERS, CARRIER_LABELS, trackingBlocker, trackingUrl, type TrackingFields } from "@/lib/mail/tracking-link";
+import { TrackingTaskSection, type TrackingTaskTarget } from "@/components/mail/tracking-task-section";
 import { cn } from "@/lib/utils";
 
 /**
@@ -35,7 +36,14 @@ import type { ReceiptState } from "@/lib/mail/flow-record-core";
 export type CardResult = { text: string; error: boolean; done: boolean; /** 家計簿の確認待ち（pending）・取り込み済み（duplicate）。確定したかは分からないので、doneのまま行は「登録済み」にしない（#821） */ receipt?: ReceiptState; href?: string };
 
 type Props = {
+  mailId: string;
   card: Suggestion | null;
+  /** タスクのシートで「追跡番号もメモに入れる」を出すときの番号（同じメールの追跡の提案。#1211）。 */
+  attachable: TrackingFields | null;
+  attach: boolean;
+  onToggleAttach: (on: boolean) => void;
+  onAppendTracking: (target: TrackingTaskTarget) => void;
+  onCreateTrackingTask: (title: string, planned: string | null) => void;
   recommended: boolean;
   outcome: CardResult | undefined;
   /** サブスク提案のAsset Managerとの照合結果（#884）。未取得はundefined。 */
@@ -146,7 +154,7 @@ function OptionalDateTime({ label, dateKey, timeKey, fields, onEdit }: { label: 
   );
 }
 
-export function FlowSheet({ card, recommended, outcome, match, onChangeLink, calendars, running, onEdit, onRun, onOpenSubscription, onClose }: Props) {
+export function FlowSheet({ mailId, card, attachable, attach, onToggleAttach, onAppendTracking, onCreateTrackingTask, recommended, outcome, match, onChangeLink, calendars, running, onEdit, onRun, onOpenSubscription, onClose }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -279,6 +287,18 @@ export function FlowSheet({ card, recommended, outcome, match, onChangeLink, cal
                 <Field label="メモ" className="col-span-2">
                   <textarea rows={2} className={textarea} value={String(f.memo ?? "")} onChange={(e) => onEdit("task", "memo", e.target.value)} />
                 </Field>
+                {attachable && (
+                  <label className="col-span-2 flex items-start gap-2 text-xs">
+                    <input type="checkbox" checked={attach} disabled={outcome?.done === true} onChange={(e) => onToggleAttach(e.target.checked)} className="mt-0.5 size-4 accent-accent" />
+                    <span className="min-w-0 break-words">
+                      追跡番号もメモに入れる
+                      <span className="block text-[0.6875rem] text-muted">
+                        {attachable.carrier ? `${CARRIER_LABELS[attachable.carrier]} ` : ""}
+                        {attachable.number}
+                      </span>
+                    </span>
+                  </label>
+                )}
               </>
             )}
             {card.kind === "event" && (
@@ -322,7 +342,10 @@ export function FlowSheet({ card, recommended, outcome, match, onChangeLink, cal
           {card.kind === "payment" ? (
             <PaymentActions card={card} outcome={outcome} running={running} onRun={onRun} fallback={app} />
           ) : card.kind === "tracking" ? (
-            <TrackingActions card={card} />
+            <>
+              <TrackingActions card={card} />
+              <TrackingTaskSection mailId={mailId} tracking={card.fields} outcome={outcome} running={running} onAppend={onAppendTracking} onCreate={onCreateTrackingTask} />
+            </>
           ) : card.kind === "link" ? (
             <>
               <button type="button" disabled={running || outcome?.done === true} onClick={() => onRun(card)} className={primary}>
@@ -538,7 +561,7 @@ function TrackingActions({ card }: { card: Extract<Suggestion, { kind: "tracking
           {copied ? "番号をコピーしました" : "追跡番号をコピー"}
         </button>
       )}
-      <p className="text-center text-[0.6875rem] text-muted">番号を入れた状態で配送会社のサイトが開きます。Morrowには保存しません（iPhoneのMorrowアプリでは外部のブラウザで開きます）。</p>
+      <p className="text-center text-[0.6875rem] text-muted">番号を入れた状態で配送会社のサイトが開きます（iPhoneのMorrowアプリでは外部のブラウザで開きます）。</p>
     </>
   );
 }
