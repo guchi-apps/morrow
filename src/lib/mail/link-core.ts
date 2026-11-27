@@ -135,17 +135,26 @@ function taskRows(json: unknown): Record<string, unknown>[] {
   return [];
 }
 
-/** `aide_tasks` の応答から、紐づけの候補になるタスクを集める。 */
-export function parseTaskCandidates(json: unknown): LinkCandidate[] {
-  const out: LinkCandidate[] = [];
+/** `aide_tasks` の1件（idと題名が読めたものだけ）。期限（`due`）と予定日（`planned`）は分けて持つ。 */
+export type OpenTaskRow = { id: string; title: string; due: string | null; planned: string | null };
+
+/** `aide_tasks` の応答から、idと題名の読めるタスクを並び順のまま集める（件数の上限なし）。 */
+export function parseTaskRows(json: unknown): OpenTaskRow[] {
+  const out: OpenTaskRow[] = [];
   for (const row of taskRows(json)) {
-    const targetId = idOf(row.taskId) ?? idOf(row.id);
+    const id = idOf(row.taskId) ?? idOf(row.id);
     const title = text(row.title, TITLE_LIMIT) || text(row.name, TITLE_LIMIT);
-    if (!targetId || !title) continue;
-    out.push({ kind: "task", targetId, calendarId: null, title, dateText: dateOf(row.due) ?? dateOf(row.planned), time: null });
-    if (out.length >= CANDIDATE_MAX) break;
+    if (!id || !title) continue;
+    out.push({ id, title, due: dateOf(row.due), planned: dateOf(row.planned) });
   }
   return out;
+}
+
+/** `aide_tasks` の応答から、紐づけの候補になるタスクを集める。 */
+export function parseTaskCandidates(json: unknown): LinkCandidate[] {
+  return parseTaskRows(json)
+    .slice(0, CANDIDATE_MAX)
+    .map((row) => ({ kind: "task", targetId: row.id, calendarId: null, title: row.title, dateText: row.due ?? row.planned, time: null }));
 }
 
 /**

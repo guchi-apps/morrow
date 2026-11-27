@@ -138,13 +138,21 @@ async function openTaskPages(server: ConnectedServer, dateField: (typeof TASK_DA
   return pages;
 }
 
+/**
+ * 未完了のタスクを `dateField` 3通り（期限あり・予定日だけ・どちらも無し）で取り、応答を並べて返す。
+ * 同じタスクが複数の応答に出うるので、使う側でidで1件にまとめる。チャットの今日の状態（#1212）も同じ取り方を使う。
+ */
+export async function fetchOpenTaskResponses(server: ConnectedServer): Promise<unknown[]> {
+  const pages = await Promise.all(TASK_DATE_FIELDS.map((dateField) => openTaskPages(server, dateField)));
+  return pages.flat();
+}
+
 /** タスクの候補: 未完了のもの。 */
 export async function taskCandidates(userId: string): Promise<CandidateResult> {
   const server = await connectedServerFor(userId, "aide");
   if (!server) return { ok: false, kind: "unconfigured", message: "AIDEが接続されていません。設定の接続から繋いでください。" };
   try {
-    const pages = await Promise.all(TASK_DATE_FIELDS.map((dateField) => openTaskPages(server, dateField)));
-    return { ok: true, items: mergeTaskCandidates(pages.flat()) };
+    return { ok: true, items: mergeTaskCandidates(await fetchOpenTaskResponses(server)) };
   } catch (error) {
     console.error("[aide-bot] 紐づけ候補（タスク）の取得に失敗した", error instanceof Error ? error.message : error);
     return { ok: false, kind: "failed", message: failureMessage(error, "タスクを取得できませんでした。時間をおいて試してください。") };
