@@ -47,6 +47,7 @@ import {
   initialChatState,
   RELAY_EVENT_TYPES,
   restoreFromHistory,
+  sentImageSrc,
   startTurn,
   updateProposal,
   type ChatState,
@@ -505,7 +506,7 @@ export function ChatView({ userId, initialPending, openSessionId }: Props) {
       endedRef.current = false;
       // ターンIDはヘッダーで本文より先に届く。最初のイベント前の「止める」でもinterruptを送れる（#1005）
       turnRef.current = readTurnIdHeader(response.headers);
-      setChat((s) => startTurn(s, text, Date.now(), sentImages.length));
+      setChat((s) => startTurn(s, text, Date.now(), sentImages.map((image) => sentImageSrc(image.data))));
       attachments.release(sentImages);
       try {
         await consume(response.body);

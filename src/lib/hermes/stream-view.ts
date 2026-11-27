@@ -31,7 +31,18 @@ export const RELAY_EVENT_TYPES: ReadonlySet<string> = new Set<BridgeEventType | 
 ]);
 
 export type ChatItem =
-  | { kind: "user"; id: number; text: string; /** 添付した画像の枚数（#1157。画像そのものは持たない）。 */ images?: number }
+  | {
+      kind: "user";
+      id: number;
+      text: string;
+      /** 添付した画像の枚数（#1157）。 */
+      images?: number;
+      /**
+       * 送った画像の `data:` URL（#1219）。この画面のメモリにだけ持つ（Morrowのサーバー・端末の保存領域には残さない）。
+       * 再読み込み・履歴の復元では無いので、枚数（`images`）だけが残る。
+       */
+      imageSrcs?: string[];
+    }
   | { kind: "assistant"; id: number; text: string; done: boolean }
   | {
       kind: "tool";
@@ -131,9 +142,23 @@ function replaceAt(state: ChatState, index: number, item: ChatItem): ChatState {
   return { ...state, items };
 }
 
-/** 利用者の指示を送った（接続できたあと）。 */
-export function startTurn(state: ChatState, text: string, now: number = Date.now(), images: number = 0): ChatState {
-  return { ...push(state, (id) => ({ kind: "user", id, text, ...(images > 0 ? { images } : {}) })), running: true, turnId: null, activityAt: now };
+/**
+ * 利用者の指示を送った（接続できたあと）。`images` は枚数か、送った画像の `data:` URL の並び（#1219。画面に出す）。
+ */
+export function startTurn(state: ChatState, text: string, now: number = Date.now(), images: number | readonly string[] = 0): ChatState {
+  const srcs = typeof images === "number" ? [] : [...images];
+  const count = typeof images === "number" ? images : srcs.length;
+  return {
+    ...push(state, (id) => ({ kind: "user", id, text, ...(count > 0 ? { images: count } : {}), ...(srcs.length > 0 ? { imageSrcs: srcs } : {}) })),
+    running: true,
+    turnId: null,
+    activityAt: now,
+  };
+}
+
+/** 送る前の画像（base64のJPEG。#1157で端末が縮めたもの）を、発言に出す `data:` URLにする（#1219）。 */
+export function sentImageSrc(base64: string): string {
+  return `data:image/jpeg;base64,${base64}`;
 }
 
 /** 生成中の吹き出しを閉じる（道具・承認など別の要素が挟まるとき）。 */
