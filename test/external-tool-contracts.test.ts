@@ -52,6 +52,23 @@ const SCHEMAS: Record<string, Schema> = {
       offsetDays: { type: "integer", min: -31, max: 90 },
     },
   },
+  // #1211。2026-11-27に `tools/list`（コネクタ）と ~/apps/aide の src/mcp/tools/tasks.ts で確認。`idempotencyKey` の引数は無い
+  aide_get_task: { props: { taskId: { type: "string" } }, required: ["taskId"] },
+  aide_update_task: {
+    props: {
+      taskId: { type: "string" },
+      version: { type: "string" },
+      memo: { type: "nullable-string", maxLength: 2000 },
+      title: { type: "string" },
+      due: { type: "nullable-string" },
+      planned: { type: "nullable-string" },
+      priority: { type: "nullable-string" },
+      progress: { type: "nullable-integer", min: 0, max: 100 },
+      recurrence: { type: "nullable-string" },
+      tags: { type: "array" },
+    },
+    required: ["taskId", "version"],
+  },
   aide_weather: { props: {} },
   aide_balances: { props: {} },
   asset_manager_subscriptions: {
@@ -270,9 +287,17 @@ describe("読み取りの呼び出し（引数は入力の範囲内）", () => {
   it("メールのサブスク提案の照合（#884。引数なし＝解約済みを除く全件）", () => {
     assertValid("asset_manager_subscriptions", {});
   });
-  it("メールの紐づけ候補（予定は前後2週間・タスクは未完了60件）", () => {
+  it("メールの紐づけ候補（予定は前後2週間・タスクは期限・予定日・日付なしの未完了。#1211）", () => {
     assertValid("aide_schedule", { offsetDays: -7, days: 14 });
-    assertValid("aide_tasks", { status: "open", limit: 60 });
+    for (const dateField of ["due", "planned", "none"]) {
+      assertValid("aide_tasks", { status: "open", dateField, limit: 100 });
+      assertValid("aide_tasks", { status: "open", dateField, limit: 100, cursor: "s:1" });
+    }
+  });
+  it("追跡番号の追記（#1211。読み直してから taskId・version・memo だけを書く）", () => {
+    assertValid("aide_get_task", { taskId: "t1" });
+    assertValid("aide_update_task", { taskId: "t1", version: "2026-11-22T11:23:00.000Z", memo: "追跡番号: 370051273292" });
+    assert.ok(violations(SCHEMAS.aide_update_task, { taskId: "t1", version: "v", memo: "m", idempotencyKey: "k" }).length > 0);
   });
   it("チャットに添える今日の状態（#1149。予定は今日から3日ぶん・タスクは未完了60件）", () => {
     assertValid("aide_schedule", { days: 3 });

@@ -74,7 +74,8 @@ describe("parseTaskCandidates", () => {
  * AIDE MCP `aide_tasks` の契約（#853。2026-11-09にAIDEの実物を読み取りで呼んで確認）。
  * 入力: `status`（open / completed / skipped）・`limit`（1〜100）・`cursor`・`dateField`・`from`・`to`。
  * 応答: `tasks[].{id, title, due, planned, …}`・`hasMore`・`nextCursor`。
- * `link.ts` の呼び出し引数 `{ status: "open", limit: 60 }` は入力の範囲内。
+ * `link.ts` の呼び出し引数は #1211 から `dateField` 3通り・`limit: 100`・続きの `cursor`（`external-tool-contracts` が固定する）。
+ * `{ status: "open", limit: 60 }` はチャットに添える今日の状態（`today-context.ts`）が使う。
  */
 describe("aide_tasks の契約（#853）", () => {
   const CALL_ARGS = { status: "open", limit: 60 } as const;
@@ -101,7 +102,7 @@ describe("aide_tasks の契約（#853）", () => {
       ["task", "task-3", "日付なし", null, null],
     ]);
   });
-  it("hasMore: true でも先頭ページだけを候補にする（cursorは辿らない）", () => {
+  it("1回の応答の読み取りは hasMore に依らない（cursorを辿るのは呼び出し側。#1211）", () => {
     const items = parseTaskCandidates({ ...RESPONSE, hasMore: true, nextCursor: "abc" });
     assert.equal(items.length, 3);
   });

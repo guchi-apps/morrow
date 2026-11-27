@@ -4,7 +4,7 @@ import { KIND_META } from "@/components/mail/flow-sheet";
 import { itemsTotal } from "@/lib/mail/payment-receipt";
 import type { ReceiptState } from "@/lib/mail/flow-record-core";
 import type { Suggestion } from "@/lib/mail/suggest-core";
-import { registeredSummary } from "@/lib/mail/subscription-match-view";
+import { differingInvoiceAmount, registeredSummary } from "@/lib/mail/subscription-match-view";
 import type { SubscriptionMatch } from "@/lib/mail/subscription-match-core";
 import { linkTargetLabel } from "@/lib/mail/link-core";
 import { CARRIER_LABELS } from "@/lib/mail/tracking-link";
@@ -16,6 +16,7 @@ export function FlowRowButton({ card, recommended, registered, receipt = null, m
   const found = match?.status === "matched" ? match.matches : null;
   // Asset Managerに同じ項目（サブスク・家計簿の定期払い。#884・#896）があれば、読み取った値より登録内容を出す
   const preview = found?.length === 1 ? registeredSummary(found[0]) : cardPreview(card);
+  const invoice = found?.length === 1 ? differingInvoiceAmount(card, found[0]) : null;
   return (
     <button
       type="button"
@@ -33,10 +34,10 @@ export function FlowRowButton({ card, recommended, registered, receipt = null, m
         <span className="flex flex-wrap items-center gap-1.5 font-bold">
           {meta.title}
           {recommended && <span className="rounded-full bg-accent px-2 py-0.5 text-[0.625rem] font-bold text-accent-foreground">おすすめ</span>}
-          {registered && <span className="rounded-full bg-fair-surface px-2 py-0.5 text-[0.625rem] font-bold text-fair">{card.kind === "link" ? "紐づけ済み" : "登録済み"}</span>}
+          {registered && <span className="rounded-full bg-fair-surface px-2 py-0.5 text-[0.625rem] font-bold text-fair">{card.kind === "link" ? "紐づけ済み" : card.kind === "tracking" ? "タスクに追加済み" : "登録済み"}</span>}
           {found && (
             <span className="rounded-full bg-fair-surface px-2 py-0.5 text-[0.625rem] font-bold text-fair">
-              {found.length === 1 ? "Asset Managerに登録済み" : `Asset Managerに候補${found.length}件`}
+              {found.length === 1 ? "定期払いに登録あり" : `定期払いに候補${found.length}件`}
               {/* 名前では見つからず金額だけで当てた回（#896）。同じものか確かめてもらう */}
               {match?.status === "matched" && match.by === "amount" && "（金額で照合）"}
               {match?.status === "matched" && match.by === "manual" && "（手動）"}
@@ -44,7 +45,9 @@ export function FlowRowButton({ card, recommended, registered, receipt = null, m
           )}
           {!registered && receipt && <span className="rounded-full bg-accent-surface px-2 py-0.5 text-[0.625rem] font-bold text-accent">{receipt === "pending" ? "確認待ち" : "取り込み済み"}</span>}
         </span>
-        {preview && <span className="truncate opacity-85">{preview}</span>}
+        {/* 定期払いの1行は次回予定まで読めるように折り返す（#1201） */}
+        {preview && <span className={cn("opacity-85", found?.length === 1 ? "break-words" : "truncate")}>{preview}</span>}
+        {invoice && <span className="text-xs font-bold text-amber-700 dark:text-amber-300">今回の請求 {invoice}（登録額と違います）</span>}
         {card.reason && (
           <span className="text-[0.6875rem] text-muted">
             {card.reason}（確度 {card.confidence >= 0.75 ? "高" : card.confidence >= 0.45 ? "中" : "低"}）

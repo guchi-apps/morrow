@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import { matchQueryOf, matchRegistered, matchSubscriptions, normalizeSubscriptionName, parseRegisteredSubscriptions } from "@/lib/mail/subscription-match-core";
 import type { Suggestion } from "@/lib/mail/suggest-core";
-import { registeredDetails, registeredSummary } from "@/lib/mail/subscription-match-view";
+import { differingInvoiceAmount, registeredDetails, registeredSummary } from "@/lib/mail/subscription-match-view";
 
 /**
  * Asset Managerの登録済みサブスクとの照合（#884）。
@@ -111,15 +111,39 @@ describe("matchQueryOf", () => {
 
 describe("表示の整形", () => {
   const jaf = parseRegisteredSubscriptions(response)![0];
-  it("行の1行", () => assert.equal(registeredSummary(jaf), "JAF・4,000円・毎年・次回 12/1"));
+  it("行の1行", () => assert.equal(registeredSummary(jaf), "JAF・登録額 4,000円・毎年・次回予定 12/1"));
   it("詳細の項目", () => {
     assert.deepEqual(registeredDetails(jaf).map((r) => [r.label, r.value]), [
-      ["1回あたりの金額", "4,000円"],
+      ["定期払いの登録額", "4,000円"],
       ["請求サイクル", "毎年12月1日"],
-      ["次回請求日", "2026/12/01（あと17日）"],
+      ["定期払いの次回予定日", "2026/12/01（あと17日）"],
       ["支払方法", "三井住友ゴールドカード VISA"],
       ["契約開始日", "2025/12/01"],
       ["ラベル", "車"],
     ]);
+  });
+});
+
+describe("今回の請求と登録額の違い（#1201）", () => {
+  const jaf = parseRegisteredSubscriptions(response)![0];
+  const usd = { ...jaf, amount: 10, currency: "USD" as const };
+  const sub = (amount: number | null, currency: "JPY" | "USD"): Suggestion =>
+    ({ kind: "subscription", reason: "", confidence: 1, fields: { name: "JAF", amount, currency, cycle: "YEARLY", day: 1, startDate: null } });
+  const pay = (amount: number | null, originalAmount: number | null = null, originalCurrency: string | null = null): Suggestion =>
+    ({ kind: "payment", reason: "", confidence: 1, fields: { place: "JAF", name: "", amount, date: null, time: null, items: [], usage: null, originalAmount, originalCurrency } });
+  it("違えば請求額を、同じ・金額なしならnull", () => {
+    assert.equal(differingInvoiceAmount(pay(6234), jaf), "6,234円");
+    assert.equal(differingInvoiceAmount(sub(5000, "JPY"), jaf), "5,000円");
+    assert.equal(differingInvoiceAmount(pay(4000), jaf), null);
+    assert.equal(differingInvoiceAmount(pay(null), jaf), null);
+  });
+  it("USDはドルで出す", () => {
+    assert.equal(differingInvoiceAmount(sub(12, "USD"), usd), "12ドル");
+    assert.equal(differingInvoiceAmount(pay(1800, 12, "usd"), usd), "12ドル");
+  });
+  it("通貨が違うときは比べない", () => {
+    assert.equal(differingInvoiceAmount(sub(12, "USD"), jaf), null);
+    assert.equal(differingInvoiceAmount(pay(1800, 12, "USD"), jaf), null);
+    assert.equal(differingInvoiceAmount(pay(1800), usd), null);
   });
 });

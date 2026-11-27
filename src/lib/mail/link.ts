@@ -1,10 +1,12 @@
 import { db } from "@/lib/db";
 import { callToolJson, connectedServerFor, McpCallError } from "@/lib/mcp/direct-call";
+import type { ConnectedServer } from "@/lib/mcp/connections";
 import { MISSING_SCOPE_REASON } from "@/lib/mcp/tool-error";
 
 import {
   parseEventCandidates,
-  parseTaskCandidates,
+  mergeTaskCandidates,
+  nextTaskCursor,
   linkKey,
   type LinkCandidate,
   type LinkKind,
@@ -116,13 +118,33 @@ export async function eventCandidates(userId: string): Promise<CandidateResult> 
   }
 }
 
+/**
+ * `aide_tasks` は `dateField` を省くと期限のあるタスクしか返さない（YoteiFlowの既定が `due`。#1211）ので、3通りを取って合わせる。
+ * また1ページは絞り込み前の件数なので、続き（`hasMore`）を辿る（上限つき）。
+ */
+const TASK_DATE_FIELDS = ["due", "planned", "none"] as const;
+const TASK_PAGE_MAX = 5;
+
+async function openTaskPages(server: ConnectedServer, dateField: (typeof TASK_DATE_FIELDS)[number]): Promise<unknown[]> {
+  const pages: unknown[] = [];
+  let cursor: string | null = null;
+  do {
+    const json: Record<string, unknown> = await callToolJson(server, "aide_tasks", { status: "open", dateField, limit: 100, ...(cursor ? { cursor } : {}) });
+    // 道具の失敗（`ok: false`）を「0件」と混ぜない
+    if (json.ok === false) throw new McpCallError("aide_tasks が失敗を返しました");
+    pages.push(json);
+    cursor = nextTaskCursor(json);
+  } while (cursor && pages.length < TASK_PAGE_MAX);
+  return pages;
+}
+
 /** タスクの候補: 未完了のもの。 */
 export async function taskCandidates(userId: string): Promise<CandidateResult> {
   const server = await connectedServerFor(userId, "aide");
   if (!server) return { ok: false, kind: "unconfigured", message: "AIDEが接続されていません。設定の接続から繋いでください。" };
   try {
-    const json = await callToolJson(server, "aide_tasks", { status: "open", limit: 60 });
-    return { ok: true, items: parseTaskCandidates(json) };
+    const pages = await Promise.all(TASK_DATE_FIELDS.map((dateField) => openTaskPages(server, dateField)));
+    return { ok: true, items: mergeTaskCandidates(pages.flat()) };
   } catch (error) {
     console.error("[aide-bot] 紐づけ候補（タスク）の取得に失敗した", error instanceof Error ? error.message : error);
     return { ok: false, kind: "failed", message: failureMessage(error, "タスクを取得できませんでした。時間をおいて試してください。") };

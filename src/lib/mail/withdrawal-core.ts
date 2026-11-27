@@ -174,7 +174,11 @@ export type CardWithdrawalItem = {
   cardName: string;
   bankName: string | null;
   paymentDate: string;
-  amountJpy: number;
+  /**
+   * 請求額。応答の `billedAmountJpy`、無ければ（Asset Managerが#1653より前）`amountJpy`。
+   * #1653以降の `amountJpy` は引き落とし済みを引いた残りなので、メールの額とは比べない（#1204）。
+   */
+  billedAmountJpy: number;
   estimatedAmountJpy: number | null;
   source: "estimate" | "confirmed";
   confirmationSourceKey: string | null;
@@ -195,7 +199,7 @@ export function parseCardWithdrawals(json: Record<string, unknown>): CardWithdra
       cardName: r.cardName,
       bankName: typeof r.bankName === "string" ? r.bankName : null,
       paymentDate: r.paymentDate as string,
-      amountJpy: r.amountJpy,
+      billedAmountJpy: typeof r.billedAmountJpy === "number" && Number.isFinite(r.billedAmountJpy) ? r.billedAmountJpy : r.amountJpy,
       estimatedAmountJpy: typeof r.estimatedAmountJpy === "number" && Number.isFinite(r.estimatedAmountJpy) ? r.estimatedAmountJpy : null,
       source: r.source === "confirmed" ? "confirmed" : "estimate",
       confirmationSourceKey: confirmation && typeof confirmation.sourceKey === "string" ? confirmation.sourceKey : null,
@@ -253,11 +257,11 @@ export function evaluateCardWithdrawal(w: Withdrawal, items: readonly CardWithdr
   if (pool.length > 1) return { status: "none", reason: `${w.date}の見込みが複数あり、どのカードか決められません。` };
   const item = pool[0];
   const key = cardConfirmSourceKey(messageId);
-  if (item.source === "confirmed" && item.confirmationSourceKey === key && item.amountJpy === w.amount) {
-    return { status: "confirmed", cardName: item.cardName, paymentDate: item.paymentDate, amount: item.amountJpy };
+  if (item.source === "confirmed" && item.confirmationSourceKey === key && item.billedAmountJpy === w.amount) {
+    return { status: "confirmed", cardName: item.cardName, paymentDate: item.paymentDate, amount: item.billedAmountJpy };
   }
-  if (item.amountJpy === w.amount) return { status: "match", cardId: item.cardId, cardName: item.cardName, paymentDate: item.paymentDate, amount: item.amountJpy };
-  return { status: "mismatch", cardId: item.cardId, cardName: item.cardName, paymentDate: item.paymentDate, displayedAmount: item.amountJpy, mailAmount: w.amount, source: item.source };
+  if (item.billedAmountJpy === w.amount) return { status: "match", cardId: item.cardId, cardName: item.cardName, paymentDate: item.paymentDate, amount: item.billedAmountJpy };
+  return { status: "mismatch", cardId: item.cardId, cardName: item.cardName, paymentDate: item.paymentDate, displayedAmount: item.billedAmountJpy, mailAmount: w.amount, source: item.source };
 }
 
 /** `asset_manager_confirm_card_withdrawal` へ渡す引数（`test/external-tool-contracts.test.ts` が入力の範囲内であることを固定する）。 */
