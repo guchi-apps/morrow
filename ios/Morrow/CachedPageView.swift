@@ -20,38 +20,50 @@ struct CachedPage: Equatable {
     }
 }
 
-/// 保存済みの画面を読み取り専用で出し、上に状態の帯を付ける。リンクは `open` に渡す
+/// 保存済みの画面を読み取り専用で出し、下端に状態の小さな表示を浮かせる。リンクは `open` に渡す
 /// （保存があればそれを、無ければ通常の読み込みを試す）
+///
+/// 状態の表示は上に積まない（#1235）。上に置くとWebのヘッダーが押し下げられる
 struct CachedPageView: View {
     let page: CachedPage
     let isRetrying: Bool
     let retry: () -> Void
     let open: (URL) -> Void
 
+    /// この幅以上ではWebが下部ナビを出さない（Tailwindの `lg`）
+    private static let wideWidth: CGFloat = 1024
+    /// 下部ナビ（下の隙間10＋高さ54。`mobile-tab-bar.tsx`）の上に8あける
+    private static let aboveTabBar: CGFloat = 72
+
     var body: some View {
-        VStack(spacing: 0) {
-            banner
+        ZStack {
             CachedWebView(page: page, open: open)
                 .ignoresSafeArea(edges: .bottom)
+
+            GeometryReader { geometry in
+                status
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, geometry.size.width >= Self.wideWidth ? 16 : Self.aboveTabBar)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            }
         }
         .background(Color("HeaderBand"))
     }
 
-    private var banner: some View {
+    private var status: some View {
         HStack(spacing: 10) {
             if page.mode == .slow {
                 ProgressView()
             } else {
                 Image(systemName: "wifi.slash").foregroundStyle(.secondary)
             }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(page.mode == .slow ? "読み込み中・保存した内容を表示しています" : "接続できないため、保存した内容を表示しています")
+            VStack(alignment: .leading, spacing: 1) {
+                Text(page.mode == .slow ? "読み込み中" : "接続できません")
                     .font(.footnote.weight(.semibold))
-                Text("最終更新 \(Self.formatted(page.savedAt))")
+                Text("\(Self.formatted(page.savedAt))の内容を表示")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
             if page.mode == .unreachable {
                 Button(action: retry) {
                     Text(isRetrying ? "読み込み中" : "再読み込み").font(.footnote.weight(.semibold))
@@ -59,23 +71,22 @@ struct CachedPageView: View {
                 .buttonStyle(.bordered)
                 .buttonBorderShape(.capsule)
                 .disabled(isRetrying)
+                .padding(.leading, 4)
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity)
-        .background(Color("HeaderBand"))
+        .padding(.vertical, 8)
+        .background(Color(.secondarySystemGroupedBackground), in: Capsule())
+        .overlay(Capsule().strokeBorder(Color(.separator), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.15), radius: 12, y: 6)
     }
 
-    private static let formatter: DateFormatter = {
+    /// 今日の内容は時刻だけ、それより前は日付も出す
+    private static func formatted(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ja_JP")
-        formatter.dateFormat = "M月d日 H:mm"
-        return formatter
-    }()
-
-    private static func formatted(_ date: Date) -> String {
-        formatter.string(from: date)
+        formatter.dateFormat = Calendar.current.isDateInToday(date) ? "H:mm" : "M月d日 H:mm"
+        return formatter.string(from: date)
     }
 }
 
