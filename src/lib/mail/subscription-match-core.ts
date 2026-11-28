@@ -13,8 +13,10 @@ export type RegisteredSubscription = {
   name: string;
   /** 「自動更新中」など。 */
   statusLabel: string;
-  /** 1回あたりの請求額。 */
+  /** 1回あたりの請求額。`variableAmount` の契約では見込み額（請求額と一致しなくてよい。#1221）。 */
   amount: number | null;
+  /** 金額が毎回変わる契約（電気・ガス・水道など。asset-manager#1667）。応答に無ければfalse。 */
+  variableAmount: boolean;
   currency: "JPY" | "USD" | null;
   /** 「毎年12月1日」など、AIDEが整えた請求サイクルの文。 */
   billing: string | null;
@@ -67,6 +69,7 @@ export function parseRegisteredSubscriptions(json: unknown): RegisteredSubscript
       name,
       statusLabel: str(s.statusLabel) ?? "",
       amount: num(s.amount),
+      variableAmount: s.variableAmount === true,
       currency: s.currency === "JPY" || s.currency === "USD" ? s.currency : null,
       billing: str(s.billing),
       billingCycle: s.billingCycle === "MONTHLY" || s.billingCycle === "YEARLY" ? s.billingCycle : null,
@@ -131,6 +134,7 @@ export function matchQueryOf(card: Suggestion): MatchQuery | null {
  * 提案を登録済みの契約と照合する（#896）。名前（並びの順に試し、最初に見つかったもの）を優先し、名前で見つからなければ
  * **円建ての1回あたりの金額が一致する登録がちょうど1件**のときだけ金額で一致とする（KDDIの請求⇔「iPhone15」のように、
  * 請求元と登録名が違う定期払いのため）。複数・外貨・金額不明は当てない（誤りより「見つからない」へ倒す）。
+ * 金額が毎回変わる契約の `amount` は見込み額なので、金額での照合の対象にしない（#1221）。
  */
 export function matchRegistered(query: MatchQuery, registered: RegisteredSubscription[]): SubscriptionMatch {
   for (const name of query.names) {
@@ -138,7 +142,7 @@ export function matchRegistered(query: MatchQuery, registered: RegisteredSubscri
     if (matches.length > 0) return { status: "matched", by: "name", matches };
   }
   if (query.currency === "JPY" && query.amount !== null && Number.isFinite(query.amount) && query.amount > 0) {
-    const same = registered.filter((r) => r.currency === "JPY" && r.amount === query.amount);
+    const same = registered.filter((r) => !r.variableAmount && r.currency === "JPY" && r.amount === query.amount);
     if (same.length === 1) return { status: "matched", by: "amount", matches: same };
   }
   return { status: "none" };
