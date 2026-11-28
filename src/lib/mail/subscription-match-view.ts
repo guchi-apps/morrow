@@ -9,16 +9,18 @@ import type { Suggestion } from "@/lib/mail/suggest-core";
 
 const money = (amount: number, currency: RegisteredSubscription["currency"]) => `${amount.toLocaleString("ja-JP")}${currency === "USD" ? "ドル" : "円"}`;
 
+/** 金額が毎回変わる契約の `amount` は見込み額なので「約」を付ける（#1221）。 */
 export function registeredAmount(r: RegisteredSubscription): string | null {
-  return r.amount === null ? null : money(r.amount, r.currency);
+  if (r.amount === null) return null;
+  return `${r.variableAmount ? "約" : ""}${money(r.amount, r.currency)}`;
 }
 
 /**
  * 今回の請求額が定期払いの登録額と違うときの、請求額の表示（「6,234円」「12ドル」）。同じ・比べられない（金額が無い・
- * 通貨が違う）ならnull。外貨建ての支払いの円換算額は、円の登録額と比べない。
+ * 通貨が違う）ならnull。外貨建ての支払いの円換算額は、円の登録額と比べない。金額が毎回変わる契約は比べない（#1221）。
  */
 export function differingInvoiceAmount(card: Suggestion, r: RegisteredSubscription): string | null {
-  if (r.amount === null || r.currency === null) return null;
+  if (r.variableAmount || r.amount === null || r.currency === null) return null;
   let amount: number | null = null;
   let currency: string | null = null;
   if (card.kind === "subscription") {
@@ -42,13 +44,13 @@ const day = (value: string) => value.replaceAll("-", "/");
 export function registeredSummary(r: RegisteredSubscription): string {
   const next = r.nextBillingDay ? `次回予定 ${Number(r.nextBillingDay.slice(5, 7))}/${Number(r.nextBillingDay.slice(8, 10))}` : null;
   const amount = registeredAmount(r);
-  return [r.name, amount && `登録額 ${amount}`, cycleLabel(r), next].filter((p): p is string => Boolean(p)).join("・");
+  return [r.name, amount && `${r.variableAmount ? "見込み" : "登録額"} ${amount}`, cycleLabel(r), next].filter((p): p is string => Boolean(p)).join("・");
 }
 
 /** 詳細（ハーフモーダル）の項目。値の無い項目は出さない。 */
 export function registeredDetails(r: RegisteredSubscription): { label: string; value: string }[] {
   const rows: { label: string; value: string | null }[] = [
-    { label: "定期払いの登録額", value: registeredAmount(r) },
+    { label: r.variableAmount ? "定期払いの見込み額" : "定期払いの登録額", value: registeredAmount(r) },
     { label: "請求サイクル", value: r.billing ?? cycleLabel(r) },
     { label: "定期払いの次回予定日", value: r.nextBillingDay ? `${day(r.nextBillingDay)}${r.daysUntilNextBilling !== null ? `（${r.daysUntilNextBilling === 0 ? "今日" : `あと${r.daysUntilNextBilling}日`}）` : ""}` : null },
     { label: "支払方法", value: r.paymentMethod },
