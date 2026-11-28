@@ -7,7 +7,6 @@ import {
   findCreatedEvent,
   findCreatedTask,
   linkKey,
-  mailBadgeLabel,
   normalizeLinkTarget,
   parseCalendarChoices,
   parseEventCandidates,
@@ -137,10 +136,8 @@ describe("findCreatedEvent / findCreatedTask", () => {
 });
 
 describe("表示", () => {
-  it("鍵とバッジ", () => {
+  it("鍵", () => {
     assert.equal(linkKey("event", "e1"), "event:e1");
-    assert.equal(mailBadgeLabel(1), "✉");
-    assert.equal(mailBadgeLabel(3), "✉ 3通");
   });
 });
 

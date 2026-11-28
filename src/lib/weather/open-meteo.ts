@@ -77,7 +77,9 @@ export function forecastAt(point: Coordinates): Promise<Forecast> {
   const params = new URLSearchParams({
     latitude: String(latitude),
     longitude: String(longitude),
-    hourly: "weather_code,temperature_2m,precipitation_probability,precipitation",
+    hourly: "weather_code,temperature_2m,precipitation_probability,precipitation,wind_speed_10m,wind_direction_10m",
+    // 既定は km/h（#1239）
+    wind_speed_unit: "ms",
     daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
     timezone: "Asia/Tokyo",
     past_days: String(DAY_RANGE),

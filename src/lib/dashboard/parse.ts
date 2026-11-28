@@ -8,7 +8,11 @@
  * （`test/dashboard-parse.test.ts`）。クライアントからは型だけをimportする。
  */
 
-import { RECORD_CALENDAR_NAME } from "@/lib/dashboard/schedule-phase";
+/**
+ * 記録（実績）はAIDEが `calendarName: "活動記録"` で返す（DaySpanの活動記録。睡眠・風呂など）。
+ * 専用の項目は無いので名前で見る。
+ */
+export const RECORD_CALENDAR_NAME = "活動記録";
 
 export type WeatherDay = {
   date: string;

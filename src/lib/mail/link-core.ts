@@ -1,4 +1,4 @@
-import { RECORD_CALENDAR_NAME } from "@/lib/dashboard/schedule-phase";
+import { RECORD_CALENDAR_NAME } from "@/lib/dashboard/parse";
 import { flattenText } from "@/lib/mail/triage-core";
 
 /**
@@ -223,11 +223,6 @@ export function findCreatedTask(tasksJson: unknown, title: string, due: string |
 /** 紐づけ済みの対象を候補から外すための鍵。 */
 export function linkKey(kind: LinkKind, targetId: string): string {
   return `${kind}:${targetId}`;
-}
-
-/** ダッシュボードの行に付ける✉の見出し（件数）。 */
-export function mailBadgeLabel(count: number): string {
-  return count <= 1 ? "✉" : `✉ ${count}通`;
 }
 
 /** 画面に出す紐づけ先の見出し（「✅ タスク・荷物受け取り・11/17」）。 */

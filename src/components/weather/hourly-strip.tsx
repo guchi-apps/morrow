@@ -15,7 +15,7 @@ import {
 import { ScrollToNow } from "@/components/dashboard/scroll-to-now";
 import type { HourCell } from "@/lib/dashboard/places";
 import { compareWithYesterday, describeDiff, diffLevel, type DiffLevel } from "@/lib/dashboard/temperature-diff";
-import { describeWeatherCode, RAIN_POP } from "@/lib/weather/rain-check";
+import { describeWeatherCode, RAIN_POP, windArrowRotation, windDirectionName } from "@/lib/weather/rain-check";
 import { STRIP_COLUMN_W } from "@/lib/weather/strip-layout";
 import { cn } from "@/lib/utils";
 
@@ -110,9 +110,26 @@ function Unit({ children }: { children: string }) {
   return <span className="ml-px text-[0.6em] font-normal">{children}</span>;
 }
 
+/** 風の矢印（#1239）。気温の下の昨日比の矢印（線）と取り違えないよう、塗りつぶしの矢じりにする。 */
+function WindArrow({ direction }: { direction: number }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="size-3.5" style={{ transform: `rotate(${windArrowRotation(direction)}deg)` }} aria-hidden="true">
+      <path d="M12 2 19 21 12 16.5 5 21Z" />
+    </svg>
+  );
+}
+
+/** 帯の読み上げに添える風の文（#1239）。風速が無ければ何も言わない。 */
+function windLabel({ windSpeed, windDirection }: HourCell): string {
+  if (windSpeed === null) return "";
+  const speed = Math.round(windSpeed);
+  if (speed === 0) return " 風はほぼ無し";
+  return ` ${windDirection === null ? "" : `${windDirectionName(windDirection)}の`}風${speed}メートル`;
+}
+
 /**
  * 1時間ごとの帯（#594・#609・#1109）。上から、その時間に居る場所（隣と同じなら1本）・時刻と天気・気温（昨日比の矢印つき）・
- * 降水確率（%）・1時間雨量（mm）。グラフは無く数字だけ。`nowIndex` より前は過ぎた時間で、灰色に薄くする（-1は全部が先の時間）。
+ * 降水確率（%）・1時間雨量（mm）・風（吹いていく向きの矢印と風速m/s。#1239）。グラフは無い。`nowIndex` より前は過ぎた時間で、灰色に薄くする（-1は全部が先の時間）。
  * 列は固定幅で、カードの幅に収まらないぶんは帯の中だけ横にスクロールする（ページは横に動かさない）。
  */
 export function HourlyStrip({
@@ -176,7 +193,7 @@ export function HourlyStrip({
               className={cn("flex flex-col items-center gap-[3px] rounded-lg pt-1 tabular-nums", isNow && "bg-topic-surface", isPast && "opacity-50 grayscale")}
               aria-label={
                 known
-                  ? `${cell.hour}時${isPast ? "（過ぎた時間）" : ""} ${cell.placeLabel} ${describeWeatherCode(cell.code)} ${cell.temperature === null ? "—" : Math.round(cell.temperature)}度 降水確率${cell.pop ?? "—"}% 雨量${cell.precipitation === null ? "—" : `${cell.precipitation}ミリ`}`
+                  ? `${cell.hour}時${isPast ? "（過ぎた時間）" : ""} ${cell.placeLabel} ${describeWeatherCode(cell.code)} ${cell.temperature === null ? "—" : Math.round(cell.temperature)}度 降水確率${cell.pop ?? "—"}% 雨量${cell.precipitation === null ? "—" : `${cell.precipitation}ミリ`}${windLabel(cell)}`
                   : `${cell.hour}時 ${cell.placeLabel} 予報なし`
               }
             >
@@ -240,6 +257,26 @@ export function HourlyStrip({
             {cell.precipitation === null ? "—" : <>{cell.precipitation === 0 ? "0" : cell.precipitation.toFixed(1)}<Unit>mm</Unit></>}
           </li>
         ))}
+        {cells.map((cell, index) => {
+          const speed = cell.windSpeed === null ? null : Math.round(cell.windSpeed);
+          return (
+            <li
+              key={`wind-${cell.date}-${cell.hour}`}
+              aria-hidden="true"
+              style={{ gridColumn: index + 1, gridRow: 6 }}
+              className={cn(
+                "flex flex-col items-center gap-px border-t border-border pt-1 text-[0.6875rem] font-bold tabular-nums",
+                index === nowIndex && "bg-topic-surface",
+                index < nowIndex && "opacity-50 grayscale",
+              )}
+            >
+              <span className="flex h-3.5 items-center justify-center">
+                {speed !== null && speed > 0 && cell.windDirection !== null ? <WindArrow direction={cell.windDirection} /> : speed === null ? null : "・"}
+              </span>
+              <span className="whitespace-nowrap">{speed === null ? "—" : <>{speed}<Unit>m/s</Unit></>}</span>
+            </li>
+          );
+        })}
       </ol>
     </ScrollToNow>
   );
