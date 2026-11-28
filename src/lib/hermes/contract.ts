@@ -6,6 +6,7 @@
  */
 
 import type { TurnImage } from "./image-core.ts";
+import type { AideHealth } from "./aide-health.ts";
 
 /** ブリッジが承認の回答として受け付ける値。`always`・`session` は通さない（`docs/hermes-actions.md`）。 */
 export const APPROVAL_CHOICES = ["once", "deny"] as const;
@@ -150,6 +151,8 @@ export type BridgeErrorReason =
   | "skill_rejected" // 409: Hermesが承認を適用しなかった・同梱スキルの削除（#1154）
   | "memory_not_found" // 404: 記憶の保留・保存済みの項目が無い（#1155）
   | "memory_rejected" // 409: Hermesが記憶の承認を適用しなかった（#1155）
+  | "login_rejected" // 400: 貼り付けたURLをHermesが受け付けなかった・流れが無い（#1240）
+  | "login_failed" // 409: AIDEへのログインが完了しなかった（#1240）
   | "timeout" // 1ターン30分の上限
   | "hermes_error"; // Hermesがエラーで終えた
 
@@ -221,8 +224,28 @@ export interface HealthBody {
   bridge: "ok";
   hermes: "ok" | "down";
   /** HermesがAIDEの道具を読み込めているか（#1158）。判定できない回・古いブリッジでは無い。 */
-  aide?: "ok" | "connecting" | "unavailable";
+  aide?: AideHealth;
 }
+
+/** `POST /aide/reconnect`・`POST /aide/login/complete` の応答（#1240）。`aide` は判定できた回だけ。 */
+export interface AideActionBody {
+  aide?: AideHealth;
+}
+
+/** `POST /aide/login/start` の応答（#1240）。`authUrl` はAIDEの認可画面（https）。 */
+export interface AideLoginStartBody {
+  flowId: string;
+  authUrl: string;
+}
+
+/** `POST /aide/login/complete` の本文。`callbackUrl` は利用者が貼り付けたURL（ブリッジが検証する）。 */
+export interface AideLoginCompleteRequest {
+  flowId: string;
+  callbackUrl: string;
+}
+
+/** 再接続・再ログインの完了待ちの上限（Hermesの `reload.mcp` はOAuthの待ちを含め30秒ほどかかりうる）。 */
+export const AIDE_ACTION_TIMEOUT_MS = 90 * 1000;
 
 /**
  * 1ターン全体の上限（ブリッジ側）。承認・質問の待ち（300秒）を含む。

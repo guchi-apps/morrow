@@ -41,6 +41,16 @@ export function describeHermesError(kind: HermesErrorKind): ChatFailure {
       return { connection: null, status: 404, kind, message: "記憶が見つかりません（すでに処理された・変わった可能性があります）。" };
     case "memory_rejected":
       return { connection: null, status: 409, kind, message: "Hermesがこの操作を受け付けませんでした。" };
+    case "login_rejected":
+      // 貼り付けたURLが違う・期限切れ（#1240）。Hermes自体は動いている
+      return {
+        connection: null,
+        status: 400,
+        kind,
+        message: "貼り付けたURLを受け付けられませんでした。ログインからやり直してください（URLは開いたログインの直後のものに限ります）。",
+      };
+    case "login_failed":
+      return { connection: null, status: 409, kind, message: "AIDEへのログインを完了できませんでした。もう一度ログインからやり直してください。" };
     case "bad_request":
       return { connection: null, status: 400, kind, message: "指示の形が正しくありません。" };
     case "feature_disabled":

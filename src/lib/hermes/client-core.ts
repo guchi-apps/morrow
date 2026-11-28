@@ -1,5 +1,8 @@
 import {
+  AIDE_ACTION_TIMEOUT_MS,
   CONNECT_TIMEOUT_MS,
+  type AideActionBody,
+  type AideLoginStartBody,
   HISTORY_DEFAULT_LIMIT,
   HISTORY_MAX_LIMIT,
   type ApprovalChoice,
@@ -15,6 +18,7 @@ import {
   type TurnRequestBody,
 } from "./contract.ts";
 import { readBridgeEvents } from "./sse.ts";
+import { AIDE_LOGIN_FLOW_ID_PATTERN, isAideHealth, isSafeAuthUrl } from "./aide-health.ts";
 import {
   parseMemoryEntriesBody,
   parsePendingMemoriesBody,
@@ -45,6 +49,7 @@ import {
  * | `not_configured` | 宛先URL・トークンが未設定 | 同上 |
  * | `no_session` | 続きのセッションが無い | 会話が見つかりません |
  * | `session_busy` / `bridge_busy` | 同時実行の上限 | 少し待ってから |
+ * | `login_rejected` / `login_failed` | AIDEの再ログインで貼り付けたURLが受け付けられない・完了しない（#1240） | もう一度ログインから |
  *
  * 「応答はあるが会話が無い（200で空）」は失敗ではない（呼び出し側の通常の空表示）。
  */
@@ -63,6 +68,8 @@ export type HermesErrorKind =
   | "skill_rejected"
   | "memory_not_found"
   | "memory_rejected"
+  | "login_rejected"
+  | "login_failed"
   | "bad_request"
   | "bridge_outdated"
   | "bad_response";
@@ -86,7 +93,7 @@ export interface HermesClientConfig {
   connectTimeoutMs?: number;
 }
 
-const ERROR_KINDS: ReadonlySet<string> = new Set(["no_session", "session_busy", "bridge_busy", "turn_not_found", "skill_not_found", "skill_rejected", "memory_not_found", "memory_rejected", "bad_request"]);
+const ERROR_KINDS: ReadonlySet<string> = new Set(["no_session", "session_busy", "bridge_busy", "turn_not_found", "skill_not_found", "skill_rejected", "memory_not_found", "memory_rejected", "login_rejected", "login_failed", "bad_request"]);
 
 /** 応答の状態とブリッジの `{ error }` から、失敗の種類を決める。 */
 export function classifyFailure(status: number, reason: string | undefined): HermesError {
@@ -114,6 +121,17 @@ async function failureOf(response: Response): Promise<HermesError> {
     // 本文が無い・JSONではない（tailscale serveの502など）
   }
   return classifyFailure(response.status, reason);
+}
+
+/** `/health` を待つ上限（ブリッジの `mcp.servers.test` の上限15秒＋余裕）。 */
+const AIDE_HEALTH_TIMEOUT_MS = 20 * 1000;
+
+export type AideHealthResult = NonNullable<AideActionBody["aide"]> | null;
+
+function parseAideActionBody(body: unknown): AideHealthResult {
+  if (typeof body !== "object" || body === null) throw new HermesError("bad_response", "ブリッジのAIDE操作の応答が不正");
+  const aide = (body as { aide?: unknown }).aide;
+  return isAideHealth(aide) ? aide : null;
 }
 
 function isHistoryMessage(value: unknown): value is HistoryMessage {
@@ -173,14 +191,22 @@ export function parseSessionList(body: unknown): SessionListBody | null {
 export function createHermesClient(config: HermesClientConfig) {
   const doFetch = config.fetchImpl ?? fetch;
   const connectTimeoutMs = config.connectTimeoutMs ?? CONNECT_TIMEOUT_MS;
+  // `/health` はブリッジがAIDEへ繋いで確かめてから答えうるので、既定では長めに待つ（#1240）
+  const healthTimeoutMs = config.connectTimeoutMs ?? AIDE_HEALTH_TIMEOUT_MS;
 
-  /** 接続（ヘッダーが届くまで）に5秒。本文のストリームには掛けない。 */
-  async function request(path: string, init: { method: "GET" | "POST" | "DELETE"; body?: unknown; signal?: AbortSignal }): Promise<Response> {
+  /**
+   * 接続（ヘッダーが届くまで）に5秒。本文のストリームには掛けない。
+   * ブリッジが応答の前にHermesを待つ口（AIDEの確認・再接続。#1240）だけ `timeoutMs` で延ばす。
+   */
+  async function request(
+    path: string,
+    init: { method: "GET" | "POST" | "DELETE"; body?: unknown; signal?: AbortSignal; timeoutMs?: number },
+  ): Promise<Response> {
     if (!config.baseUrl || !config.token) {
       throw new HermesError("not_configured", "HERMES_BRIDGE_URL または MORROW_HERMES_BRIDGE_TOKEN が未設定");
     }
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), connectTimeoutMs);
+    const timer = setTimeout(() => controller.abort(), init.timeoutMs ?? connectTimeoutMs);
     const onCallerAbort = () => controller.abort();
     init.signal?.addEventListener("abort", onCallerAbort, { once: true });
     try {
@@ -206,7 +232,8 @@ export function createHermesClient(config: HermesClientConfig) {
 
   return {
     async health(signal?: AbortSignal): Promise<HealthBody> {
-      const response = await request("/health", { method: "GET", signal });
+      // AIDEの状態を確かめる回は、ブリッジが実際にAIDEへ繋いでから答える（#1240。実測0.6秒・上限はブリッジ側で15秒）
+      const response = await request("/health", { method: "GET", signal, timeoutMs: healthTimeoutMs });
       if (!response.ok) throw await failureOf(response);
       const body: unknown = await response.json().catch(() => null);
       if (
@@ -218,6 +245,45 @@ export function createHermesClient(config: HermesClientConfig) {
         throw new HermesError("bad_response", "ブリッジの/healthの形が不正");
       }
       return body as HealthBody;
+    },
+
+    /** AIDEのMCPを張り直す（#1240。Hermesの `reload.mcp`）。張り直した後の状態を返す（判定できなければ null）。 */
+    async reconnectAide(signal?: AbortSignal): Promise<AideHealthResult> {
+      const response = await request("/aide/reconnect", { method: "POST", body: {}, signal, timeoutMs: AIDE_ACTION_TIMEOUT_MS });
+      if (!response.ok) throw await failureOf(response);
+      return parseAideActionBody(await response.json().catch(() => null));
+    },
+
+    /** AIDEへの再ログインを始める（#1240）。認可URLは https のものだけ通す。 */
+    async startAideLogin(signal?: AbortSignal): Promise<AideLoginStartBody> {
+      const response = await request("/aide/login/start", { method: "POST", body: {}, signal, timeoutMs: AIDE_ACTION_TIMEOUT_MS });
+      if (!response.ok) throw await failureOf(response);
+      const body: unknown = await response.json().catch(() => null);
+      const { flowId, authUrl } = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
+      if (typeof flowId !== "string" || !AIDE_LOGIN_FLOW_ID_PATTERN.test(flowId) || !isSafeAuthUrl(authUrl)) {
+        throw new HermesError("bad_response", "ブリッジのログイン開始の応答が不正");
+      }
+      return { flowId, authUrl };
+    },
+
+    /** 始めたログインを取り消す（#1240）。Hermesが始める前のトークンへ戻す。 */
+    async cancelAideLogin(flowId: string, signal?: AbortSignal): Promise<void> {
+      if (!AIDE_LOGIN_FLOW_ID_PATTERN.test(flowId)) throw new HermesError("bad_request", "流れのidの形が正しくない");
+      const response = await request("/aide/login/cancel", { method: "POST", body: { flowId }, signal, timeoutMs: AIDE_ACTION_TIMEOUT_MS });
+      if (!response.ok) throw await failureOf(response);
+    },
+
+    /** 貼り付けたURLを渡してログインを終える（#1240）。URLの検証はブリッジが行う。 */
+    async completeAideLogin(flowId: string, callbackUrl: string, signal?: AbortSignal): Promise<AideHealthResult> {
+      if (!AIDE_LOGIN_FLOW_ID_PATTERN.test(flowId)) throw new HermesError("bad_request", "流れのidの形が正しくない");
+      const response = await request("/aide/login/complete", {
+        method: "POST",
+        body: { flowId, callbackUrl },
+        signal,
+        timeoutMs: AIDE_ACTION_TIMEOUT_MS,
+      });
+      if (!response.ok) throw await failureOf(response);
+      return parseAideActionBody(await response.json().catch(() => null));
     },
 
     /**

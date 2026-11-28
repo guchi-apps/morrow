@@ -12,6 +12,7 @@ import { useMailAction } from "@/components/mail/use-mail-action";
 import { locateOnce } from "@/lib/geolocation";
 import { publishChatLink, resetChatLink } from "@/lib/hermes/chat-link";
 import { isAideHealth, type AideHealth } from "@/lib/hermes/aide-health";
+import { AideAlert } from "./aide-alert";
 import { describeHermesError, type ChatConnection } from "@/lib/hermes/errors";
 import {
   addPendingInterrupt,
@@ -643,7 +644,7 @@ export function ChatView({ userId, initialPending, openSessionId }: Props) {
   const retryItemId = !busy && lastItem?.kind === "notice" && lastItem.retry ? lastItem.id : null;
   // 実行中の道具があればその経過、無ければ最後のイベントからの待ち（本文を流している間は出さない）
   const progress = progressText(chat, now);
-  const aideDown = connection === "ok" && aide === "unavailable";
+  const aideDown = connection === "ok" && (aide === "unavailable" || aide === "login_required");
   const empty = chat.items.length === 0 && pending.length === 0 && !restoring;
 
   return (
@@ -677,12 +678,7 @@ export function ChatView({ userId, initialPending, openSessionId }: Props) {
         </span>
       </div>
 
-      {aideDown && (
-        <div role="alert" className="border-b border-border bg-red-50 px-4 py-1.5 text-xs text-red-800 lg:px-7 dark:bg-red-950 dark:text-red-300">
-          AIDEの道具が読み込まれていません。予定・タスクなどは確認できず、天気はウェブ検索での答えになります。
-          AIDEのログインが切れている可能性があります。subpcで <code>hermes -p morrow mcp login aide</code> を実行し、Hermesを再起動してください（手順は docs/hermes-route.md）。
-        </div>
-      )}
+      {aideDown && aide && <AideAlert health={aide} onHealth={setAide} />}
 
       <div onClick={openMailLink} className="min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:px-7">
         <div className="mx-auto flex max-w-[760px] flex-col gap-2.5">

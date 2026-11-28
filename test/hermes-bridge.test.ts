@@ -608,9 +608,27 @@ describe("認証とルーティング", () => {
       new FakeLink((_link, method) => (method === "mcp.servers.status" ? { servers: [{ name: "aide", ...entry }] } : {}));
     const connected = await startBridge(aideLink({ status: "connected", connected: true, tools: 33 }));
     assert.deepEqual(await connected.client.health(), { bridge: "ok", hermes: "ok", aide: "ok" });
-    const noTools = await startBridge(aideLink({ status: "failed", connected: false, tools: 0, error: "secret detail" }));
+    // ok と言えないときは mcp.servers.test で確かめる（#1240）。エラーの文面は返さない
+    const probing = (entry: Record<string, unknown>, probe: Record<string, unknown> | Error) => async () =>
+      new FakeLink((_link, method) => {
+        if (method === "mcp.servers.status") return { servers: [{ name: "aide", ...entry }] };
+        if (method === "mcp.servers.test") {
+          if (probe instanceof Error) throw probe;
+          return probe;
+        }
+        return {};
+      });
+    const failed = { status: "failed", connected: false, tools: 0, error: "secret detail" };
+    const noTools = await startBridge(probing(failed, { ok: false, tools: [], error: "connection refused secret", oauth_needed: true, oauth_tokens_present: true }));
     const body = await noTools.client.health();
     assert.deepEqual(body, { bridge: "ok", hermes: "ok", aide: "unavailable" });
+    const noToken = await startBridge(probing(failed, { ok: false, tools: [], error: "no cached tokens", oauth_needed: true, oauth_tokens_present: false }));
+    assert.deepEqual(await noToken.client.health(), { bridge: "ok", hermes: "ok", aide: "login_required" });
+    // 2026-11-28の誤警告: 待機で畳まれていた（configured）だけで、繋げば道具は読める
+    const parked = await startBridge(probing({ status: "configured", connected: false, tools: 0 }, { ok: true, tools: [{ name: "aide_ping" }], oauth_needed: true, oauth_tokens_present: true }));
+    assert.deepEqual(await parked.client.health(), { bridge: "ok", hermes: "ok", aide: "ok" });
+    const unprobed = await startBridge(probing({ status: "configured", connected: false, tools: 0 }, new Error("timeout")));
+    assert.deepEqual(await unprobed.client.health(), { bridge: "ok", hermes: "ok" });
     const broken = await startBridge(async () =>
       new FakeLink((_link, method) => {
         if (method === "mcp.servers.status") throw new Error("method not found");
