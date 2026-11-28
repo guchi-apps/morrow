@@ -75,16 +75,30 @@ describe("画像つきの発言の表示（#1157）", () => {
   it("Hermesの添付の目印を取り除き、枚数を数える", () => {
     assert.deepEqual(stripImageMarkers("[User attached image: morrow-1.jpg]\n[User attached image: morrow-2.jpg]\nこれ"), { text: "これ", images: 2 });
     assert.deepEqual(stripImageMarkers("ふつうの文"), { text: "ふつうの文", images: 0 });
+    // 実データの形（#1233）: `@image:<パス>` と `[screenshot]` が同じ画像を指す
+    assert.deepEqual(
+      stripImageMarkers("この画像は？\n@image:/home/u/.hermes/profiles/morrow/images/upload_s10l82sa.jpg\n[screenshot]"),
+      { text: "この画像は？", images: 1 },
+    );
+    assert.deepEqual(
+      stripImageMarkers("2枚\n@image:/p/upload_a.jpg\n@image:`/p/a b.jpg`\n[screenshot]\n[screenshot detail=low]"),
+      { text: "2枚", images: 2 },
+    );
+    assert.deepEqual(stripImageMarkers("見て\n\n[Image attached at: /p/native-inputs/x/a.jpg]\n[screenshot]"), { text: "見て", images: 1 });
+    assert.deepEqual(stripImageMarkers("[Image attached: https://example.com/a.png]"), { text: "", images: 1 });
+    // 文の途中の @image: は利用者の文として残す
+    assert.deepEqual(stripImageMarkers("メールの @image: は何？"), { text: "メールの @image: は何？", images: 0 });
   });
 
   it("履歴の復元は画像そのものを出さず、枚数だけ持つ。画像だけの発言も残す", () => {
     const state = restoreFromHistory(initialChatState, "s1", [
       { role: "user", text: `${buildPrompt([imageNotice(1)], "読んで")}\n[User attached image: morrow-1.jpg]` },
       { role: "user", text: "[User attached image: morrow-1.jpg]" },
+      { role: "user", text: `${buildPrompt([imageNotice(1)], "これは何？")}\n@image:/home/u/.hermes/profiles/morrow/images/upload_el1l4rwm.jpg\n[screenshot]` },
     ]);
     assert.deepEqual(
       state.items.map((item) => (item.kind === "user" ? [item.text, item.images] : null)),
-      [["読んで", 1], ["", 1]],
+      [["読んで", 1], ["", 1], ["これは何？", 1]],
     );
     // 画面に出す画像（#1219）は復元しない
     assert.ok(state.items.every((item) => item.kind !== "user" || item.imageSrcs === undefined));

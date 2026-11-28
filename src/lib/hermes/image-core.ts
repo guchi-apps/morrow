@@ -97,12 +97,29 @@ export function imageNotice(count: number): string {
   ].join("\n");
 }
 
-/** 履歴の復元で、Hermesが本文へ足す添付の目印（`[User attached image: …]`）を取り除き、枚数を返す。 */
+// 履歴の行にHermesが残す添付の目印（#1157・#1233）。どれも1行まるごとで現れる。
+// 実データ（2026-11-28、morrow profileの state.db）では `@image:<サーバー上のパス>` と `[screenshot]` の2行だった
+// （Hermes本体 tui_gateway/session_history.py・agent/session_persistence.py）。ほかに CLI の
+// `[User attached image: <名前>]`、image_routing の `[Image attached at: <パス>]`・`[Image attached: <URL>]` がある。
+// 参照（パス・名前）の行と、画像の位置に置かれる `[screenshot]` の行は同じ画像を指すので、枚数は多い方で数える。
+const IMAGE_REF_LINE = /^(?:@image:\S.*|\[User attached image:[^\]\n]*\]|\[Image attached(?: at)?:[^\n]*\])$/i;
+const IMAGE_PLACEHOLDER_LINE = /^\[screenshot(?: detail=(?:low|high|auto))?\]$/i;
+
+/** 履歴の復元で、Hermesが本文へ足す添付の目印（サーバー上のパスを含む）を取り除き、枚数を返す。 */
 export function stripImageMarkers(text: string): { text: string; images: number } {
-  let images = 0;
-  const kept = text.replace(/^\[User attached image:[^\]\n]*\]\s*$/gim, () => {
-    images += 1;
-    return "";
+  let refs = 0;
+  let placeholders = 0;
+  const kept = text.split("\n").filter((line) => {
+    const trimmed = line.trim();
+    if (IMAGE_REF_LINE.test(trimmed)) {
+      refs += 1;
+      return false;
+    }
+    if (IMAGE_PLACEHOLDER_LINE.test(trimmed)) {
+      placeholders += 1;
+      return false;
+    }
+    return true;
   });
-  return { text: kept.replace(/\n{3,}/g, "\n\n").trim(), images };
+  return { text: kept.join("\n").replace(/\n{3,}/g, "\n\n").trim(), images: Math.max(refs, placeholders) };
 }
