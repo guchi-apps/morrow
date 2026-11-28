@@ -4,12 +4,8 @@ import { Suspense } from "react";
 
 import { HourlyStrip, UmbrellaRainIcon, WeatherIcon, YesterdayNote } from "@/components/weather/hourly-strip";
 import { weatherHref } from "@/lib/weather/place-input";
-import { dashboardSchedule } from "@/lib/dashboard/aide";
-import { mailIdsByTarget } from "@/lib/mail/link";
-import { linkKey, mailBadgeLabel } from "@/lib/mail/link-core";
 import { addDays, cardDayName, relativeDayName } from "@/lib/dashboard/day-offset";
-import type { ScheduleItem, ScheduleView, WeatherDay } from "@/lib/dashboard/parse";
-import { schedulePhase } from "@/lib/dashboard/schedule-phase";
+import type { WeatherDay } from "@/lib/dashboard/parse";
 import {
   dashboardDayWeather,
   dashboardPlaces,
@@ -17,8 +13,6 @@ import {
   type PlaceSegment,
   type PlacesView,
 } from "@/lib/dashboard/places";
-import { calendarColor } from "@/lib/dashboard/calendar-color";
-import { HOUR_PX, layoutTimeline, nowTop } from "@/lib/dashboard/timeline";
 import { tempDelta, type TempDelta } from "@/lib/dashboard/temp-delta";
 import type { DashboardTopic } from "@/lib/dashboard/today";
 import { dayLabel, jstDayKey, jstTimeLabel } from "@/lib/day-key";
@@ -29,11 +23,11 @@ import { cn } from "@/lib/utils";
 /**
  * 今日のダッシュボード（#573）。トップ（`/`）に出す。**見るだけの画面で、操作は置かない。**
  *
- * サーバーコンポーネントのまま置く。天気・予定はAIDEへ取りに行く
- * ので `Suspense` で後から流し、DBだけで出せるもの（ニュース）を先に描く。
+ * サーバーコンポーネントのまま置く。天気は外へ取りに行くので `Suspense` で
+ * 後から流し、DBだけで出せるもの（ニュース）を先に描く。
  *
- * 並びは、スマホ（1列）で上から「天気 → 予定 → ニュース」。PC・iPad
- * （lg以上）は左に天気・ニュース、右に予定の2列。
+ * 並びは、スマホ（1列）で上から「天気 → ニュース」。PC・iPad（lg以上）は左右の2列。
+ * 予定・記録のカードは#1241で廃止した。
  *
  * 今日だけを出す（#1088。以前の左右スワイプ・‹ ›・`?d=` による日めくり〔#606〕は廃止した）。
  */
@@ -66,43 +60,19 @@ export function DashboardView({ userId, now, todayKey, topics }: Props) {
       <WeatherCard userId={userId} now={now} offset={offset} dayKey={dayKey} />
     </Suspense>
   );
-  const schedule = (
-    <Card title={`${dayName}の予定・記録`}>
-      <Suspense key={`schedule-${dayKey}`} fallback={<Loading />}>
-        <ScheduleBody userId={userId} now={now} offset={offset} />
-      </Suspense>
-    </Card>
-  );
-  const topicCard = <TopicCard topics={topics} />;
 
   return (
-    <>
-      <div className="mobile-tab-pad min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-[980px] flex-col gap-3 px-3.5 py-4 md:gap-4 md:px-7 md:py-6">
-          <DayNav todayKey={todayKey} now={now} />
+    <div className="mobile-tab-pad min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-auto flex w-full max-w-[980px] flex-col gap-3 px-3.5 py-4 md:gap-4 md:px-7 md:py-6">
+        <DayNav todayKey={todayKey} now={now} />
 
-          {/* スマホ: 1列（読む順） */}
-          <div className="flex flex-col gap-3 lg:hidden">
-            {weather}
-            {schedule}
-            {topicCard}
-          </div>
-
-          {/* PC・iPad横向き: 2列。どちらの並びもHTMLに入り、CSSで片方を隠す（取得の重複は `DesktopOnly` の注記） */}
-          <DesktopOnly>
-            <div className="grid grid-cols-[minmax(0,5fr)_minmax(0,7fr)] items-start gap-3.5">
-              <div className="flex min-w-0 flex-col gap-3.5">
-                {weather}
-                {topicCard}
-              </div>
-              <div className="flex min-w-0 flex-col gap-3.5">
-                {schedule}
-                  </div>
-            </div>
-          </DesktopOnly>
+        {/* スマホは1列（天気 → ニュース）、PC・iPad横向き（lg以上）は左右の2列 */}
+        <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-3.5">
+          <div className="min-w-0">{weather}</div>
+          <TopicCard topics={topics} />
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -119,15 +89,6 @@ function DayNav({ todayKey, now }: { todayKey: string; now: Date }) {
       <span className="text-xs text-muted">{jstTimeLabel(now)} 時点</span>
     </div>
   );
-}
-
-/**
- * lg以上だけで見せる枠。**中身はサーバーで描いて同じHTMLに入る**ため、天気・予定の取得は
- * 上の1列ぶんと合わせて2回呼ばれるが、`homeLocation()` が走っている取得を共有するので
- * AIDEへは1本しか出ない。
- */
-function DesktopOnly({ children }: { children: React.ReactNode }) {
-  return <div className="hidden lg:block">{children}</div>;
 }
 
 function Card({
@@ -189,7 +150,7 @@ function Unconnected() {
       <Link href="/settings" className="text-accent underline-offset-2 hover:underline">
         設定の接続
       </Link>
-      から追加すると、天気と予定が出ます。
+      から追加すると、天気が出ます。
     </Empty>
   );
 }
@@ -474,241 +435,6 @@ function SegmentList({ segments }: { segments: PlaceSegment[] }) {
         );
       })}
     </ul>
-  );
-}
-
-/* ---------------- 予定 ---------------- */
-
-async function ScheduleBody({ userId, now, offset }: { userId: string; now: Date; offset: number }) {
-  const schedule: ScheduleView = await dashboardSchedule(userId, now, offset);
-  // 紐づいたメール（#834）。予定・タスクのidが読めた行だけ引く
-  const mailLinks =
-    schedule.status === "ok"
-      ? await mailIdsByTarget(
-          userId,
-          schedule.items.flatMap((item) => (item.id && (item.kind === "event" || item.kind === "task") ? [{ kind: item.kind, targetId: item.id }] : [])),
-        )
-      : new Map<string, string[]>();
-
-  switch (schedule.status) {
-    case "unconnected":
-      return <Unconnected />;
-    case "failed":
-      return <Failed>予定を取得できませんでした。少し待って再読み込みしてください。</Failed>;
-    case "not_configured":
-      return <Empty>AIDEで予定（DaySpan）の接続が未設定です。予定が無いという意味ではありません。</Empty>;
-    case "ok":
-      return <ScheduleOk schedule={schedule} now={now} offset={offset} mailLinks={mailLinks} />;
-  }
-}
-
-const KIND_CHIP: Record<ScheduleItem["kind"], string | null> = {
-  event: null,
-  travel: "移動",
-  reminder: null,
-  task: "タスク",
-};
-
-/** 紐づいたメールの✉（#834）。1通ならそのメール詳細へ、複数なら開いて選ぶ（JS不要の `details`）。 */
-function MailBadge({ messageIds }: { messageIds: string[] }) {
-  if (messageIds.length === 0) return null;
-  const badge = "ml-1.5 inline-flex items-center rounded-md border border-accent/30 bg-accent-surface px-1.5 text-[0.6875rem] leading-5 text-accent";
-  if (messageIds.length === 1) {
-    return (
-      <Link href={`/mail/${encodeURIComponent(messageIds[0])}`} className={badge} aria-label="紐づいたメールを開く">
-        {mailBadgeLabel(1)}
-      </Link>
-    );
-  }
-  return (
-    <details className="relative ml-1.5 inline-block align-middle">
-      <summary className={cn(badge, "ml-0 cursor-pointer list-none")} aria-label={`紐づいたメール（${messageIds.length}通）`}>
-        {mailBadgeLabel(messageIds.length)}
-      </summary>
-      <ul className="absolute left-0 z-10 mt-1 min-w-[9rem] rounded-lg border border-border bg-surface p-1 text-xs shadow-lg">
-        {messageIds.map((messageId, index) => (
-          <li key={messageId}>
-            <Link href={`/mail/${encodeURIComponent(messageId)}`} className="block rounded px-2 py-1 hover:bg-rail-active">
-              メール {index + 1}（新しい順）
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </details>
-  );
-}
-
-function timeRange(item: ScheduleItem): string {
-  if (!item.start) return item.kind === "event" ? "終日" : "—";
-  return item.end ? `${item.start}–${item.end}` : item.start;
-}
-
-const AXIS_W = 40;
-const LANE_GAP = 10;
-
-/** 項目の題名まわり（種類のチップ・リンク・中止の印・メモ・✉）。タイムラインの項目名と上の帯で共有する。 */
-function ItemText({ item, mailLinks }: { item: ScheduleItem; mailLinks: Map<string, string[]> }) {
-  const chip = item.kind === "reminder" ? item.note : KIND_CHIP[item.kind];
-  const cancelled = item.outcome !== null;
-  return (
-    <>
-      {chip && (
-        <span
-          className={cn(
-            "mr-1.5 inline-block rounded-full px-[7px] py-px text-[0.6875rem]",
-            item.kind === "reminder" ? "bg-accent-surface text-accent" : "bg-topic-surface text-topic",
-          )}
-        >
-          {chip}
-        </span>
-      )}
-      {item.url ? (
-        <a
-          href={item.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={cn("hover:underline", cancelled && "text-muted line-through")}
-        >
-          {item.title}
-        </a>
-      ) : (
-        <span className={cn(cancelled && "text-muted line-through")}>{item.title}</span>
-      )}
-      {cancelled && (
-        <span className="ml-1.5 text-[0.6875rem] text-muted">{item.outcome === "CANCELED" ? "中止" : "不参加"}</span>
-      )}
-      {item.kind === "event" && item.note && !item.record && (
-        <span className="ml-1.5 text-[0.6875rem] text-muted">{item.note}</span>
-      )}
-      {item.id && (item.kind === "event" || item.kind === "task") && (
-        <MailBadge messageIds={mailLinks.get(linkKey(item.kind, item.id)) ?? []} />
-      )}
-    </>
-  );
-}
-
-function ScheduleOk({ schedule, now, offset, mailLinks }: { schedule: Extract<ScheduleView, { status: "ok" }>; now: Date; offset: number; mailLinks: Map<string, string[]> }) {
-  const { items, free, partial, googleDisconnected } = schedule;
-  const nowTime = jstTimeLabel(now);
-  const phases = items.map((item) => schedulePhase(item, nowTime, offset));
-  const layout = layoutTimeline(items);
-  // 凡例は線の色ごとに1つ（カレンダー名。移動は「移動」）。
-  const legend: { label: string; color: string }[] = [];
-  for (const bar of layout.bars) {
-    const item = items[bar.index];
-    const label = item.kind === "travel" ? "移動" : (item.note ?? "予定");
-    if (!legend.some((entry) => entry.label === label)) legend.push({ label, color: calendarColor(item) });
-  }
-  const nowY = offset === 0 ? nowTop(layout, nowTime) : null;
-  // 線の列は右へ増える。項目名は最後の列の右から始める。
-  const labelLeft = AXIS_W + 6 + Math.max(layout.laneCount, 1) * LANE_GAP + 12;
-  const laneX = (lane: number) => AXIS_W + 6 + lane * LANE_GAP;
-  const hours = Array.from({ length: layout.endHour - layout.startHour + 1 }, (_, i) => layout.startHour + i);
-
-  return (
-    <>
-      {partial && <Failed>予定の一部を取得できませんでした。表示が欠けている可能性があります。</Failed>}
-      {googleDisconnected && (
-        <Failed>Googleカレンダーが未接続のため、カレンダーの予定は出ていません。</Failed>
-      )}
-
-      {items.length === 0 ? (
-        // 一部が欠けている・未接続の回は「予定なし」と言い切らない。
-        !partial && !googleDisconnected && <Empty>この日の予定はありません。</Empty>
-      ) : (
-        <>
-          {/* 時刻のない予定・終日・タスク・リマインドは、時間軸の上に並べる */}
-          {layout.band.length > 0 && (
-            <ul className="flex flex-col gap-1 border-b border-border pb-2.5 text-sm">
-              {layout.band.map((index) => (
-                <li key={`${items[index].kind}-${index}`} className="flex gap-2.5">
-                  <span className="w-[3.25rem] shrink-0 pt-px text-xs tabular-nums text-muted">{timeRange(items[index])}</span>
-                  <span className="min-w-0">
-                    <ItemText item={items[index]} mailLinks={mailLinks} />
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          {layout.bars.length > 0 && (
-            <div className="relative text-sm" style={{ height: layout.height }}>
-              {hours.map((hour) => (
-                <div key={hour} className="absolute inset-x-0 border-t border-border" style={{ top: (hour - layout.startHour) * HOUR_PX }}>
-                  <span className="absolute -top-2 left-0 bg-surface pr-1 text-[0.6875rem] tabular-nums text-muted">{hour}:00</span>
-                </div>
-              ))}
-              <svg width={labelLeft} height={layout.height} className="absolute left-0 top-0 overflow-visible" aria-hidden="true">
-                {layout.bars.map((bar) => {
-                  const item = items[bar.index];
-                  const color = calendarColor(item);
-                  const x = laneX(bar.lane);
-                  const fade = phases[bar.index] === "done" ? 0.6 : 1;
-                  return (
-                    <g key={bar.index} opacity={fade}>
-                      <line x1={x} x2={x} y1={bar.top + 1} y2={Math.max(bar.bottom - 1, bar.top + 3)} stroke={color} strokeWidth={4} />
-                      <polyline
-                        fill="none"
-                        stroke={color}
-                        strokeWidth={1}
-                        opacity={0.7}
-                        points={`${x},${bar.top} ${labelLeft - 8},${bar.top} ${labelLeft - 8},${bar.labelTop + 10} ${labelLeft - 2},${bar.labelTop + 10}`}
-                      />
-                    </g>
-                  );
-                })}
-              </svg>
-              {layout.bars.map((bar) => {
-                const item = items[bar.index];
-                return (
-                  <div
-                    key={bar.index}
-                    className={cn("absolute right-0 flex items-baseline gap-1.5 leading-5", phases[bar.index] === "done" && "opacity-75")}
-                    style={{ top: bar.labelTop, left: labelLeft }}
-                  >
-                    <span className="min-w-0">
-                      <ItemText item={item} mailLinks={mailLinks} />
-                    </span>
-                    <span className="shrink-0 text-[0.6875rem] tabular-nums text-muted">{timeRange(item)}</span>
-                  </div>
-                );
-              })}
-              {nowY !== null && (
-                <div className="pointer-events-none absolute inset-x-0 z-[1] border-t-2 border-accent" style={{ top: nowY }}>
-                  <i className="absolute -top-[6px] size-[9px] rounded-full bg-accent" style={{ left: AXIS_W }} />
-                </div>
-              )}
-            </div>
-          )}
-
-          {legend.length > 0 && (
-            <p className="flex flex-wrap gap-x-3.5 text-[0.6875rem] text-muted">
-              {legend.map((entry) => (
-                <span key={entry.label}>
-                  <span className="mr-1.5 inline-block h-2 w-1 rounded-sm align-baseline" style={{ background: entry.color }} aria-hidden="true" />
-                  {entry.label}
-                </span>
-              ))}
-              {phases.includes("done") && <span>薄い線は終わった予定</span>}
-            </p>
-          )}
-        </>
-      )}
-
-      {free.length > 0 && (
-        <p className="text-xs text-muted">
-          空き時間{" "}
-          {free.map((slot, index) => (
-            <span key={slot.from}>
-              {index > 0 && "・"}
-              <b className="font-semibold tabular-nums text-foreground">
-                {slot.from}–{slot.to}
-              </b>
-            </span>
-          ))}
-        </p>
-      )}
-    </>
   );
 }
 

@@ -1,6 +1,6 @@
 import { jstDayKey } from "@/lib/day-key";
 import { chooseHomeLocation, hasPoint, type RememberedLocation } from "@/lib/dashboard/home-location-core";
-import { parseSchedule, parseWeatherLocation, type ScheduleView, type WeatherLocation } from "@/lib/dashboard/parse";
+import { parseWeatherLocation, type WeatherLocation } from "@/lib/dashboard/parse";
 import { callToolJson, connectedServerFor, type ToolJson } from "@/lib/mcp/direct-call";
 
 /**
@@ -98,7 +98,3 @@ export function scheduleSource(userId: string, now = new Date(), offset = 0): Pr
   });
 }
 
-export async function dashboardSchedule(userId: string, now = new Date(), offset = 0): Promise<ScheduleView> {
-  const source = await scheduleSource(userId, now, offset);
-  return source.status === "ok" ? parseSchedule(source.json) : source;
-}
