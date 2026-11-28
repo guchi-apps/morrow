@@ -4,12 +4,14 @@
  *
  * 返信は受信メールなど外の文章に影響されうるので、HTMLは解釈せず（react-markdownの既定）、
  * 画像は読み込まず、押せるリンクは http(s) だけ。名前を付けたリンクには行き先のドメインを添える。
+ * 唯一の例外はメールの本文の画面 `/mail/<id>`（#1218。`chatMailHref()`）。同じタブで開き、画面遷移はチャット側が受け持つ。
  */
 import { createElement as h, memo, type ComponentProps, type ReactNode } from "react";
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { remarkChatReply } from "@/lib/hermes/markdown-plugin";
+import { chatMailHref } from "@/lib/mail/chat-link";
 
 type HastNode = { type: string; value?: string; children?: HastNode[] };
 
@@ -38,6 +40,9 @@ function hostHint(href: string, label: string): string | null {
 }
 
 function Link({ href, children, node }: ComponentProps<"a"> & ExtraProps): ReactNode {
+  const mail = href ? chatMailHref(href) : null;
+  // `data-mail-link` はHTMLを解釈しないので返信の文からは付けられない。チャット側がこの印を見て画面遷移する
+  if (mail) return h("a", { href: mail, "data-mail-link": "" }, children);
   if (!href || !/^https?:\/\//i.test(href)) return h("span", null, children);
   const host = hostHint(href, textOf(node as HastNode | undefined));
   return h(
