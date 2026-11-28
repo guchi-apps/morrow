@@ -293,6 +293,8 @@ describe("記憶のブリッジ", () => {
     try {
       const response = await fetch(`http://127.0.0.1:${port}/memory/entries`, { headers: { authorization: "Bearer t", "x-forwarded-for": "1.1.1.1" } });
       assert.equal(response.status, 503);
+      // 「Hermesが応答しない」と取り違えないよう、設定漏れは別の理由で返す（#1225）
+      assert.deepEqual(await response.json(), { error: "feature_disabled" });
     } finally {
       server.close();
     }

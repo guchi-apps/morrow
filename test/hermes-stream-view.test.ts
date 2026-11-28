@@ -265,6 +265,9 @@ describe("失敗の読み替え（#214）", () => {
     assert.equal(describeHermesError("hermes_down").connection, "hermes_down");
     assert.equal(describeHermesError("rejected").connection, "misconfigured");
     assert.equal(describeHermesError("not_configured").connection, "misconfigured");
+    // スキル・記憶の設定漏れは「Hermesが応答しません」にしない（#1225）
+    assert.equal(describeHermesError("feature_disabled").connection, null);
+    assert.match(describeHermesError("feature_disabled").message, /MORROW_HERMES_HOME/);
     for (const kind of ["no_session", "session_busy", "bridge_busy", "turn_not_found"] as const) {
       assert.equal(describeHermesError(kind).connection, null);
     }

@@ -144,6 +144,7 @@ Hermesが作る「再利用できる手順（スキル）」は、**Morrowの画
 ### 手作業（人の作業。マージ後）
 
 1. subpcでブリッジを更新する（`scripts/update-hermes-bridge.sh`）。ブリッジの環境に `MORROW_HERMES_HOME=<morrow profileのパス>` を足して再起動（systemdのunitのEnvironment）
+   - **2026-11-28に実施済み**（#1225）。`~/.config/morrow-hermes/bridge.env`（unitの `EnvironmentFile`）に足した。未設定のままだとブリッジの起動ログに「MORROW_HERMES_HOME が未設定のため…503を返します」と出て、`/skills`・`/memory` が開けない。#1225までは503 `hermes_down` を返していたため画面に「Hermesが応答しません」と出て、Hermesの停止と取り違えた。いまは503 `feature_disabled` で「ブリッジでスキル・記憶の機能が設定されていません」と出る
 2. Morrow profileでスキルを有効化し、書き込み承認を入れる（**入力トークンが約7,700増える**。#1153）:
    `hermes -p morrow tools enable skills --platform cli` → `hermes -p morrow config set skills.write_approval true` → `hermes -p morrow serve` の再起動
 3. 確認: 「この頼み方、次からも使えるようにして」と送り、`/skills` にカードが出ること・承認で `~/.hermes/profiles/morrow/skills/<名前>/SKILL.md` ができること・却下で `pending/skills/` が空になること
@@ -187,6 +188,7 @@ morrow profileには、default profile（Discord）から `--clone` で写った
 - 外し方: `~/.hermes/profiles/morrow/skills/<カテゴリ>/<名前>` のディレクトリを消す（同梱は `skills/.bundled_manifest` に載るため、Hermesの更新で戻ることがある。戻ったら `hermes -p morrow skills uninstall`・`opt-out`（`hermes skills --help`）で外せないか確かめ、無理なら消し直す）。**`/skills` の画面からは同梱を削除できない**（Hermesが作ったものだけ）
 - **消す前に中身を読む**（`SKILL.md`）。上の分類は名前と説明からの判断で、「残す（候補）」は特に中身次第
 - 完了の確認: `hermes -p morrow skills list`（または `skills/` 直下の一覧）が、残すものだけになっている
+- **2026-11-28に実施済み**（#1225）。残したのは `productivity/aide-calendar`・`productivity/weekly-review-planning` の2件。「残す（候補）」のうち `document-to-action-items`・`meeting-action-items`（`read_file` 前提）・`grounded-citations`（台帳スクリプト前提）・`maps`（`requires_toolsets: [terminal]`）も外した。外したものは削除せず `~/.hermes/profiles/morrow/skills-removed-1225/` へ移してある（戻すときはそこから `skills/` へ移す）。同じ日に `skills`・`memory` ツールセットの有効化と `skills.write_approval`・`memory.write_approval` も入れた（設定の控えは `config.yaml.bak-1225`）
 
 ## 認証
 
