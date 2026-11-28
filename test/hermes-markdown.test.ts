@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { ChatMarkdown } from "../src/components/hermes/chat-markdown.ts";
+import { safeMailBack } from "../src/lib/mail/back-path.ts";
 
 // 実際の描画結果で固定する（#1203）。外側の <div class="chat-md"> は外して比べる
 const render = (text: string) =>
@@ -69,4 +70,40 @@ test("画像は読み込まない（直接・参照形式・リンクの中）",
 
 test("HTMLは解釈しない", () => {
   assert.doesNotMatch(render('<img src="https://example.com/x.png"> <script>alert(1)</script>'), /<img|<script/);
+});
+
+test("メールの本文の画面だけは、同じタブの内部リンクにする", () => {
+  assert.equal(
+    render("[[GitHub] 通知](/mail/18f2a9c0d1e)"),
+    '<p><a href="/mail/18f2a9c0d1e?back=/chat" data-mail-link="">[GitHub] 通知</a></p>',
+  );
+  assert.match(render("[件名](/mail/sub~INBOX.1.2)"), /href="\/mail\/sub~INBOX\.1\.2\?back=\/chat"/);
+});
+
+test("形の違う内部パスは押せない", () => {
+  for (const href of [
+    "/mail",
+    "/mail/",
+    "/mail/..",
+    "/mail/.",
+    "/mail/%2e%2e",
+    "/mail/a/b",
+    "/mail/a?back=/x",
+    "/mail/a#x",
+    "/mail/../auth/signout",
+    "//example.com/mail/a",
+    "/auth/signout",
+    "/chat",
+    "mail/a",
+  ]) {
+    assert.doesNotMatch(render(`[a](${href})`), /<a /, href);
+  }
+});
+
+test("本文の画面の戻り先は一覧とチャットだけ", () => {
+  assert.equal(safeMailBack("/chat"), "/chat");
+  assert.equal(safeMailBack("/mail?view=all"), "/mail?view=all");
+  for (const value of ["/chat?session=x", "/chat/..", "/settings", "//example.com", null]) {
+    assert.equal(safeMailBack(value), "/mail", String(value));
+  }
 });
