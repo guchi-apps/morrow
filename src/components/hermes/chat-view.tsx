@@ -1,16 +1,16 @@
 "use client";
 
-import { History, Loader2, Plus, SendHorizontal, Square } from "lucide-react";
+import { Loader2, Plus, SendHorizontal, Square } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 
 import { ChatItemView, elapsedText } from "@/components/hermes/chat-items";
 import { ImageAttachButton, ImageAttachThumbs, useImageAttachments } from "@/components/hermes/image-attach";
 import { ProposalCard } from "@/components/hermes/proposal-card";
-import { SessionList } from "@/components/hermes/session-list";
 import { MailNotice } from "@/components/mail/mail-notice";
 import { useMailAction } from "@/components/mail/use-mail-action";
 import { locateOnce } from "@/lib/geolocation";
+import { publishChatLink, resetChatLink } from "@/lib/hermes/chat-link";
 import { isAideHealth, type AideHealth } from "@/lib/hermes/aide-health";
 import { describeHermesError, type ChatConnection } from "@/lib/hermes/errors";
 import {
@@ -189,9 +189,6 @@ export function ChatView({ userId, initialPending, openSessionId }: Props) {
   const [restoring, setRestoring] = useState(() => snapshot === null && loadSessionId(browserStorage(), userId) !== null);
   const [restoreFailed, setRestoreFailed] = useState(false);
   const [resumed, setResumed] = useState(snapshot !== null);
-  // スマホの会話一覧（下シート）の開閉（#1156）
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const sheetRef = useRef<HTMLDialogElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const turnRef = useRef<string | null>(null);
   // サーバーから受けたイベントの数と、ターンが終わったか（#1000。切れたあと続きから受け直す位置）
@@ -398,13 +395,6 @@ export function ChatView({ userId, initialPending, openSessionId }: Props) {
   useEffect(() => {
     if (chat.sessionId) saveSessionId(browserStorage(), userId, chat.sessionId);
   }, [chat.sessionId, userId]);
-
-  useEffect(() => {
-    const dialog = sheetRef.current;
-    if (!dialog) return;
-    if (sheetOpen && !dialog.open) dialog.showModal();
-    if (!sheetOpen && dialog.open) dialog.close();
-  }, [sheetOpen]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
@@ -619,18 +609,21 @@ export function ChatView({ userId, initialPending, openSessionId }: Props) {
   // 過去の会話を開く（#1156）。覚えるidを差し替えて、既存の履歴の復元で続きから話せる状態にする
   const openConversation = useCallback(
     (sessionId: string) => {
-      if (sessionId === chatRef.current.sessionId) {
-        setSheetOpen(false);
-        return;
-      }
+      if (sessionId === chatRef.current.sessionId) return;
       resetConversation();
       saveSessionId(browserStorage(), userId, sessionId);
       setRestoring(true);
-      setSheetOpen(false);
       startRestore();
     },
     [resetConversation, startRestore, userId],
   );
+
+  // メニューの会話の履歴（#1228）へ、開いている会話と切り替え方を渡す。一覧は会話が変わった・実行が終わったときに取り直す
+  const listKey = `${chat.sessionId ?? ""}:${chat.running ? "run" : "idle"}`;
+  useEffect(() => {
+    publishChatLink({ currentId: chat.sessionId, busy, refreshKey: listKey, open: openConversation });
+  }, [chat.sessionId, busy, listKey, openConversation]);
+  useEffect(() => resetChatLink, []);
 
   const onProposalChange = useCallback((proposal: ProposalView) => setChat((s) => updateProposal(s, proposal)), []);
   const onRetry = useCallback(
@@ -653,22 +646,7 @@ export function ChatView({ userId, initialPending, openSessionId }: Props) {
   const aideDown = connection === "ok" && aide === "unavailable";
   const empty = chat.items.length === 0 && pending.length === 0 && !restoring;
 
-  // 一覧を取り直す合図: 会話が変わった・実行が終わったとき
-  const listKey = `${chat.sessionId ?? ""}:${chat.running ? "run" : "idle"}`;
-
   return (
-    <div className="flex min-h-0 flex-1">
-      <aside className="hidden w-[260px] shrink-0 overflow-y-auto border-r border-border p-2 lg:block" aria-label="会話の一覧">
-        <SessionList currentId={chat.sessionId} refreshKey={listKey} disabled={busy} onSelect={openConversation} />
-      </aside>
-      <dialog
-        ref={sheetRef}
-        onClose={() => setSheetOpen(false)}
-        aria-label="会話の一覧"
-        className="fixed inset-x-0 bottom-[var(--keyboard-inset)] top-auto m-0 mx-auto max-h-[min(85dvh,calc(var(--app-height)-1rem))] w-full max-w-[560px] overflow-y-auto rounded-t-[18px] border border-border bg-surface p-3 text-foreground backdrop:bg-black/55 md:inset-y-0 md:my-auto md:h-fit md:rounded-[18px]"
-      >
-        {sheetOpen && <SessionList currentId={chat.sessionId} refreshKey={listKey} disabled={busy} onSelect={openConversation} />}
-      </dialog>
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div
         className={`flex items-center justify-between gap-2 border-b border-border px-4 py-1.5 text-xs lg:px-7 ${
@@ -688,15 +666,6 @@ export function ChatView({ userId, initialPending, openSessionId }: Props) {
               再試行
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={() => setSheetOpen(true)}
-            aria-haspopup="dialog"
-            className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-foreground hover:bg-rail-active lg:hidden"
-          >
-            <History className="size-3" aria-hidden="true" />
-            会話
-          </button>
           <button
             type="button"
             onClick={newConversation}
@@ -808,7 +777,6 @@ export function ChatView({ userId, initialPending, openSessionId }: Props) {
           </button>
         </div>
       </form>
-    </div>
     </div>
   );
 }
