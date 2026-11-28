@@ -19,6 +19,7 @@ describe("失敗の区別（#214）", () => {
     assert.equal(kind(504), "unreachable");
     assert.equal(kind(503, "hermes_down"), "hermes_down");
     assert.equal(kind(503), "unreachable");
+    assert.equal(kind(503, "feature_disabled"), "feature_disabled");
     assert.equal(kind(404, "no_session"), "no_session");
     assert.equal(kind(409, "session_busy"), "session_busy");
     assert.equal(kind(429, "bridge_busy"), "bridge_busy");

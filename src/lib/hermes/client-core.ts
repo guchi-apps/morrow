@@ -40,6 +40,7 @@ import {
  * |---|---|---|
  * | `unreachable` | 接続失敗・5秒のタイムアウト・tailscale serveの502/504（ブリッジ停止） | Hermesに届きません（DeskMiniが止まっている可能性） |
  * | `hermes_down` | ブリッジが503（Hermesへ繋がらない） | Hermesが応答しません |
+ * | `feature_disabled` | ブリッジが503でこの機能が未設定（スキル・記憶。#1225） | ブリッジの設定が必要 |
  * | `rejected` | 401/403 | 接続の設定に問題があります（ログに残す） |
  * | `not_configured` | 宛先URL・トークンが未設定 | 同上 |
  * | `no_session` | 続きのセッションが無い | 会話が見つかりません |
@@ -51,6 +52,7 @@ import {
 export type HermesErrorKind =
   | "unreachable"
   | "hermes_down"
+  | "feature_disabled"
   | "rejected"
   | "not_configured"
   | "no_session"
@@ -91,9 +93,9 @@ export function classifyFailure(status: number, reason: string | undefined): Her
   if (status === 401 || status === 403) return new HermesError("rejected", `ブリッジに拒否された（HTTP ${status}）`);
   if (status === 502 || status === 504) return new HermesError("unreachable", `ブリッジに届かない（HTTP ${status}）`);
   if (status === 503) {
-    return reason === "hermes_down"
-      ? new HermesError("hermes_down", "Hermesが応答しない")
-      : new HermesError("unreachable", "ブリッジが一時的に使えない（HTTP 503）");
+    if (reason === "hermes_down") return new HermesError("hermes_down", "Hermesが応答しない");
+    if (reason === "feature_disabled") return new HermesError("feature_disabled", "ブリッジでこの機能が設定されていない（HTTP 503）");
+    return new HermesError("unreachable", "ブリッジが一時的に使えない（HTTP 503）");
   }
   if (reason && ERROR_KINDS.has(reason)) return new HermesError(reason as HermesErrorKind, `ブリッジの応答: ${reason}`);
   // ブリッジが知らない経路へは 404 `not_found` を返す。Morrowだけが新しいAPIを呼んでいる＝subpcのブリッジが古い（#1145・#1175）

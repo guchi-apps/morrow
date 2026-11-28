@@ -141,6 +141,7 @@ export type BridgeErrorReason =
   | "forbidden" // 403: 送信元IPが許可リストに無い
   | "bad_request" // 400
   | "hermes_down" // 503: Hermesへ繋がらない
+  | "feature_disabled" // 503: ブリッジでこの機能が設定されていない（スキル・記憶の MORROW_HERMES_HOME 未設定。#1225）
   | "no_session" // 404: 続きのセッションが無い
   | "session_busy" // 409: 同じセッションで別のターンが走っている
   | "bridge_busy" // 429: ブリッジ全体の同時実行の上限
