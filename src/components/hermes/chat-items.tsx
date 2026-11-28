@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { ChatMarkdown } from "@/components/hermes/chat-markdown";
 import { ProposalCard } from "@/components/hermes/proposal-card";
+import { SentImages } from "@/components/hermes/sent-image-viewer";
 import type { ClarifyAnswer, ClarifyQuestion } from "@/lib/hermes/contract";
 import { splitLinks } from "@/lib/hermes/linkify";
 import type { ProposalView } from "@/lib/hermes/proposal-core";
@@ -30,9 +31,12 @@ export function ChatItemView({ item, turnId, onApproval, onClarify, onProposalCh
   switch (item.kind) {
     case "user":
       return (
-        <div className="max-w-[85%] self-end whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-accent px-3.5 py-2 text-sm text-white">
-          {item.images ? <span className="mb-0.5 block text-xs opacity-85">画像 {item.images} 枚</span> : null}
-          {item.text}
+        <div className="flex max-w-[85%] flex-col items-end gap-1 self-end">
+          {/* 送った画像（#1219）。再読み込み・履歴の復元では枚数だけの注記になる */}
+          <SentImages srcs={item.imageSrcs} count={item.images} />
+          {item.text && (
+            <div className="whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-accent px-3.5 py-2 text-sm text-white">{item.text}</div>
+          )}
         </div>
       );
 

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { buildAnalyzePrompt, parseAnalyzeReply } from "@/lib/mail/analyze-core";
+import { parseChatReply } from "@/lib/mail/chat-core";
+import { SUGGEST_RULES, normalizeSuggestion, toolCallFor, type Suggestion } from "@/lib/mail/suggest-core";
 import { syncUtilityBill, type UtilityBillIo } from "@/lib/mail/utility-bill";
 import { McpCallError } from "@/lib/mcp/direct-call";
 import { toolErrorStatus } from "@/lib/mcp/tool-error";
@@ -180,5 +182,53 @@ describe("契約を1つに決められないとき（#1200）", () => {
   it("照会に失敗した回は「行が無い」と混ぜない", async () => {
     assert.equal((await run({ k1: none, k2: new McpCallError("x", "時間切れ") })).status, "unavailable");
     assert.equal((await run({ k1: found(100), k2: { status: "failed" } })).status, "unavailable");
+  });
+});
+
+describe("家計簿への取り込みの使用量（#1202）", () => {
+  const mail = { messageId: "m-1", subject: "電気料金のお知らせ", from: "billing@example.com", receivedAt: 0 };
+  const payment = (fields: Record<string, unknown>) => ({ kind: "payment", reason: "請求", confidence: 0.9, fields });
+  const analyze = (utilityBill: unknown, ...suggestions: unknown[]) =>
+    parseAnalyzeReply(JSON.stringify({ summary: "電気料金の請求です。", points: [], recommended: "payment", suggestions, utilityBill }))!.suggest.suggestions;
+  const argsOf = (suggestion: Suggestion) => {
+    const call = toolCallFor(suggestion, mail, "u1");
+    assert.ok(call.ok);
+    return call.args;
+  };
+  const itemized = { place: "関西電力", name: "電気料金", amount: 8912, date: "2026-11-05", items: [{ name: "電気料金", amount: 8912, quantity: 1 }] };
+
+  it("分析: utilityBill の使用量を取り込み引数の usage に入れ、items は送らない", () => {
+    const args = argsOf(analyze(raw, payment(itemized))[0]!);
+    assert.equal(args.usage, "275kWh");
+    assert.equal("items" in args, false);
+    assert.equal(args.name, "電気料金");
+    assert.equal(args.amount, 8912);
+  });
+
+  it("分析: ガスは m3。合計が無ければ内訳の和を使う", () => {
+    const gas = { ...raw, kind: "gas", amountYen: 2648, usageValue: 12, usageUnit: "m³" };
+    const args = argsOf(analyze(gas, payment({ date: "2026-11-05", items: [{ name: "ガス料金", amount: 2648 }] }))[0]!);
+    assert.equal(args.usage, "12m3");
+    assert.equal(args.amount, 2648);
+    assert.equal(args.name, "ガス料金");
+    assert.equal("items" in args, false);
+  });
+
+  it("分析: 使用量が読めない回・金額の違う支払いには usage を付けない", () => {
+    const none = argsOf(analyze({ ...raw, usageValue: null, usageUnit: null }, payment(itemized))[0]!);
+    assert.equal("usage" in none, false);
+    assert.ok("items" in none);
+    const other = argsOf(analyze(raw, payment({ ...itemized, amount: 15000 }))[0]!);
+    assert.equal("usage" in other, false);
+  });
+
+  it("指示・承認の経路: モデルが返した使用量を揃え、items を外す。電気・ガス以外の使用量は内訳を残す", () => {
+    const parsed = parseChatReply(JSON.stringify({ reply: "取り込みます。", recommended: "payment", suggestions: [payment({ ...itemized, usage: "1,250 kWh" })] }))!;
+    const args = argsOf(parsed.suggest.suggestions[0]!);
+    assert.equal(args.usage, "1250kWh");
+    assert.equal("items" in args, false);
+    const fuel = argsOf(normalizeSuggestion("payment", { ...itemized, usage: "35.2L" })!);
+    assert.ok("items" in fuel);
+    assert.match(SUGGEST_RULES.join("\n"), /payment の usage/);
   });
 });

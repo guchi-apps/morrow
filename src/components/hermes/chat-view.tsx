@@ -1,12 +1,15 @@
 "use client";
 
 import { History, Loader2, Plus, SendHorizontal, Square } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 
 import { ChatItemView, elapsedText } from "@/components/hermes/chat-items";
 import { ImageAttachButton, ImageAttachThumbs, useImageAttachments } from "@/components/hermes/image-attach";
 import { ProposalCard } from "@/components/hermes/proposal-card";
 import { SessionList } from "@/components/hermes/session-list";
+import { MailNotice } from "@/components/mail/mail-notice";
+import { useMailAction } from "@/components/mail/use-mail-action";
 import { locateOnce } from "@/lib/geolocation";
 import { isAideHealth, type AideHealth } from "@/lib/hermes/aide-health";
 import { describeHermesError, type ChatConnection } from "@/lib/hermes/errors";
@@ -47,6 +50,7 @@ import {
   initialChatState,
   RELAY_EVENT_TYPES,
   restoreFromHistory,
+  sentImageSrc,
   startTurn,
   updateProposal,
   type ChatState,
@@ -198,6 +202,18 @@ export function ChatView({ userId, initialPending, openSessionId }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const attachments = useImageAttachments();
+  const router = useRouter();
+  // リンクから開いた本文でアーカイブすると、完了を待たずにここへ戻る。失敗はここでも知らせる（#1218）
+  const { notice: mailNotice } = useMailAction();
+
+  // 返信の中のメールのリンク（#1218）は、再読み込みせずに移動する（戻ったとき会話を残すため）
+  function openMailLink(event: MouseEvent<HTMLDivElement>) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const href = (event.target as Element).closest("a[data-mail-link]")?.getAttribute("href");
+    if (!href) return;
+    event.preventDefault();
+    router.push(href);
+  }
   const busy = sending || chat.running;
   const sendBlocked = busy || restoring;
 
@@ -505,7 +521,7 @@ export function ChatView({ userId, initialPending, openSessionId }: Props) {
       endedRef.current = false;
       // ターンIDはヘッダーで本文より先に届く。最初のイベント前の「止める」でもinterruptを送れる（#1005）
       turnRef.current = readTurnIdHeader(response.headers);
-      setChat((s) => startTurn(s, text, Date.now(), sentImages.length));
+      setChat((s) => startTurn(s, text, Date.now(), sentImages.map((image) => sentImageSrc(image.data))));
       attachments.release(sentImages);
       try {
         await consume(response.body);
@@ -699,7 +715,7 @@ export function ChatView({ userId, initialPending, openSessionId }: Props) {
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:px-7">
+      <div onClick={openMailLink} className="min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:px-7">
         <div className="mx-auto flex max-w-[760px] flex-col gap-2.5">
           {pending.length > 0 && (
             <section className="flex flex-col gap-2" aria-label="前の会話から残っている確認待ち">
@@ -751,6 +767,7 @@ export function ChatView({ userId, initialPending, openSessionId }: Props) {
               {progress}
             </p>
           )}
+          <MailNotice notice={mailNotice} />
           <div ref={bottomRef} />
         </div>
       </div>

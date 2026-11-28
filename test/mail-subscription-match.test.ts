@@ -26,7 +26,7 @@ describe("parseRegisteredSubscriptions", () => {
     const list = parseRegisteredSubscriptions(response);
     assert.equal(list?.length, 4);
     assert.deepEqual(list?.[0], {
-      id: 33, name: "JAF", statusLabel: "自動更新中", amount: 4000, currency: "JPY", billing: "毎年12月1日", billingCycle: "YEARLY",
+      id: 33, name: "JAF", statusLabel: "自動更新中", amount: 4000, variableAmount: false, currency: "JPY", billing: "毎年12月1日", billingCycle: "YEARLY",
       nextBillingDay: "2026-12-01", daysUntilNextBilling: 17, startDate: "2025-12-01", paymentMethod: "三井住友ゴールドカード VISA", labels: ["車"],
     });
   });
@@ -145,5 +145,29 @@ describe("今回の請求と登録額の違い（#1201）", () => {
     assert.equal(differingInvoiceAmount(sub(12, "USD"), jaf), null);
     assert.equal(differingInvoiceAmount(pay(1800, 12, "USD"), jaf), null);
     assert.equal(differingInvoiceAmount(pay(1800), usd), null);
+  });
+});
+
+describe("金額が毎回変わる定期払い（#1221）", () => {
+  // 項目はasset-manager#1667（PR #1670）の `GET /api/subscriptions` から。金額は例
+  const list = parseRegisteredSubscriptions({
+    status: "ok",
+    subscriptions: [
+      { id: 50, name: "ガス料金", statusLabel: "自動更新中", amount: 2876, variableAmount: true, estimateBasis: "PAYMENTS", lastPayment: { date: "2026-11-10", amount: 3012 }, currency: "JPY", billing: "毎月10日", billingCycle: "MONTHLY" },
+    ],
+  })!;
+  const gas = list[0];
+  const bill: Suggestion = { kind: "payment", reason: "", confidence: 1, fields: { place: "ガス料金", name: "", amount: 4100, date: null, time: null, items: [], usage: null, originalAmount: null, originalCurrency: null } };
+  it("請求額が違っても警告しない", () => {
+    assert.equal(gas.variableAmount, true);
+    assert.equal(differingInvoiceAmount(bill, gas), null);
+  });
+  it("金額は見込みと分かる表示にする", () => {
+    assert.equal(registeredSummary(gas), "ガス料金・見込み 約2,876円・毎月");
+    assert.deepEqual(registeredDetails(gas)[0], { label: "定期払いの見込み額", value: "約2,876円" });
+  });
+  it("名前では当て、見込み額の一致だけでは当てない", () => {
+    assert.equal(matchRegistered({ names: ["ガス料金"], amount: 4100, currency: "JPY" }, list).status, "matched");
+    assert.deepEqual(matchRegistered({ names: ["別の請求元"], amount: 2876, currency: "JPY" }, list), { status: "none" });
   });
 });

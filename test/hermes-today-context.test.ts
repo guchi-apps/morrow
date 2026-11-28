@@ -7,6 +7,7 @@ import {
   InjectionMemory,
   INJECTION_TTL_MS,
   mentionsToday,
+  mergeTaskLines,
   pickTasks,
   scheduleOfDay,
   SCHEDULE_ITEM_MAX,
@@ -102,6 +103,19 @@ describe("formatTodayContext", () => {
     assert.ok(evil.prompt.split("\n").every((l) => l.length < 200));
   });
 
+  it("予定日だけのタスクも載り、期限と予定日を書き分ける（#1212）", () => {
+    const ctx = formatTodayContext({
+      ...base,
+      tasks: [
+        { title: "日付なし", due: null, planned: null },
+        { title: "荷物を受け取る", due: null, planned: "2026-11-24" },
+        { title: "支払う", due: "2026-11-25", planned: "2026-11-23" },
+      ],
+    });
+    assert.ok(ctx);
+    assert.match(ctx.prompt, /- 荷物を受け取る（予定日 2026-11-24）\n- 支払う（期限 2026-11-25）\n- 日付なし\n/);
+  });
+
   it("予定が多いときは上限で切る", () => {
     const events = Array.from({ length: SCHEDULE_ITEM_MAX + 5 }, (_, i) => ({ id: `x${i}`, calendarId: "c", title: `予定${i}`, startTime: "09:00" }));
     const ctx = formatTodayContext({ ...base, scheduleJson: { days: [{ date: "2026-11-23", events }] } });
@@ -132,5 +146,22 @@ describe("InjectionMemory", () => {
     m.mark("u", "s", "2026-11-23", 0);
     assert.equal(m.has("u", "s", "2026-11-23", INJECTION_TTL_MS - 1), true);
     assert.equal(m.has("u", "s", "2026-11-23", INJECTION_TTL_MS), false);
+  });
+});
+
+describe("mergeTaskLines（#1212）", () => {
+  it("dateField 3通りの応答をidで1件にまとめ、期限と予定日を分けて持つ", () => {
+    const due = { tasks: [{ id: "a", title: "支払う", due: "2026-11-25", planned: null }], hasMore: false };
+    const planned = { tasks: [{ id: "b", title: "荷物を受け取る", due: null, planned: "2026-11-24" }], hasMore: true, nextCursor: "s:1" };
+    const none = { tasks: [{ id: "c", title: "日付なし" }, { id: "a", title: "支払う", due: "2026-11-25" }] };
+    const lines = mergeTaskLines([due, planned, none]);
+    assert.equal(lines.length, 3);
+    assert.deepEqual(lines.find((t) => t.title === "荷物を受け取る"), { title: "荷物を受け取る", due: null, planned: "2026-11-24" });
+    assert.deepEqual(lines.find((t) => t.title === "日付なし"), { title: "日付なし", due: null, planned: null });
+  });
+
+  it("60件を超えても切らない（「ほかN件」の数に使う）", () => {
+    const tasks = Array.from({ length: 80 }, (_, i) => ({ id: `t${i}`, title: `t${i}` }));
+    assert.equal(mergeTaskLines([{ tasks }]).length, 80);
   });
 });
