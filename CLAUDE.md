@@ -257,13 +257,12 @@ WKWebViewにはPushManagerが無いので、殻がAPNsのトークンを取っ�
 
 ### メールと予定・タスクの紐づけ（#834）
 
-メール詳細の「🔗 このメールに紐づけた予定・タスク」と、ダッシュボードの予定カードの✉バッジ。**AIDEの `aide_create_event` にはメール参照を載せる欄が無い**（タスクは `memo` のみ）ため、対応は**MorrowのDB（`MailLink`）に持つ**。
+メール詳細の「🔗 このメールに紐づけた予定・タスク」。ダッシュボードの予定カードの✉バッジは、カードごと#1241で廃止した。**AIDEの `aide_create_event` にはメール参照を載せる欄が無い**（タスクは `memo` のみ）ため、対応は**MorrowのDB（`MailLink`）に持つ**。
 
 - **台帳の複製の正ではなく、押した操作の控え**（#732）。持つのは `messageId`・`kind`（event/task）・予定/タスクのid（`targetId`・予定は `calendarId` も）・紐づけ時点の題名・日付・`source`（`created`＝メールから作成／`manual`＝あとから）だけで、件名・差出人・本文は持たない。台帳側で変わっても追従せず、消えても行は残り利用者が解除する。**台帳の中身を読み直して同期する処理は足さない**
 - 純粋な部分は `src/lib/mail/link-core.ts`（`test/mail-link.test.ts`）、DBとAIDEの読み取りは `link.ts`、口は `/api/mail/links`（GET＝候補、POST＝紐づけ、DELETE＝解除）。**紐づけ（POST）は `getMail()` で持ち主を照合してから保存する**
 - **候補**: 予定は `aide_schedule`（`offsetDays: -7, days: 14`。活動記録・中止は除く）、タスクは `aide_tasks`（`status: open`。`readTools` に足した）。形が違っても読めるよう `link-core.ts` が複数の置き場所を見る。**タスクの取り方は#1211で変えた（下の「追跡番号をタスクに残す」）。`aide_tasks` の契約は2026-11-09に実物で確認済み（#853）**——入力は `status`（open/completed/skipped）・`limit`（1〜100）・`cursor`・`dateField`・`from`・`to`、応答は `tasks[].{id, title, due, planned, …}`・`hasMore`・`nextCursor`。`{ status: "open", limit: 60 }` は範囲内で、`parseTaskCandidates()` がそのまま読める。形は `test/mail-link.test.ts`「aide_tasks の契約」が固定する。**`hasMore: true`（60件超）でも先頭の60件だけを候補にし、`cursor` は辿らない**（候補は直近の未完了で足りる判断）。**`aide_tasks` はOAuthのscope `tasks:read` を要る**（`tasks:write` では読めない。#922。AIDEのプリセットの `scopes` に両方を挙げ、足した後は利用者の繋ぎ直しが要る。権限不足のときは候補の取得失敗に繋ぎ直しの案内を出す）。AIDEなど外部の道具を呼ぶ処理を足すときは、入力・応答の例をテストかdocsに残す（レビューが契約を確認できず止まるのを防ぐ）
 - **メールから作成したとき（`applyFlow()`）は自動で紐づく**。作成の応答にidがあればそれ、無ければ作成後に一覧を引いて**題名・時刻が一致する1件だけ**採る（複数なら決められないので紐づけない。失敗は本筋を止めずログのみ）
-- **ダッシュボード**: `ScheduleItem` が `id`・`calendarId` を持つ。`ScheduleBody` が `mailIdsByTarget()` で逆引きし、1通なら `/mail/<id>`、複数なら `details` の小メニューへ。繰り返し予定は1回分のidに紐づく
 - AIDE（予定の説明欄）・YoteiFlow（タスクの構造化リンク）側にメール参照を持たせる案は別リポジトリの変更になるため見送った
 
 ### メールから登録した内容の控え（#750）
@@ -471,7 +470,7 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
 ## 今日のダッシュボード（#573）
 
 **トップ（`/`）は今日のダッシュボード**（#573。相談は#574で廃止した）。
-天気・予定（AIDE。タスクを含む）・話題を並べる、見るだけの画面（`src/components/dashboard/dashboard-view.tsx`）。
+天気・話題を並べる、見るだけの画面（`src/components/dashboard/dashboard-view.tsx`）。
 「今日届いた通知」と「届いた通知」（`/pushes`）は#675で廃止した（朝の見通し・先回りの提案とともに）。
 
 - **天気・予定はモデルを通さず、AIDEのMCPを直接叩く**（`src/lib/mcp/direct-call.ts`）。依存は足さず、
@@ -485,16 +484,16 @@ Hermes Agent（subpc）への指示を出す**実行窓口のチャットを新�
   取得は共有する。画面はスマホ用とPC用の2つの並びを描き分けている（CSSで片方を隠す）ので、これが無いとAIDEへ2本ずつ出る。
   未接続はキャッシュしない
 - 天気・予定は `Suspense` で後から流し、DBだけで出せる部分を先に描く
-- **予定カードは「予定・記録」のタイムライン**（#1089。#626の濃さ3段階は廃止）。縦が時間軸で、時刻のある予定・移動・記録の時間を縦線で示し、各線を右の項目名と折れ線でつなぐ。予定（青）と記録（緑。AIDEの `calendarName` が「活動記録」。専用の項目は無いので名前で見る）は同じ軸に混ぜ、線の列は重なる時間だけ増える。時刻なし・終日・タスク・リマインドは軸の上の帯。範囲は項目の前後1時間（最低7〜22時）。配置は純粋な `src/lib/dashboard/timeline.ts`（`test/dashboard-timeline.test.ts`）、描画は `dashboard-view.tsx` の `ScheduleOk`。終わった予定（`schedule-phase.ts`。今日は終了時刻が現在より前・前の日は全部）は線と項目名を少し薄くし、今日は現在時刻の横線を引く。「終わった」は描画時の日本時間との比較で、開いたままでは更新されない。項目名が増えると縦に延びる（`LABEL_STEP_PX` ずつ下へ送る）
+- **予定・記録のカードは#1241で廃止した**（タイムライン〔#1089〕・予定の✉バッジ〔#834〕ごと。戻すなら履歴〔PR #1241より前〕から拾う）。予定の取得（`scheduleSource()`・`parseSchedule()`）は天気の区間・チャット・メールの提案が使うので残してある
 
 ### ホームは今日だけを出す（#1088）
 
 ダッシュボードの前後の日へのめくり（#606。左右スワイプ・‹ ›・日付ドット・「今日へ」・`?d=`）は廃止した。`/?d=…` は無視して今日を出す。見出しは日付・「今日」バッジ・取得時刻だけ。
 
-- `dashboardPlaces()`・`dashboardSchedule()`・`dashboardDayWeather()` の `offset` 引数は内部に残してあり、ホームは常に0（今日）を渡す。**戻すなら履歴（PR #1088より前）から拾う**
+- `dashboardPlaces()`・`dashboardDayWeather()` の `offset` 引数は内部に残してあり、ホームは常に0（今日）を渡す。**戻すなら履歴（PR #1088より前）から拾う**
 - `DAY_RANGE`（`day-offset.ts`）は天気ページ（#869）とOpen-Meteoの取得幅（`open-meteo.ts`）が使うので残す。`/weather` の日またぎは左右スクロールで、この廃止の対象外
-- 予定カードの「終わった」判定・天気の前日比などは今日の値として従来どおり
-- 天気・予定の `Suspense` の `key` は日付のまま
+- 天気の前日比などは今日の値として従来どおり
+- 天気の `Suspense` の `key` は日付のまま
 
 ### 天気の地点・時間と場所ごとの雨・現在地（#586）
 
@@ -607,7 +606,7 @@ issue-deckの共有トークンAPIから実行時に取る**（`src/lib/shared-t
 
 「いまの一言」・お知らせの一覧（`/notices`）・受け口（`POST /api/notices`・MCPのお知らせ3ツール）・選定（Codex）・急ぎ（URGENT）のPush・
 `Notice` テーブル・用途「お知らせの選定」・共有トークン `AIDE_BOT_NOTICE_INGEST_TOKEN` / `NOTICE_INGEST_TOKEN` を消した。トップは
-予定（タスクを含む）・天気・話題を見せるだけ。`/notices` は `/` へ転送する（古い通知のURL用。消さない）。
+天気・話題を見せるだけ（予定は#1241で外した）。`/notices` は `/` へ転送する（古い通知のURL用。消さない）。
 `/api/mcp` に残るのはタスクのツール（`aide_task_*`。`TASK_API_TOKEN`）だけで、未設定なら経路ごと401。
 
 - **残したもの**: `notice-url.ts`（`safeNoticeUrl()`。話題のURL検証と `sw.js` の一致テストが使う）、`NotificationLog` の `urgent-notice`

@@ -22,13 +22,6 @@
   --topic-surface: #e8eef5;
   /* 天気の「降らない見込み」（#586）。雨（topic）・降るかも（accent）と見分ける落ち着いた緑。 */
   --fair: #3f7a52;
-  --cal-record: #8b5e3c;
-  --cal-travel: #3b5b7d;
-  --cal-1: #2563eb;
-  --cal-2: #0d9488;
-  --cal-3: #7c3aed;
-  --cal-4: #c8503c;
-  --cal-5: #b7791f;
   --fair-surface: #e7f3eb;
   /* メールのアカウントの色（#789）。8pxの丸でも見分けられるよう、色相と明るさを離してある。
      メイン＝珊瑚（accentと同じ）・フォーマル＝青・サブ＝ティール・その他＝紫。チップの文字は地に対して読める濃さ。 */
@@ -63,13 +56,6 @@
     --topic: #9dbbe0;
     --topic-surface: #1b2530;
     --fair: #8fd1a4;
-    --cal-record: #c9966b;
-    --cal-travel: #9dbbe0;
-    --cal-1: #7aa2ff;
-    --cal-2: #2dd4bf;
-    --cal-3: #b79bff;
-    --cal-4: #ff8262;
-    --cal-5: #e0b050;
     --fair-surface: #14241a;
     --account-coral: #ff8262;
     --account-coral-surface: #3d1f18;

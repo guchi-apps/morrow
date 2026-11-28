@@ -71,26 +71,6 @@ export async function linksForMessage(userId: string, messageId: string): Promis
   }
 }
 
-/** ダッシュボードの行に✉を付けるための逆引き。鍵は `linkKey(kind, targetId)`、値はそのメールのid（新しい順）。 */
-export async function mailIdsByTarget(userId: string, targets: { kind: LinkKind; targetId: string }[]): Promise<Map<string, string[]>> {
-  const map = new Map<string, string[]>();
-  if (targets.length === 0) return map;
-  try {
-    const rows = await db.mailLink.findMany({
-      where: { userId, OR: targets.map((t) => ({ kind: t.kind, targetId: t.targetId })) },
-      orderBy: { createdAt: "desc" },
-      select: { messageId: true, kind: true, targetId: true },
-    });
-    for (const row of rows) {
-      const key = linkKey(row.kind === "task" ? "task" : "event", row.targetId);
-      map.set(key, [...(map.get(key) ?? []), row.messageId]);
-    }
-  } catch {
-    // 紐づけが読めなくても予定は出す
-  }
-  return map;
-}
-
 /**
  * 候補の取得に失敗したときの画面の文。接続の権限（scope）不足は待っても直らないので、
  * 「時間をおいて」ではなく繋ぎ直しを案内する（#922）。
