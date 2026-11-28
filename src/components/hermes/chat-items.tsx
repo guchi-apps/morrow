@@ -35,7 +35,8 @@ export function ChatItemView({ item, turnId, onApproval, onClarify, onProposalCh
           {/* 送った画像（#1219）。再読み込み・履歴の復元では枚数だけの注記になる */}
           <SentImages srcs={item.imageSrcs} count={item.images} />
           {item.text && (
-            <div className="whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-accent px-3.5 py-2 text-sm text-white">{item.text}</div>
+            // 右寄せの縦並びでは `break-words` が最小幅を縮めず、長いURLが左へはみ出す（#1230）
+            <div className="max-w-full whitespace-pre-wrap wrap-anywhere rounded-2xl rounded-br-sm bg-accent px-3.5 py-2 text-sm text-white">{item.text}</div>
           )}
         </div>
       );
