@@ -4,6 +4,7 @@ import { Brain, Cpu, LayoutDashboard, Sparkles, Mail, MessageSquare, Newspaper, 
 import Link from "next/link";
 
 import { AppLogo } from "@/components/brand/app-icon";
+import { SessionList } from "@/components/hermes/session-list";
 import { cn } from "@/lib/utils";
 
 import { MemoryPendingBadge } from "./memory-pending-badge";
@@ -36,15 +37,15 @@ type Props = {
   appVersion: string;
   /** メールの未読件数バッジ（#877）。AIDE待ちなので `Suspense` で後から流れてくる。 */
   mailBadgeSlot?: React.ReactNode;
-  /** 上部の情報カード（#719）。 */
-  infoSlot?: React.ReactNode;
+  /** 会話の履歴（#1228）が見えているか（PCの帯はlg以上、ドロワーは開いている間）。 */
+  historyActive: boolean;
   onNavigate?: () => void;
 };
 
 /**
  * 左のメニュー。PCでは常に見えている左の帯、スマホではドロワーの中身として同じものを使う。
  *
- * #574で相談（今日の記録）と日付の一覧をやめたので、並ぶのはダッシュボードと各画面へのリンクだけ。
+ * 上部はHermesのチャットの会話の履歴（#1228。profileの持ち主だけ）、下は各画面へのリンク。
  */
 export function ConversationRail({
   isDashboardActive,
@@ -62,20 +63,31 @@ export function ConversationRail({
   userEmail,
   showHermesProfile = false,
   appVersion,
-  infoSlot,
+  historyActive,
   mailBadgeSlot,
   onNavigate,
 }: Props) {
   return (
-    <div className="flex h-full min-h-0 flex-col bg-rail">
-      <div className="flex flex-col gap-3.5 pb-3.5 pt-4">
+    // 低い画面（iPhoneの横向きなど）で下のリンクが切れないよう、帯ごとスクロールできるようにする
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-rail">
+      <div className="shrink-0 pb-3.5 pt-4">
         <AppLogo className="px-4 text-xl" />
-        {infoSlot}
       </div>
 
-      <div className="min-h-0 flex-1" />
+      {showHermesProfile ? (
+        <section aria-label="会話の履歴" className="flex min-h-[7.5rem] flex-1 flex-col">
+          <h2 aria-hidden="true" className="px-5 pb-1 text-[0.6875rem] text-muted">
+            会話の履歴
+          </h2>
+          <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-2">
+            <SessionList active={historyActive} onNavigate={onNavigate} />
+          </div>
+        </section>
+      ) : (
+        <div className="min-h-0 flex-1" />
+      )}
 
-      <div className="border-t border-border">
+      <div className="shrink-0 border-t border-border">
         {/* ホーム（旧・今日。#719）。指の届く下のリンク列の先頭に置く。 */}
         <Link
           href="/"

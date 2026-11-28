@@ -4,7 +4,7 @@ import { Menu, X } from "lucide-react";
 
 import { HEADER_ACTIONS_ID } from "@/components/chat/header-actions";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -22,12 +22,18 @@ type Props = {
   /** 記憶・スキルのメニューを出すか（Hermes profileの持ち主だけ。#1181）。 */
   showHermesProfile?: boolean;
   appVersion: string;
-  /** メニュー上部の情報カード（#719）。 */
-  infoSlot?: React.ReactNode;
   /** メニューの「メール」の未読バッジ（#877）。 */
   mailBadgeSlot?: React.ReactNode;
   children: React.ReactNode;
 };
+
+/** PCの帯（lg以上）が出ているか。会話の履歴は見えているときだけ取りに行く（#1228）。 */
+const WIDE_QUERY = "(min-width: 1024px)";
+function subscribeWide(listener: () => void): () => void {
+  const query = window.matchMedia(WIDE_QUERY);
+  query.addEventListener("change", listener);
+  return () => query.removeEventListener("change", listener);
+}
 
 /**
  * 画面の外枠。メニュー（PCは常設の帯、スマホはドロワー）と上部の見出しを持つ。
@@ -54,13 +60,13 @@ export function ChatShell({
   userEmail,
   showHermesProfile = false,
   appVersion,
-  infoSlot,
   mailBadgeSlot,
   children,
 }: Props) {
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
   useVisualViewportFit();
+  const isWide = useSyncExternalStore(subscribeWide, () => window.matchMedia(WIDE_QUERY).matches, () => false);
   // スワイプでの開閉（#434）は、横スクロール・別の左右スワイプと干渉するため廃止した（#600）。開閉はボタンだけ。
   // aria-modalのドロワーのフォーカス制御（#464）。開いたら閉じるボタンへ移し、閉じたら開いたボタンへ戻す。
   const openerRef = useRef<HTMLButtonElement>(null);
@@ -112,7 +118,7 @@ export function ChatShell({
   // ドロワーは lg 未満でしか見えない。開いたまま lg 以上へ広がると背面が操作できなくなるので閉じる。
   useEffect(() => {
     if (!drawerOpen) return;
-    const query = window.matchMedia("(min-width: 1024px)");
+    const query = window.matchMedia(WIDE_QUERY);
     const onChange = () => {
       if (query.matches) setDrawerOpen(false);
     };
@@ -150,7 +156,7 @@ export function ChatShell({
           userEmail={userEmail}
           showHermesProfile={showHermesProfile}
           appVersion={appVersion}
-          infoSlot={infoSlot}
+          historyActive={isWide}
           mailBadgeSlot={mailBadgeSlot}
         />
       </aside>
@@ -194,7 +200,7 @@ export function ChatShell({
               userEmail={userEmail}
               showHermesProfile={showHermesProfile}
               appVersion={appVersion}
-          infoSlot={infoSlot}
+          historyActive={drawerOpen}
           mailBadgeSlot={mailBadgeSlot}
               onNavigate={() => setDrawerOpen(false)}
             />

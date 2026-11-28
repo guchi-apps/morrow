@@ -14,7 +14,7 @@ pnpm hermes-bridge   # node hermes-bridge/server.ts
 | `HERMES_DASHBOARD_SESSION_TOKEN` | Hermesのトークン（subpcの外へ出さない） |
 | `MORROW_HERMES_BRIDGE_TOKEN` | Morrowが送るBearer。**未設定なら全部401** |
 | `MORROW_HERMES_PROPOSE_MCP_PORT` | 任意。提案用の何もしないMCP（`morrow_propose_action`）の待受ポート（127.0.0.1の `/mcp`。外へ出さない）。Morrow専用profileの `mcp_servers` の接続先にする |
-| `MORROW_HERMES_HOME` | 任意。Morrow専用profileのディレクトリ（例 `~/.hermes/profiles/morrow`）。**スキルの確認・承認（#1154）に必要**。未設定ならスキルの口は503 |
+| `MORROW_HERMES_HOME` | 任意。Morrow専用profileのディレクトリ（例 `~/.hermes/profiles/morrow`）。**スキル・記憶の確認・承認（#1154・#1155）に必要**。未設定ならスキル・記憶の口は503 `feature_disabled`（Morrowの `/skills`・`/memory` には「ブリッジでスキル・記憶の機能が設定されていません」と出る。#1225） |
 | `MORROW_HERMES_BRIDGE_ALLOWED_IPS` | 許可する送信元（`X-Forwarded-For`）をカンマ区切りで。**空なら全部403** |
 
 API: `GET /health`（#1158から、Hermesの `mcp.servers.status` を読んでAIDEの道具の読み込み状態 `aide` も返す）・`POST /turns`（SSE）・`POST /turns/<id>/approval`（`once`・`deny` だけ）・`POST /turns/<id>/interrupt`・`GET /sessions/<id>/messages?limit=N`（#752。直近N件・既定50・上限100）。

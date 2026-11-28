@@ -295,7 +295,8 @@ export function createBridgeServer(options: BridgeOptions): Server {
     if (!isRoute) return false;
     const skills = options.skills;
     if (!skills) {
-      sendError(res, 503, "hermes_down");
+      // Hermesは動いている。設定漏れを「Hermesが応答しません」と取り違えさせない（#1225）
+      sendError(res, 503, "feature_disabled");
       return true;
     }
     try {
@@ -334,7 +335,7 @@ export function createBridgeServer(options: BridgeOptions): Server {
     if (!isRoute) return false;
     const memory = options.memory;
     if (!memory) {
-      sendError(res, 503, "hermes_down");
+      sendError(res, 503, "feature_disabled");
       return true;
     }
     try {

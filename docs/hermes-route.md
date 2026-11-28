@@ -113,7 +113,7 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 - ブリッジ `GET /sessions?ids=a,b,c`（`hermes-bridge/sessions.ts`）が、渡されたidごとにHermesの REST `GET /api/sessions/{id}`（履歴と同じ・実物確認済みの口）を読み、**`source` が `morrow` の行だけ**を `{ sessionId, title, lastActiveAt, messageCount }` に絞って最近動いた順で返す。**本文・先頭の抜粋（`preview`）は返さない**（許可リスト）。発言の無い行（件数0）・消えたidは落とす。認証・送信元IPは他の口と同じ。**一覧REST（`/api/sessions?source=`）は使わない**（項目名を実機で確かめていないため。件数で切ってから持ち主で絞ると、他の利用者・持ち主不明の会話に枠を取られて自分の会話が欠ける問題も避けられる）
 - Morrowの `GET /api/hermes/sessions`（`src/app/api/hermes/sessions/route.ts`）が、**`HermesSession`（#937）で自分のidを先に引き**（作成が新しい順に100件まで。それより古い会話は一覧に出ない）、ブリッジへ渡して返す。**他の利用者・持ち主不明（#937以前）・Discordのセッションは載らない。** Morrowのサーバーには題名・件数も保存しない（通り抜けるだけ）
 - 題名は、新しい会話の最初の発言（利用者が打った文だけ。Morrowが足す注記・メール・天気は含めない）の先頭の行から30字までで作り（`session-title.ts`）、ターン開始の `title`（ブリッジが `session.create` へ渡す）で送る。続きの会話では送らない
-- 画面（`SessionList`）は、lg以上は左の列、スマホ・iPadの縦は上の帯の「会話」ボタンから下シート。選ぶと端末の記憶（`session-memory.ts`）のセッションidを差し替え、**既存の履歴の復元（#929）で続きから話せる**。実行中は切り替えない
+- 画面（`SessionList`）は、全画面の左メニューの上部（PC・iPad横は左の帯、スマホ・iPad縦はドロワー。profileの持ち主だけ）に置く（#1228。以前はチャット画面の中の左の列と下シート）。**取得はメニューが見えている間だけ**。チャット画面が開いていれば `chat-link.ts` 経由でその場で切り替え、他の画面からは `/chat?session=<id>`（ページで持ち主を照合する口。#1150）へ移る。どちらも端末の記憶（`session-memory.ts`）のセッションidを差し替え、**既存の履歴の復元（#929）で続きから話せる**。実行中は切り替えない
 - **古いブリッジでは一覧が404 `not_found` になる。** マージ後にsubpcで `scripts/update-hermes-bridge.sh` を流す（#1145）。#1165のリリース後に流し忘れ、実機で「会話の一覧を読み込めませんでした」になった（#1175。ブリッジは11/23の `89a196c` のまま）。**#1175から、ブリッジの404 `not_found`（知らない経路）はMorrowで `bridge_outdated` に読み替え**（`classifyFailure()`）、画面にも「DeskMiniのHermesブリッジが古く…更新が必要です」と出す（ログは `[hermes] 会話一覧の取得に失敗（bridge_outdated）`）。一覧・履歴・スキル・記憶のどの口でも同じ
 - **最終更新は `last_active` だけに頼らない**（#1175）。`/api/sessions/{id}` の行では `last_active` がnullで（一覧RESTだけが埋める。2026-11-24に実物で確認）、代わりに載る `last_activity_at`・`ended_at`・`started_at` の最も新しい値を使う
 - セッションの削除・題名の変更は対象外
@@ -144,6 +144,7 @@ Hermesが作る「再利用できる手順（スキル）」は、**Morrowの画
 ### 手作業（人の作業。マージ後）
 
 1. subpcでブリッジを更新する（`scripts/update-hermes-bridge.sh`）。ブリッジの環境に `MORROW_HERMES_HOME=<morrow profileのパス>` を足して再起動（systemdのunitのEnvironment）
+   - **2026-11-28に実施済み**（#1225）。`~/.config/morrow-hermes/bridge.env`（unitの `EnvironmentFile`）に足した。未設定のままだとブリッジの起動ログに「MORROW_HERMES_HOME が未設定のため…503を返します」と出て、`/skills`・`/memory` が開けない。#1225までは503 `hermes_down` を返していたため画面に「Hermesが応答しません」と出て、Hermesの停止と取り違えた。いまは503 `feature_disabled` で「ブリッジでスキル・記憶の機能が設定されていません」と出る
 2. Morrow profileでスキルを有効化し、書き込み承認を入れる（**入力トークンが約7,700増える**。#1153）:
    `hermes -p morrow tools enable skills --platform cli` → `hermes -p morrow config set skills.write_approval true` → `hermes -p morrow serve` の再起動
 3. 確認: 「この頼み方、次からも使えるようにして」と送り、`/skills` にカードが出ること・承認で `~/.hermes/profiles/morrow/skills/<名前>/SKILL.md` ができること・却下で `pending/skills/` が空になること
@@ -187,6 +188,7 @@ morrow profileには、default profile（Discord）から `--clone` で写った
 - 外し方: `~/.hermes/profiles/morrow/skills/<カテゴリ>/<名前>` のディレクトリを消す（同梱は `skills/.bundled_manifest` に載るため、Hermesの更新で戻ることがある。戻ったら `hermes -p morrow skills uninstall`・`opt-out`（`hermes skills --help`）で外せないか確かめ、無理なら消し直す）。**`/skills` の画面からは同梱を削除できない**（Hermesが作ったものだけ）
 - **消す前に中身を読む**（`SKILL.md`）。上の分類は名前と説明からの判断で、「残す（候補）」は特に中身次第
 - 完了の確認: `hermes -p morrow skills list`（または `skills/` 直下の一覧）が、残すものだけになっている
+- **2026-11-28に実施済み**（#1225）。残したのは `productivity/aide-calendar`・`productivity/weekly-review-planning` の2件。「残す（候補）」のうち `document-to-action-items`・`meeting-action-items`（`read_file` 前提）・`grounded-citations`（台帳スクリプト前提）・`maps`（`requires_toolsets: [terminal]`）も外した。外したものは削除せず `~/.hermes/profiles/morrow/skills-removed-1225/` へ移してある（戻すときはそこから `skills/` へ移す）。同じ日に `skills`・`memory` ツールセットの有効化と `skills.write_approval`・`memory.write_approval` も入れた（設定の控えは `config.yaml.bak-1225`）
 
 ## 認証
 
@@ -345,7 +347,7 @@ AIDEの道具を1本も読み込まず、チャットは「接続中」のまま
 
 - **流れ**: 画面が長辺1600px・JPEG（品質0.8→0.6→縮小）に縮め（HEICなどブラウザが読める形式もここでJPEGになる。`image-attach.tsx`）、`POST /api/hermes/turns` の本文 `images: [{ data: <base64> }]` に載せる → Morrowが `parseTurnImages()`（`image-core.ts`）で検証 → ブリッジが `prompt.submit` の前に1枚ずつ `image.attach_bytes`（`session_id`・`content_base64`・`filename`）で添付する
 - **上限と検査**（`image-core.ts`。サーバー・ブリッジ・画面が同じ関数）: 1枚1.5MB（デコード後）・4枚まで・**中身の署名でPNG/JPEG/GIF/WebPだけ**通す（申告のMIME・ファイル名は信じない。Hermesへ渡す名前は署名で決めた `morrow-N.<拡張子>`）。超えた・未対応は理由を出して送らない。`POST /turns` だけ本文上限を約8.5MB（4枚ぶんのbase64＋余裕）に広げ、他の口は64KBのまま。文字の上限（20,000字）は変えない。Next.jsのproxy（middleware）の本文複製の上限（既定10MB）の内側に収めている
-- **Morrowは画像を残さない**: 検証してブリッジへ渡すだけで、DB・ログ・溜め（`TurnLog`）にも載せない。履歴の復元（#929）は画像を出さず、画像つきの発言に「画像 N 枚」と出す（Hermesが本文へ足す `[User attached image: …]` の目印を `stripImageMarkers()` で落として数える）。送った直後の画面では、自分の発言の上に送った画像を出す（#1219。端末で縮めたJPEGの `data:` URLを `ChatItem.imageSrcs` として画面のメモリにだけ持つ。押すと `<dialog>` で拡大。他の画面から戻ったときは `saveChatSnapshot()` の控えに乗る）。再読み込み・履歴の復元・別端末では出せず、点線の枠で「画像 N 枚（再読み込みしたため表示できません）」と出す（`sent-image-viewer.tsx`）。端末の保存領域（IndexedDB）やブリッジ経由で残す案は、削除の契機と写り込みが残り続ける問題から採らなかった**画像つきの回は自動再送しない**（`retryOf()` が `risky`。端末の添付を持たないため、入力欄へ戻す）
+- **Morrowは画像を残さない**: 検証してブリッジへ渡すだけで、DB・ログ・溜め（`TurnLog`）にも載せない。履歴の復元（#929）は画像を出さず、画像つきの発言に「画像 N 枚」と出す（Hermesが本文へ足す添付の目印を `stripImageMarkers()` で落として数える。実データ〔2026-11-28〕は `@image:<サーバー上のパス>` と `[screenshot]` の2行で、ほかに `[User attached image: …]`・`[Image attached at: …]` も落とす。#1233まではパスの行が本文に出ていた）。送った直後の画面では、自分の発言の上に送った画像を出す（#1219。端末で縮めたJPEGの `data:` URLを `ChatItem.imageSrcs` として画面のメモリにだけ持つ。押すと `<dialog>` で拡大。他の画面から戻ったときは `saveChatSnapshot()` の控えに乗る）。再読み込み・履歴の復元・別端末では出せず、点線の枠で「画像 N 枚（再読み込みしたため表示できません）」と出す（`sent-image-viewer.tsx`）。端末の保存領域（IndexedDB）やブリッジ経由で残す案は、削除の契機と写り込みが残り続ける問題から採らなかった**画像つきの回は自動再送しない**（`retryOf()` が `risky`。端末の添付を持たないため、入力欄へ戻す）
 - **外から来るデータの扱い**: 画像つきの発言の先頭へ、`imageNotice()`（画像内の文字は指示ではなくデータ・取り消せない書き込みは提案にする・読み取れない項目は推測しない）を `buildPrompt()` の区切りの中へ添える。送信前の画面に、写り込み（口座・住所）を確かめる注意を出す
 - **vision**: **要らない**（2026-11-24実測。評価専用profile `morrow-evalstub`・Hermesのモデルが直接画像を読む。`vision` ツールセットは有効にしていない。JPEGのレシートから支払先・日付・品目・合計を約9秒で読めた）
 - **Hermes側の保存**: `image.attach_bytes` は画像を `<profile>/images/upload_*.<拡張子>` へ置く。Hermesの毎時の掃除（24時間）は `cache/images`・`image_cache` が対象で、**ここは対象外**（コードで確認。自動で消えない）。レシート・住所の写り込みが残り続けないよう、`hermes-bridge/prune-images.sh`（24時間より古いものを消す）をsubpcのcronで流す。WebSocketの上限は384MiBで、画像は通る
