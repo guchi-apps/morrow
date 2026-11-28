@@ -372,7 +372,7 @@ async function PlacesSection({
           <YesterdayNote cells={hours} nowIndex={nowIndex} />
           <HourlyStrip cells={hours} nowIndex={nowIndex} resetKey={`${dayKey}:${offset}`} />
           {rainy.length > 0 && <UmbrellaNote>{umbrellaText(rainy[0], rainy.length > 1)}</UmbrellaNote>}
-          <p className="text-[0.6875rem] text-muted">青い地は降水確率{RAIN_POP}%以上。灰色は過ぎた時間。横にスクロールできます。</p>
+          <p className="text-[0.6875rem] text-muted">青い地は降水確率{RAIN_POP}%以上。灰色は過ぎた時間。いちばん下の矢印は風が吹いていく向き、数字は風速です。横にスクロールできます。</p>
         </div>
       )}
       {hours.length === 0 && rainy.length > 0 && (
