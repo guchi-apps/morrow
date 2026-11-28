@@ -63,4 +63,12 @@ export async function hermesStatus(now: number = Date.now()): Promise<HermesStat
   return inflight;
 }
 
+/**
+ * AIDEの再接続・再ログインの結果をキャッシュへ反映する（#1240）。Hermesが動いていると分かった回だけ。
+ * 判定できなかった（null）回は次の取得で読み直す。
+ */
+export function rememberAideHealth(aide: AideHealth | null, now: number = Date.now()): void {
+  cachedStatus = aide ? { status: { state: "ok", aide }, at: now } : null;
+}
+
 export type { HealthBody };

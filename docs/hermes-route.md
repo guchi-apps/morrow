@@ -66,7 +66,11 @@ subpcで常駐する小さなHTTPサーバー。Hermesのメソッドのうち�
 
 | ブリッジのAPI | Hermesへ | 備考 |
 |---|---|---|
-| `GET /health` | 接続して `gateway.ready` を待ち、`mcp.servers.status` を1回読む | `{bridge:"ok", hermes:"ok"\|"down", aide?:"ok"\|"connecting"\|"unavailable"}`（`aide` は判定できた回だけ。#1158）。認証必須 |
+| `GET /health` | 接続して `gateway.ready` を待ち、`mcp.servers.status` を1回読む。`ok`・`connecting` と言えないときだけ `mcp.servers.test {name:"aide"}` で実際に繋いで確かめる（#1240） | `{bridge:"ok", hermes:"ok"\|"down", aide?:"ok"\|"connecting"\|"login_required"\|"unavailable"}`（`aide` は判定できた回だけ。#1158）。認証必須 |
+| `POST /aide/reconnect` | `reload.mcp {confirm:true}` → 状態を読み直す | #1240。`{aide?}`。全セッションのMCPを張り直し、**プロンプトキャッシュが捨てられる**（押したときだけ） |
+| `POST /aide/login/start` | `mcp.servers.oauth.start {name:"aide", client_redirect_uri?}` | #1240。`{flowId, authUrl}`。戻り先は `mcp-tokens/aide.client.json` の登録済みのループバック。**始めた時点でHermesが今のトークンを消す**（下の「AIDEのOAuthはprofileごと」） |
+| `POST /aide/login/complete` `{flowId, callbackUrl}` | `mcp.servers.oauth.callback` → `oauth.poll`（最大30秒）→ `reload.mcp` | #1240。貼り付けたURL（ループバックの `/callback`・`state` と `code`/`error`）だけ通す。受け付けられない・完了しない回は `oauth.cancel` してから400 `login_rejected`／409 `login_failed` |
+| `POST /aide/login/cancel` `{flowId}` | `mcp.servers.oauth.cancel` | #1240。Hermesが始める前のトークンへ戻す |
 | `POST /turns` `{sessionId?, text, title?}` | `session.create`（無ければ）/ `session.resume` → `prompt.submit` | 応答はSSE。`message.delta`・`tool.start`/`tool.complete`・`approval`・`clarify`・`clarify.closed`・`message.complete`（`usage` 付き）を種類別に流す |
 | `POST /turns/<id>/approval` `{requestId, choice}` | `approval` リクエストへの回答 | `once`・`deny` だけを通す（`always`・`session` は400。`docs/hermes-actions.md`） |
 | `POST /turns/<id>/clarify` `{requestId, answers}` | `clarify` リクエストへの応答 `{answers, outcome:"submitted"}` | #1150。下の「選択肢つきの質問（clarify）」。質問idと選択肢に合わない回答は400、待っていない質問は404 |
@@ -330,7 +334,15 @@ AIDEの道具を1本も読み込まず、チャットは「接続中」のまま
 - **見分け方**: `~/.hermes/profiles/morrow/logs/agent.log` に
   `MCP OAuth setup failed for 'aide': ... no cached tokens found.`（続けて `hermes mcp login aide` を促す文）が5分ごとに出る。
   チャット画面では道具が「使える道具の検索」「ウェブ検索」だけになり、「予定の確認」が出ない
-- **直し方（人の作業）**: subpcで `hermes -p morrow mcp login aide` を対話的に通し（AIDEの認可画面）、Hermesのuser unitを再起動する
+- **直し方（#1240から画面で）**: チャット画面の赤帯から直す（subpcでのコマンド・Hermesの再起動は要らない）
+  - `unavailable` のとき「再接続する」: ブリッジの `POST /aide/reconnect`（Hermesの `reload.mcp`）でMCPを張り直す
+  - `login_required`（トークンが無い・認証で断られた）のとき「AIDEに再ログイン」: 認可URLを開いてログインし、移った先の
+    開けないページ（`http://127.0.0.1:52215/callback?code=…&state=…`）のURLを貼り付けて「ログインを完了」。ブリッジが
+    `oauth.callback` でHermesへ渡し、保存を待って張り直す。**Hermesの `oauth.start` は始めた時点で今のトークンを消し**
+    （`tools/connectors/mcp_oauth.py` の `manager.remove()`。2026-11-28にsubpcで実測）、失敗・取り消し・5分の時間切れで元へ戻す
+    （`undo()`。同日に戻ることを実測）。そのため再ログインはログインが切れているときだけ出し、「取り消す」も出す。
+    認可URL・貼り付けたURLはDB・ログに残さない。Hermesのprofileの持ち主だけが押せる（#1188）
+  - 画面で直せないときの手作業: subpcで `hermes -p morrow mcp login aide` を対話的に通し、Hermesのuser unitを再起動する
   - **#809で直し方を書いたまま実施されず、#988（明日の予定を参照できない）で同じ症状が再発した。** 2026-11-15に実施し、`~/.hermes/profiles/morrow/mcp-tokens/aide.json` ができた
   - AIDEはデバイスフロー非対応（`grant_types_supported` が `authorization_code`・`refresh_token` だけ）で、ブラウザでのログインが要る。
     subpcにブラウザが無くても、Hermesは「戻り先のURLを貼り付ける」形に対応している——表示された認可URLを手元の端末で開いてログインし、
@@ -339,7 +351,7 @@ AIDEの道具を1本も読み込まず、チャットは「接続中」のまま
     その場合はprofileの `mcp_servers.aide` に `oauth: { timeout: 3600 }` を一時的に足してから始め、済んだら外す。切れた後のcodeは使えない（PKCEの検証値がプロセスと一緒に消える）
   - 再起動後、AIDEへの接続は5分ごとの確認で張り直される（ログに `MCP OAuth 'aide': tokens file changed ... forcing reload` と `aide.gucchii.com/mcp` への200）
 - **既定profileのトークンファイルを写さない。** リフレッシュトークンを2つのprofileで使い回すと、片方が更新した時点でもう片方が失効しうる
-- **AIDEの道具が読み込まれているかは #1158 から画面に出る。** ブリッジの `/health` が Hermes の `mcp.servers.status`（キャッシュ済みの状態を読むだけで、接続も認証も始めない）を1回呼び、`aide`（`ok`／`connecting`／`unavailable`）を返す（判定は `src/lib/hermes/aide-health.ts`）。実測（2026-11-23）: 正常時は `aide: connected / tools 33`。`unavailable`（`failed`・`configured`・道具0本）のとき、チャットは赤帯で上の「直し方」を出す。`connecting`・判定できない回・ブリッジが古い回（項目なし）は何も出さない。エラーの文面はブラウザへ渡さない。**ブリッジを更新するまで画面には出ない**（`scripts/update-hermes-bridge.sh`）
+- **AIDEの道具が読み込まれているかは #1158 から画面に出る。** ブリッジの `/health` が Hermes の `mcp.servers.status`（キャッシュ済みの状態を読むだけで、接続も認証も始めない）を1回呼び、`aide`（`ok`／`connecting`／`unavailable`）を返す（判定は `src/lib/hermes/aide-health.ts`）。実測（2026-11-23）: 正常時は `aide: connected / tools 33`。**#1240から、`ok`・`connecting` 以外（`failed`・`configured`・道具0本）は `mcp.servers.test` で実際に繋いで確かめてから決める**——Hermesは使われていない間にMCPを畳み、次の利用で張り直すので、`configured`（このプロセスで未接続）だけでは切れていると言えない（2026-11-28 21:55 JSTは `/health` の0.3秒後に35本を登録していたのに赤帯が出た）。繋げれば `ok`、トークンが無い・認証で断られたら `login_required`、それ以外は `unavailable`、確かめられなければ何も出さない。`login_required`・`unavailable` のとき、チャットは赤帯で上の「直し方」のボタンを出す。`connecting`・判定できない回・ブリッジが古い回（項目なし）は何も出さない。エラーの文面はブラウザへ渡さない。**ブリッジを更新するまで画面には出ない**（`scripts/update-hermes-bridge.sh`）
 
 ## 画像の添付（#1157）
 

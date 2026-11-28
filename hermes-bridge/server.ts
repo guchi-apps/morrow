@@ -17,7 +17,8 @@ import {
   type TurnRequestBody,
 } from "../src/lib/hermes/contract.ts";
 import { parseTurnImages, TURN_BODY_MAX_BYTES_WITH_IMAGES } from "../src/lib/hermes/image-core.ts";
-import { aideHealthFromStatus, type AideHealth } from "../src/lib/hermes/aide-health.ts";
+import type { AideHealth } from "../src/lib/hermes/aide-health.ts";
+import { AideActionError, createAideControl, probeAideHealth, readRegisteredRedirect, type AideControl } from "./aide.ts";
 import { authorize, parseAllowedIps } from "./auth.ts";
 import { connectHermes, type HermesLink } from "./hermes-link.ts";
 import { createHistoryReader, HistoryNotFoundError, type HistoryReader } from "./history.ts";
@@ -50,6 +51,8 @@ export interface BridgeOptions {
   skills?: SkillStore;
   /** 記憶の確認・承認（#1155）。 */
   memory?: MemoryStore;
+  /** AIDEの再接続・再ログイン（#1240。テストでは差し替える）。未指定なら `connect` から作る。 */
+  aide?: AideControl;
   turnTimeoutMs?: number;
   heartbeatMs?: number;
   maxConcurrent?: number;
@@ -111,17 +114,64 @@ export function createBridgeServer(options: BridgeOptions): Server {
       const link = await options.connect();
       hermes = "ok";
       try {
-        // キャッシュ済みの状態を読むだけ（接続も認証も始めない）。古いHermesでメソッドが無い・形が読めない回は無しのまま
-        aide = aideHealthFromStatus(await link.rpc("mcp.servers.status", {}));
-      } catch {
-        // 判定できない
+        // キャッシュ済みの状態を読み、`ok` と言えないときだけ実際に繋いで確かめる（#1240）。判定できない回は無しのまま
+        aide = await probeAideHealth(link);
+      } finally {
+        link.close();
       }
-      link.close();
     } catch {
       // 繋がらない
     }
     const body: HealthBody = { bridge: "ok", hermes, ...(aide ? { aide } : {}) };
     sendJson(res, 200, body);
+  }
+
+  const aideControl = options.aide ?? createAideControl({ connect: options.connect });
+
+  /** AIDEの再接続・再ログイン（#1240）。 */
+  async function handleAide(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
+    if (!["/aide/reconnect", "/aide/login/start", "/aide/login/complete", "/aide/login/cancel"].includes(pathname)) return false;
+    if (req.method !== "POST") {
+      sendJson(res, 404, { error: "not_found" });
+      return true;
+    }
+    const body = await readJson(req);
+    if (!body) {
+      sendError(res, 400, "bad_request");
+      return true;
+    }
+    try {
+      if (pathname === "/aide/reconnect") {
+        const aide = await aideControl.reconnect();
+        sendJson(res, 200, aide ? { aide } : {});
+      } else if (pathname === "/aide/login/start") {
+        sendJson(res, 200, await aideControl.startLogin());
+      } else if (pathname === "/aide/login/cancel") {
+        if (typeof body.flowId !== "string") {
+          sendError(res, 400, "bad_request");
+          return true;
+        }
+        await aideControl.cancelLogin(body.flowId);
+        sendJson(res, 200, { ok: true });
+      } else {
+        const { flowId, callbackUrl } = body;
+        if (typeof flowId !== "string" || typeof callbackUrl !== "string") {
+          sendError(res, 400, "bad_request");
+          return true;
+        }
+        const aide = await aideControl.completeLogin(flowId, callbackUrl);
+        sendJson(res, 200, aide ? { aide } : {});
+      }
+    } catch (error) {
+      if (error instanceof AideActionError) {
+        sendError(res, error.reason === "login_failed" ? 409 : 400, error.reason);
+      } else {
+        // 文面にURLやトークンの断片が混ざりうるので、出すのは種類だけ
+        console.error("[morrow-hermes-bridge] AIDEの再接続・再ログインに失敗した", error instanceof Error ? error.name : "unknown");
+        sendError(res, 503, "hermes_down");
+      }
+    }
+    return true;
   }
 
   async function handleStartTurn(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -383,6 +433,7 @@ export function createBridgeServer(options: BridgeOptions): Server {
       if (req.method === "GET" && url.pathname === "/health") return handleHealth(res);
       if (await handleSkills(req, res, url.pathname)) return;
       if (await handleMemory(req, res, url.pathname)) return;
+      if (await handleAide(req, res, url.pathname)) return;
       if (req.method === "POST" && url.pathname === "/turns") return handleStartTurn(req, res);
       if (req.method === "GET" && url.pathname === "/sessions") return handleSessionList(res, url.searchParams.get("ids"));
       const historyMatch = /^\/sessions\/([^/]+)\/messages$/.exec(url.pathname);
@@ -421,10 +472,16 @@ function main(): void {
   if (!token) console.warn("MORROW_HERMES_BRIDGE_TOKEN が未設定のため、すべてのリクエストを401で断ります");
   if (allowedIps.length === 0) console.warn("MORROW_HERMES_BRIDGE_ALLOWED_IPS が空のため、すべてのリクエストを403で断ります");
 
+  const connect = () => connectHermes({ url: hermesUrl, token: hermesToken, timeoutMs: 3_000 });
   const server = createBridgeServer({
     token,
     allowedIps,
-    connect: () => connectHermes({ url: hermesUrl, token: hermesToken, timeoutMs: 3_000 }),
+    connect,
+    // AIDEの再接続・再ログイン（#1240）。登録済みの戻り先は profile の mcp-tokens から読む（無ければHermesが登録し直す）
+    aide: createAideControl({
+      connect,
+      registeredRedirect: process.env.MORROW_HERMES_HOME ? readRegisteredRedirect(process.env.MORROW_HERMES_HOME) : undefined,
+    }),
     history: createHistoryReader({ url: hermesUrl, token: hermesToken, timeoutMs: 5_000 }),
     sessions: createSessionLister({ url: hermesUrl, token: hermesToken, timeoutMs: 5_000 }),
     // スキルの確認・承認（#1154）。profileのディレクトリが分からなければ立てない（口は503）
