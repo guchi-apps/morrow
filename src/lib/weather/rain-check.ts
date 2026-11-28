@@ -528,6 +528,10 @@ export type HourlyPoint = {
   pop: number | null;
   /** 1時間の降水量（mm）。 */
   precipitation: number | null;
+  /** 地上10mの風速（m/s）。 */
+  windSpeed: number | null;
+  /** 風が吹いてくる方角（度。北が0で時計回り）。 */
+  windDirection: number | null;
 };
 export type DailyPoint = { date: string; code: number | null; max: number | null; min: number | null; pop: number | null };
 export type Forecast = { hourly: HourlyPoint[]; daily: DailyPoint[] };
@@ -552,6 +556,8 @@ export function parseOpenMeteo(json: unknown): Forecast | null {
   const temps = numbers(hourly?.temperature_2m);
   const pops = numbers(hourly?.precipitation_probability);
   const rains = numbers(hourly?.precipitation);
+  const windSpeeds = numbers(hourly?.wind_speed_10m);
+  const windDirections = numbers(hourly?.wind_direction_10m);
   const dayTimes = strings(daily?.time);
   const dayCodes = numbers(daily?.weather_code);
   const maxes = numbers(daily?.temperature_2m_max);
@@ -559,9 +565,21 @@ export function parseOpenMeteo(json: unknown): Forecast | null {
   const dayPops = numbers(daily?.precipitation_probability_max);
 
   return {
-    hourly: hourTimes.map((time, i) => ({ time, code: codes[i] ?? null, temperature: temps[i] ?? null, pop: pops[i] ?? null, precipitation: rains[i] ?? null })),
+    hourly: hourTimes.map((time, i) => ({ time, code: codes[i] ?? null, temperature: temps[i] ?? null, pop: pops[i] ?? null, precipitation: rains[i] ?? null, windSpeed: windSpeeds[i] ?? null, windDirection: windDirections[i] ?? null })),
     daily: dayTimes.map((date, i) => ({ date, code: dayCodes[i] ?? null, max: maxes[i] ?? null, min: mins[i] ?? null, pop: dayPops[i] ?? null })),
   };
+}
+
+const WIND_DIRECTIONS = ["北", "北東", "東", "南東", "南", "南西", "西", "北西"];
+
+/** 風が吹いてくる方角（度）→ 8方位の呼び名（#1239）。「北の風」は北から吹く風。 */
+export function windDirectionName(degrees: number): string {
+  return WIND_DIRECTIONS[((Math.round(degrees / 45) % 8) + 8) % 8];
+}
+
+/** 上向きの矢印を、風が**吹いていく**向きへ回す角度（度。#1239）。北風（0）は下向き。 */
+export function windArrowRotation(degrees: number): number {
+  return (((degrees + 180) % 360) + 360) % 360;
 }
 
 /** 天気コードの訳語。**AIDEの `describeWeatherCode()`（`aide_weather` の `summary`）と同じ表**にして、自宅と行き先で表現を揃える。 */

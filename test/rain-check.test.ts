@@ -15,6 +15,8 @@ import {
   parseGsiSearch,
   parseMuniTable,
   parseOpenMeteo,
+  windArrowRotation,
+  windDirectionName,
   pickMunicipality,
   rainVerdict,
   searchTextOf,
@@ -503,5 +505,28 @@ describe("mergeOverlappingStays（#608）", () => {
   it("終日は全員が終日のときだけ残る", () => {
     const merged = mergeOverlappingStays([stay("08:00", "22:00", "堺", null, { allDay: true }), stay("10:00", "12:00", "堺", null)]);
     assert.equal(merged[0].allDay, false);
+  });
+});
+
+describe("風（#1239）", () => {
+  it("風速・風向を読み、無ければnull", () => {
+    const forecast = parseOpenMeteo({
+      hourly: { time: ["2026-10-20T00:00", "2026-10-20T01:00"], wind_speed_10m: [3.4], wind_direction_10m: [315] },
+    });
+    assert.deepEqual(
+      forecast?.hourly.map(({ windSpeed, windDirection }) => ({ windSpeed, windDirection })),
+      [
+        { windSpeed: 3.4, windDirection: 315 },
+        { windSpeed: null, windDirection: null },
+      ],
+    );
+  });
+
+  it("吹いてくる方角を8方位の名前にする", () => {
+    assert.deepEqual([0, 22, 23, 90, 180, 315, 338, 360].map(windDirectionName), ["北", "北", "北東", "東", "南", "北西", "北", "北"]);
+  });
+
+  it("矢印は吹いていく向きへ回す", () => {
+    assert.deepEqual([0, 90, 180, 270, 360].map(windArrowRotation), [180, 270, 0, 90, 180]);
   });
 });

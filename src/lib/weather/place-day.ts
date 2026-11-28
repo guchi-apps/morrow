@@ -28,6 +28,8 @@ export function placeDayFrom(forecast: Forecast, place: WeatherPlaceInput, date:
       yesterday: previous ? (hourlyPoint(forecast, previous, hour)?.temperature ?? null) : null,
       pop: found?.pop ?? null,
       precipitation: found?.precipitation ?? null,
+      windSpeed: found?.windSpeed ?? null,
+      windDirection: found?.windDirection ?? null,
     };
   });
   return { cells, daily: forecast.daily.find((day) => day.date === date) ?? null };

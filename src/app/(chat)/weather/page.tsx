@@ -427,7 +427,7 @@ export default async function WeatherPage({ searchParams }: { searchParams: Prom
                       />
                     </DaySummaryPanel>
                     <p className="text-[0.6875rem] text-muted">
-                      青い地は降水確率50%以上。灰色は過ぎた時間。左右にスクロールすると前後の日も続けて見られます。{OPEN_METEO_ATTRIBUTION}
+                      青い地は降水確率50%以上。灰色は過ぎた時間。いちばん下は風で、矢印は風が吹いていく向き、数字は風速です。左右にスクロールすると前後の日も続けて見られます。{OPEN_METEO_ATTRIBUTION}
                     </p>
                     <RainRadar key={keyOf(selected)} latitude={selected.latitude} longitude={selected.longitude} centerLabel={selected.name} />
                   </>
